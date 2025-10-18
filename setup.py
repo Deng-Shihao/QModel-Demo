@@ -449,7 +449,6 @@ class CachedWheelsCommand(_bdist_wheel):
             return super().run()
 
         python_version = f"cp{sys.version_info.major}{sys.version_info.minor}"
-        # 这里统一使用 nanomodel 前缀，避免 UNKNOWN/gptqmodel 混乱
         wheel_filename = f"nanomodel-{nanomodel_version}+{get_version_tag()}-{python_version}-{python_version}-linux_x86_64.whl"
 
         tag_name = WHEEL_TAG if WHEEL_TAG else f"v{nanomodel_version}"
