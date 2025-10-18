@@ -1,12 +1,13 @@
+import logging
 import sys
 
 import numpy as np
 import torch
 from datasets import load_dataset, load_from_disk
-from logbar import LogBar
+from tqdm.auto import tqdm
 
 
-logger = LogBar.shared()
+logger = logging.getLogger(__name__)
 
 class Perplexity:
     """
@@ -135,15 +136,19 @@ class Perplexity:
         curr_ppl = 0
         all_perplexity = []
 
-        with logger.pb(range(len(tokens[0]) // n_ctx)).title("Perplexity: - ").manual() as pb:
-            for i in pb:
-                # Process each batch of tokens
-                nll, count = self._process_batch(i, n_ctx, n_batch, tokens, nll, count)
+        progress = tqdm(range(len(tokens[0]) // n_ctx), desc="Perplexity: -", unit="chunk", leave=False)
+        for i in progress:
+            # Process each batch of tokens
+            nll, count = self._process_batch(i, n_ctx, n_batch, tokens, nll, count)
 
-                # Calculate and display the current perplexity
-                curr_ppl = np.exp(nll / count)
-                all_perplexity.append(curr_ppl)
-                pb.title(f"Perplexity: {curr_ppl:.4f}").draw()
+            # Calculate and display the current perplexity
+            curr_ppl = np.exp(nll / count)
+            all_perplexity.append(curr_ppl)
+            progress.set_description(f"Perplexity: {curr_ppl:.4f}")
+
+        progress.close()
+        if all_perplexity:
+            logger.info("Perplexity calculation completed; last chunk: %.4f", all_perplexity[-1])
 
         return all_perplexity
 
