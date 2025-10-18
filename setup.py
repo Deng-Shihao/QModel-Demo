@@ -251,17 +251,11 @@ nanomodel_version = version_vars["version"]
 # Prebuilt wheel download config
 # -----------------------------
 DEFAULT_WHEEL_URL_TEMPLATE = "https://github.com/ModelCloud/NanoModel/releases/download/{tag_name}/{wheel_name}"
-WHEEL_URL_TEMPLATE = os.environ.get("NANOMODEL_WHEEL_URL_TEMPLATE")  # 可自定义完整模板
-WHEEL_BASE_URL = os.environ.get("NANOMODEL_WHEEL_BASE_URL")          # 或者只给基地址
-WHEEL_TAG = os.environ.get("NANOMODEL_WHEEL_TAG")                    # 可覆盖默认 tag（否则用 v{version}）
+WHEEL_URL_TEMPLATE = os.environ.get("NANOMODEL_WHEEL_URL_TEMPLATE")
+WHEEL_BASE_URL = os.environ.get("NANOMODEL_WHEEL_BASE_URL") 
+WHEEL_TAG = os.environ.get("NANOMODEL_WHEEL_TAG")          
 
 def _resolve_wheel_url(tag_name: str, wheel_name: str) -> str | None:
-    """
-    构造预编译 wheel 的下载 URL：
-      1) NANOMODEL_WHEEL_URL_TEMPLATE（最高优先级）
-      2) NANOMODEL_WHEEL_BASE_URL（拼接 wheel_name）
-      3) 默认 GitHub Releases 模板
-    """
     if WHEEL_URL_TEMPLATE:
         tmpl = WHEEL_URL_TEMPLATE
         if ("{wheel_name}" in tmpl) or ("{tag_name}" in tmpl):
