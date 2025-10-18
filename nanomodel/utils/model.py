@@ -44,7 +44,7 @@ from ..quantization.config import FORMAT_FIELD_CHECKPOINT, METHOD, dynamic_get
 from . import has_gil_disabled
 from .backend import BACKEND
 from .ctx import ctx
-from .device import get_device
+from .device import get_cpu_concurrency, get_device
 from .importer import select_quant_linear
 from .logger import log_time_block, setup_logger
 from .torch import HAS_CUDA, torch_empty_cache
@@ -828,9 +828,7 @@ def pack_model(
     lock = threading.Lock()
 
     if has_gil_disabled():
-        from device_smi import Device
-        cpu = Device("cpu")
-        max_packers = cpu.count * cpu.cores
+        max_packers = get_cpu_concurrency()
     else:
         max_packers = 1 # due to gil, there is no point packing with more than 1 thread
 

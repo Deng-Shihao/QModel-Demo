@@ -1,8 +1,3 @@
-# SPDX-FileCopyrightText: 2024-2025 ModelCloud.ai
-# SPDX-FileCopyrightText: 2024-2025 qubitium@modelcloud.ai
-# SPDX-License-Identifier: Apache-2.0
-# Contact: qubitium@modelcloud.ai, x.com/qubitium
-
 # adapted from @qwopqwop200 's [GPTQ-for-LLaMa](https://github.com/qwopqwop200/GPTQ-for-LLaMa/tree/cuda), which itself is based on [gptq](https://github.com/IST-DASLab/gptq)
 
 import contextlib

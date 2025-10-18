@@ -1,23 +1,124 @@
 from __future__ import annotations
 
+import os
 from typing import Optional, Union
 
 import torch
-from device_smi import Device
 from torch import nn as nn
 
 from ..models._const import CPU, CUDA_0
+try:
+    import psutil  # type: ignore
+except ImportError:  # pragma: no cover - optional dependency
+    psutil = None
+
+
+_BYTES_IN_GIB = 1024 ** 3
+
+
+def _bytes_to_gib(value: float | int) -> float:
+    return float(value) / _BYTES_IN_GIB
+
+
+def _get_cuda_index(device: torch.device) -> int:
+    if device.index is not None:
+        return device.index
+    try:
+        return torch.cuda.current_device()
+    except RuntimeError:
+        return 0
+
+
+def _cpu_memory_used_bytes() -> int:
+    if psutil is not None:
+        mem = psutil.virtual_memory()
+        return int(mem.total - mem.available)
+
+    if os.name == "posix":
+        meminfo_path = "/proc/meminfo"
+        if os.path.exists(meminfo_path):
+            totals: dict[str, int] = {}
+            with open(meminfo_path, "r", encoding="ascii", errors="ignore") as fh:
+                for line in fh:
+                    parts = line.split(":")
+                    if len(parts) != 2:
+                        continue
+                    key, value = parts
+                    tokens = value.strip().split()
+                    if not tokens:
+                        continue
+                    try:
+                        totals[key] = int(tokens[0]) * 1024  # values in kB
+                    except ValueError:
+                        continue
+            total = totals.get("MemTotal")
+            available = totals.get("MemAvailable")
+            if total is not None and available is not None:
+                return total - available
+
+    # Fallback: return process resident memory as an approximation.
+    try:
+        import resource
+
+        usage = resource.getrusage(resource.RUSAGE_SELF)
+        # macOS reports ru_maxrss in bytes, Linux in kilobytes.
+        rss = usage.ru_maxrss
+        if os.name == "posix":
+            try:
+                sysname = os.uname().sysname.lower()
+            except AttributeError:  # pragma: no cover - platform specific
+                sysname = ""
+            if "darwin" not in sysname:
+                rss *= 1024
+        return int(rss)
+    except Exception:  # pragma: no cover - best effort fallback
+        return 0
+
+
+def _gpu_memory_used_bytes(device: torch.device) -> int:
+    if not torch.cuda.is_available():
+        return 0
+
+    idx = _get_cuda_index(device)
+    try:
+        free, total = torch.cuda.mem_get_info(idx)
+        return int(total - free)
+    except AttributeError:
+        pass  # older torch without mem_get_info
+    except RuntimeError:
+        # initialise context if needed and retry once
+        try:
+            torch.cuda.set_device(idx)
+            free, total = torch.cuda.mem_get_info(idx)
+            return int(total - free)
+        except Exception:
+            pass
+
+    try:
+        allocated = torch.cuda.memory_allocated(idx)
+    except RuntimeError:
+        return 0
+    reserved = torch.cuda.memory_reserved(idx) if hasattr(torch.cuda, "memory_reserved") else 0
+    return int(max(allocated, reserved))
 
 
 # unit: GiB
 def get_gpu_usage_memory():
-    smi = Device(CUDA_0)
-    return smi.memory_used() / 1024 / 1024 / 1024 #GB
+    return _bytes_to_gib(_gpu_memory_used_bytes(CUDA_0))
 
 # unit: GiB
 def get_cpu_usage_memory():
-    smi = Device(CPU)
-    return smi.memory_used() / 1024 / 1024 / 1024 #GB
+    return _bytes_to_gib(_cpu_memory_used_bytes())
+
+
+def get_cpu_concurrency() -> int:
+    """
+    Return the total number of logical CPU cores available.
+
+    Mirrors the previous `Device('cpu').count * Device('cpu').cores` behaviour.
+    """
+    concurrency = os.cpu_count() or 1
+    return max(1, concurrency)
 
 def get_device(obj: torch.Tensor | nn.Module) -> torch.device:
     if isinstance(obj, torch.Tensor):

@@ -7,7 +7,8 @@ import os
 from os.path import isfile, join
 from typing import Any, Dict, Optional, Union
 
-import pcre as re
+# import pcre as re
+# import pcre as re
 import torch
 import transformers
 from safetensors.torch import save_file
