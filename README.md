@@ -20,7 +20,7 @@ Install a PyTorch build that matches your accelerator and Python version. Follow
 git clone <repository-url>
 cd NanoModel
 python -m pip install --upgrade pip setuptools wheel
-pip install -v NanoModel --no-build-isolation
+pip install -v . --no-build-isolation
 ```
 
 #### Controlling extension builds
