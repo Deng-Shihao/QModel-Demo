@@ -582,15 +582,6 @@ def ModelLoader(cls):
                         f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by nanomodel version >= {MIN_VERSION_WITH_V2}"
                     )
 
-                if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
-                    model = convert_gptq_v1_to_v2_format(
-                        model,
-                        cfg=qcfg,
-                        qlinear_kernel=preload_qlinear_kernel,
-                    )
-
-                    qcfg.runtime_format = FORMAT.GPTQ_V2
-
         if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and qcfg.format == FORMAT.MARLIN:
             if is_sharded:
                 raise ValueError(

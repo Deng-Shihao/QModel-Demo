@@ -136,10 +136,6 @@ def ModelWriter(cls):
                 quantize_config = copy.deepcopy(self.quantize_config)
                 if not self.quantized:
                     raise ValueError("Save aborted as model is not quantized. Please call `quantize()` first.")
-                if quantize_config.format == FORMAT.GPTQ_V2:
-                    logger.warning(
-                        f"Using 'format = {FORMAT.GPTQ_V2}': the serialized model is only supported by NanoModel version >= {MIN_VERSION_WITH_V2}."
-                    )
 
                 if self.load_quantized_model:
                     self.model = self.get_model_with_quantize(

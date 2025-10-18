@@ -556,7 +556,7 @@ def convert_gptq_v1_to_v2_format(
     # with tctl.threadpool_limits(limits=1):
     time.time()
     log.info(
-        f"Format: Converting `{FORMAT_FIELD_CHECKPOINT}` from `{FORMAT.GPTQ}` to internal `{FORMAT.GPTQ_V2}`.")
+        f"Format: Converting `{FORMAT_FIELD_CHECKPOINT}` from `{FORMAT.GPTQ}` to internal `FORMAT.GPTQ_V2`.")
 
     for _, submodule in model.named_modules():
         # v1 checkpoint format used to do `qzeros = qzeros -= 1` before serialization, thus the
