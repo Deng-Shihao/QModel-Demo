@@ -133,7 +133,6 @@ def hf_select_quant_linear(
         allow_marlin=True, # TODO: remove this after marlin padding is fixed
         dynamic=None,
         pack_dtype=torch.int32,
-        adapter=None,
     )
 
 
@@ -152,7 +151,6 @@ def select_quant_linear(
         dynamic=None,
         pack_dtype: torch.dtype = None,
         multi_select: bool = False, # return all valid kernels
-        adapter: Optional[Adapter] = None,
 ) -> Union[Type[BaseQuantLinear], List[Type[BaseQuantLinear]]]:
     # TODO: this looks wrong
     if device is None:
@@ -179,7 +177,6 @@ def select_quant_linear(
                 dynamic=dynamic,
                 device=device,
                 trainable=trainable,
-                adapter=adapter,
             )
             if os.environ.get("DEBUG") and not validate:
                 # log.info(f"skip {k} for {str(err)}")
