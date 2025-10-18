@@ -1,0 +1,208 @@
+import logging
+import threading
+from typing import Any, Dict, Optional
+
+import torch
+import transformers
+from torch import Tensor, nn
+from torch.nn import Parameter
+from torch.nn.modules.conv import _ConvNd
+
+logger = logging.getLogger("NamedModule")
+if not logger.handlers:
+    handler = logging.StreamHandler()
+    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+logger.setLevel(logging.INFO)
+logger.propagate = False
+
+class NamedModule(torch.nn.Module):
+
+    def __init__(self, module: torch.nn.Module, name: str, full_name:str, layer_index: int) -> None:
+        super().__init__()
+
+        self.module = module # wrapped module
+        self.module_dtype = next(module.parameters()).dtype
+        self.name = name # module name
+        self.full_name = full_name # module full name (path) within model
+        self.layer_index = layer_index # layerid in a repeating layer, if in outside layer, this info may be fake
+
+        # persistent work state for named module (used by some LoopProcessors)
+        # store all `processed()` work state/data/result here
+        self.state = {}
+        self._state_lock = threading.RLock()
+
+        # print(f"NamedModule init: name: `{name}, full-name: `{full_name}`")
+
+        # store original in/out features since weight.data will changed later on
+        if isinstance(module, nn.Linear):
+            in_features = module.in_features
+            out_features = module.out_features
+        elif isinstance(module, _ConvNd):
+            in_features = module.in_channels
+            out_features = module.out_channels
+        # elif isinstance(module, nn.Conv2d):
+        #     in_features = module.in_channels
+        #     out_features = module.out_channels
+        # elif isinstance(module, nn.Conv2d):
+        #     in_features = module.in_channels
+        #     out_features = module.out_channels
+        elif isinstance(module, transformers.pytorch_utils.Conv1D):
+            in_features = module.weight.shape[0]
+            out_features = module.weight.shape[1]
+        else:
+            raise NotImplementedError(f"Unsupported module.module type: `{type(module)}`")
+
+        self.state.update({
+            "in_features": in_features,
+            "out_features": out_features,
+        })
+
+    def parameters(self, recurse: bool = True):
+        return self.module.parameters(recurse=recurse)
+
+    def named_parameters(self, prefix: str = "", recurse: bool = True):
+        return self.module.named_parameters(prefix=prefix, recurse=recurse)
+
+    def buffers(self, recurse: bool = True):
+        return self.module.buffers(recurse=recurse)
+
+    def named_buffers(self, prefix: str = "", recurse: bool = True):
+        return self.module.named_buffers(prefix=prefix, recurse=recurse)
+
+    def register_buffer(
+        self, name: str, tensor: Optional[Tensor], persistent: bool = True
+    ) -> None:
+        with self._state_lock:
+            return self.module.register_buffer(name, tensor, persistent)
+
+    def unregister_buffer(self, name: str):
+        with self._state_lock:
+            if name in self.module._buffers:
+                del self.module._buffers[name]
+                if hasattr(self.module, name):
+                    delattr(self.module, name)
+
+    def register_parameter(self, name: str, param: Optional[Parameter]) -> None:
+        with self._state_lock:
+            return self.module.register_parameter(name, param)
+
+    def unregister_parameter(self, name: str) -> None:
+        with self._state_lock:
+            if name in self.module._parameters:
+                del self.module._parameters[name]
+                if hasattr(self.module, name):
+                    delattr(self.module, name)
+    # return stats for mo
+    # def stats(self) -> Dict[str, float]:
+    #     # -1 means no stats have yet to gathered for the stat property
+    #     return {
+    #         STAT_GPTQ_DURATION: self.state.get(STAT_GPTQ_DURATION, -1),
+    #         STAT_GPTQ_AVG_LOSS: self.state.get(STAT_GPTQ_AVG_LOSS, -1),
+    #         STAT_GPTQ_DAMP_PERCENT: self.state.get(STAT_GPTQ_DAMP_PERCENT, -1),
+    #         STAT_GPTQ_FWD_TIME: self.state.get(STAT_GPTQ_FWD_TIME, -1),
+    #     }
+
+    # getattr is only called if python cannot find attr for `self`
+    def __getattr__(self, name: str):
+        with self._state_lock:
+            return getattr(self.module, name)
+
+    # setattr is always called by python even if attr exists in `self`
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name in [
+            "module",
+            "module_dtype",
+            "name",
+            "full_name",
+            "layer_index",
+            "state",
+            "target_device",
+            "register_buffer",
+            "unregister_buffer",
+            "register_parameter",
+            "unregister_parameter",
+            "_state_lock",
+        ]:
+            object.__setattr__(self, name, value)
+            return
+
+        with self._state_lock:
+            setattr(self.module, name, value)
+
+    def stream_state_payload_to_cpu(
+        self,
+        tensors: Dict[str, torch.Tensor],
+        *,
+        host_pool,
+    ) -> Dict[str, torch.Tensor]:
+        return self._stream_tensor_dict(
+            tensors,
+            host_pool=host_pool,
+            store_callback=lambda host_map: self.state.update(host_map),
+        )
+
+    def stream_parameters_to_cpu(self, *, host_pool) -> Dict[str, torch.Tensor]:
+        tensor_map = {name: param for name, param in self.module.named_parameters(recurse=False)}
+        return self._stream_tensor_dict(
+            tensor_map,
+            host_pool=host_pool,
+            store_callback=lambda host_map: self.state.setdefault("parameters_cpu", {}).update(host_map),
+        )
+
+    def stream_buffers_to_cpu(self, *, host_pool) -> Dict[str, torch.Tensor]:
+        tensor_map = {name: buf for name, buf in self.module.named_buffers(recurse=False)}
+        return self._stream_tensor_dict(
+            tensor_map,
+            host_pool=host_pool,
+            store_callback=lambda host_map: self.state.setdefault("buffers_cpu", {}).update(host_map),
+        )
+
+    def stream_all_to_cpu(self, *, host_pool) -> Dict[str, Dict[str, torch.Tensor]]:
+        params = self.stream_parameters_to_cpu(host_pool=host_pool)
+        buffers = self.stream_buffers_to_cpu(host_pool=host_pool)
+        return {"parameters": params, "buffers": buffers}
+
+    def stream_sync(self) -> None:
+        with self._state_lock:
+            pending = self.state.pop("streaming_events", [])
+        for entry in pending:
+            entry["event"].synchronize()
+
+    def _stream_tensor_dict(
+        self,
+        tensors: Dict[str, torch.Tensor],
+        *,
+        host_pool,
+        store_callback,
+    ) -> Dict[str, torch.Tensor]:
+        filtered = {name: tensor for name, tensor in tensors.items() if isinstance(tensor, torch.Tensor)}
+        if not filtered:
+            return {}
+
+        first = next(iter(filtered.values()))
+
+        if first.device.type != "cuda" or not torch.cuda.is_available():
+            host_map = {name: tensor.detach().to("cpu") for name, tensor in filtered.items()}
+            with self._state_lock:
+                store_callback(host_map)
+            return host_map
+
+        stream = torch.cuda.Stream(device=first.device)
+        done_event = torch.cuda.Event(enable_timing=False)
+        host_map: Dict[str, torch.Tensor] = {}
+
+        with torch.cuda.stream(stream):
+            for name, tensor in filtered.items():
+                src = tensor.detach()
+                host = host_pool.acquire(src.shape, src.dtype, src.layout)
+                host.copy_(src, non_blocking=True)
+                host_map[name] = host
+        done_event.record(stream)
+
+        with self._state_lock:
+            events = self.state.setdefault("streaming_events", [])
+            events.append({"event": done_event, "stream": stream})
+            store_callback(host_map)
+        return host_map
