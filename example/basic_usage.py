@@ -1,7 +1,6 @@
 import os
 
 from transformers import AutoTokenizer
-# Todo: Fix it from nanomodel import GPTQModel, QuantizeConfig, get_best_device
 from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"

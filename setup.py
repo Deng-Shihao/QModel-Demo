@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import re  # 用标准库 re；有些环境没有 pcre
+import re # pcre
 from setuptools import find_packages, setup
 from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 

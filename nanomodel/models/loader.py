@@ -49,7 +49,7 @@ from ._const import DEVICE, normalize_device
 
 
 # log = setup_logger() # 移除自定义 logger 初始化
-logger = logging.getLogger("gptqmodel") # 使用标准 logging
+logger = logging.getLogger("gptqmodel") # using logging
 logger.setLevel(os.environ.get("GPTQMODEL_LOGLEVEL", "INFO").upper())
 if not logger.handlers:
     # simple console handler setup for basic logging
@@ -673,7 +673,6 @@ def ModelLoader(cls):
                 model, _ = load(temp_dir)
 
                 cls.generate = lambda _, **kwargs: mlx_generate(model=model, tokenizer=tokenizer, **kwargs)
-
 
         return cls(
             model,
