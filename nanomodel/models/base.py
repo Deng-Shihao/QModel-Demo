@@ -228,17 +228,12 @@ class BaseNanoModel(nn.Module):
         self.model = self.after_model_load(model, load_quantized_model=load_quantized_model)
         self.turtle_model = turtle_model
 
-        # TODO: Fix Tokenicer FFF
-        if tokenizer is not None:
-            # if isinstance(tokenizer, PreTrainedTokenizerBase):
-            #     self.tokenizer = Tokenicer.load(tokenizer, trust_remote_code=trust_remote_code)
-            # else:
-            #     raise ValueError(
-            #         f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`.")
-            self.model.tokenizer = self.tokenizer.tokenizer # helpful for CI tests
-        else:
-            self.tokenizer = tokenizer # TODO none?
-            self.model.tokenizer = tokenizer # helpful for CI tests # TODO none?
+        if tokenizer is not None and not isinstance(tokenizer, PreTrainedTokenizerBase):
+            raise TypeError(
+                f"Unsupported `tokenizer` type: expected `PreTrainedTokenizerBase`, got `{type(tokenizer)}`."
+            )
+        self.tokenizer = tokenizer
+        self.model.tokenizer = tokenizer  # helpful for CI tests
 
         # auto-fix model config erors
         if isinstance(self.model, PreTrainedModel):
