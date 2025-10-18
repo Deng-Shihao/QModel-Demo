@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-import pcre as re
+import re  # 用标准库 re；有些环境没有 pcre
 from setuptools import find_packages, setup
 from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
@@ -17,12 +17,11 @@ def _read_env(name, default=None):
     return v if (v is not None and str(v).strip() != "") else default
 
 
-def _probe_cmd(args):
+def _probe_cmd(args, timeout=6):
     try:
-        out = subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=5)
-        return out.strip()
+        return subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=timeout)
     except Exception:
-        return None
+        return ""
 
 
 def _bool_env(name, default=False):
@@ -38,7 +37,6 @@ def _detect_rocm_version():
         return v
     hip = _probe_cmd(["hipcc", "--version"])
     if hip:
-        import re
         m = re.search(r"\b([0-9]+\.[0-9]+)\b", hip)
         if m:
             return m.group(1)
@@ -57,12 +55,10 @@ def _detect_cuda_arch_list():
       1) CUDA_ARCH_LIST env override (verbatim)
       2) nvidia-smi compute_cap (actual devices)
     """
-    # 1) explicit override
     env_arch = _read_env("CUDA_ARCH_LIST")
     if env_arch:
         return env_arch
 
-    # 2) actual devices present
     smi_out = _probe_cmd(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"])
     if smi_out:
         caps = []
@@ -70,26 +66,20 @@ def _detect_cuda_arch_list():
             cap = line.strip()
             if not cap:
                 continue
-            # normalize like '8.0'
             try:
                 major, minor = cap.split(".", 1)
                 caps.append(f"{int(major)}.{int(minor)}")
             except Exception:
-                # some drivers return just '8' -> treat as '8.0'
                 if cap.isdigit():
                     caps.append(f"{cap}.0")
         caps = sorted(set(caps), key=lambda x: (int(x.split(".")[0]), int(x.split(".")[1])))
         if caps:
-            # PyTorch prefers ';' separators
             return ";".join(caps)
 
-    # 3) conservative default for modern datacenter GPUs (A100 et al.)
     raise Exception("Could not get compute capability from nvidia-smi. Please check nvidia-utils package is installed.")
 
 
 def _parse_arch_list(s: str):
-    # Accept semicolons, commas, and any whitespace as separators.
-    # Keep tokens like "8.0", "8.0+PTX" intact (we’ll strip suffixes later).
     return [tok for tok in re.split(r"[;\s,]+", s) if tok.strip()]
 
 
@@ -97,7 +87,6 @@ def _has_cuda_v8_from_arch_list(arch_list):
     try:
         vals = []
         for a in arch_list:
-            # Handle things like "8.0+PTX"
             base = a.split("+", 1)[0]
             vals.append(float(base))
         return any(v >= 8.0 for v in vals)
@@ -112,46 +101,13 @@ def _detect_cxx11_abi():
     return 1
 
 
-def _torch_version_for_release():
-    # No torch import; allow env override
-    v = _read_env("TORCH_VERSION")
-    if v:
-        parts = v.split(".")
-        return ".".join(parts[:2])
-    else:
-        raise Exception("TORCH_VERSION not passed for wheel generation.")
-    return None
-
-
-def _is_rocm_available():
-    return _detect_rocm_version() is not None
-
-
-# If you already have _probe_cmd elsewhere, you can delete this copy.
-def _probe_cmd(args, timeout=6):
-    try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=timeout)
-    except Exception:
-        return ""
-
-
-def _first_token_line(s: str) -> str | None:
-    for line in (s or "").splitlines():
-        t = line.strip()
-        if t:
-            return t
-    return None
-
-
-def _detect_torch_version() -> str | None:
-    # 1) uv pip show torch
+def _detect_torch_version() -> str:
     out = _probe_cmd(["uv", "pip", "show", "torch"])
     if out:
         m = re.search(r"^Version:\s*([^\s]+)\s*$", out, flags=re.MULTILINE)
         if m:
             return m.group(1)
 
-    # 2) pip show torch (both 'pip' and 'python -m pip')
     for cmd in (["pip", "show", "torch"], [sys.executable, "-m", "pip", "show", "torch"]):
         out = _probe_cmd(cmd)
         if out:
@@ -159,31 +115,28 @@ def _detect_torch_version() -> str | None:
             if m:
                 return m.group(1)
 
-    # 3) conda list torch
     out = _probe_cmd(["conda", "list", "torch"])
     if out:
-        # Typical line starts with: torch  2.4.1  ...
         for line in out.splitlines():
             if line.strip().startswith("torch"):
                 parts = re.split(r"\s+", line.strip())
                 if len(parts) >= 2 and re.match(r"^\d+\.\d+(\.\d+)?", parts[1]):
                     return parts[1]
 
-    # 4) Fallback: importlib.metadata (does not import torch package module)
     try:
-        import importlib.metadata as im  # py3.8+
+        import importlib.metadata as im
         version = im.version("torch")
-        if not version:
-            raise Exception("torch not found")
+        if version:
+            return version
     except Exception:
-        raise Exception("Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1")
+        pass
+
+    raise Exception("Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1")
 
 
 def _major_minor(v: str) -> str:
-    if v:
-        parts = v.split(".")
-        return ".".join(parts[:2]) if parts else v
-    return v
+    parts = v.split(".")
+    return ".".join(parts[:2]) if parts else v
 
 
 def _version_geq(version: str | None, major: int, minor: int = 0) -> bool:
@@ -201,11 +154,8 @@ def _version_geq(version: str | None, major: int, minor: int = 0) -> bool:
 def _nvcc_release_version() -> str | None:
     out = _probe_cmd(["nvcc", "--version"])
     if not out:
-        print(
-            "NVCC not found: For Ubuntu, run `sudo update-alternatives --config cuda` to fix path for already installed Cuda."
-        )
+        print("NVCC not found: For Ubuntu, run `sudo update-alternatives --config cuda` to fix path.")
         return None
-
     match = re.search(r"release\s+(\d+)\.(\d+)", out)
     if match:
         return f"{match.group(1)}.{match.group(2)}"
@@ -213,12 +163,9 @@ def _nvcc_release_version() -> str | None:
 
 
 def _detect_cuda_version() -> str | None:
-    # Priority: env → nvidia-smi → nvcc
     v = os.environ.get("CUDA_VERSION")
     if v and v.strip():
         return v.strip()
-
-    # nvcc --version (parse 'release X.Y')
     return _nvcc_release_version()
 
 
@@ -227,19 +174,13 @@ def _detect_nvcc_version() -> str | None:
 
 
 def get_version_tag() -> str:
-    # TODO FIX ME: cpu wheels don't have torch version tags?
     if BUILD_CUDA_EXT != "1":
         return "cpu"
-
-    # TODO FIX ME: rocm wheels don't have torch version tags?
     if ROCM_VERSION:
         return f"rocm{ROCM_VERSION}"
-
     if not CUDA_VERSION:
-        raise Exception("Trying to compile gptq for CUDA, but no cuda or rocm version was detected.")
-
+        raise Exception("Trying to compile for CUDA, but no CUDA/ROCm version detected.")
     torch_suffix = f"torch{_major_minor(TORCH_VERSION)}"
-
     CUDA_VERSION_COMPACT = "".join(CUDA_VERSION.split("."))
     base = f"cu{CUDA_VERSION_COMPACT[:3]}"
     return f"{base}{torch_suffix}"
@@ -255,7 +196,6 @@ ROCM_VERSION = _read_env("ROCM_VERSION")
 TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST")
 NVCC_VERSION = _read_env("NVCC_VERSION")
 
-# respect user env then detect
 if not TORCH_VERSION:
     TORCH_VERSION = _detect_torch_version()
 if not CUDA_VERSION:
@@ -268,9 +208,6 @@ if not NVCC_VERSION:
 SKIP_ROCM_VERSION_CHECK = _read_env("SKIP_ROCM_VERSION_CHECK")
 FORCE_BUILD = _bool_env("NANOMODEL_FORCE_BUILD", False)
 
-# BUILD_CUDA_EXT:
-# - If user sets explicitly, respect it.
-# - Otherwise auto: enable only if CUDA or ROCm detected.
 BUILD_CUDA_EXT = _read_env("BUILD_CUDA_EXT")
 if BUILD_CUDA_EXT is None:
     BUILD_CUDA_EXT = "1" if (CUDA_VERSION or ROCM_VERSION) else "0"
@@ -285,7 +222,6 @@ if ROCM_VERSION and not SKIP_ROCM_VERSION_CHECK:
     except Exception:
         pass
 
-# Handle CUDA_ARCH_LIST (public) and set TORCH_CUDA_ARCH_LIST for build toolchains
 CUDA_ARCH_LIST = _detect_cuda_arch_list() if (BUILD_CUDA_EXT == "1" and not ROCM_VERSION) else None
 
 if not TORCH_CUDA_ARCH_LIST and CUDA_ARCH_LIST:
@@ -301,7 +237,6 @@ if not TORCH_CUDA_ARCH_LIST and CUDA_ARCH_LIST:
         except Exception:
             kept.append(arch)
 
-    # Use semicolons for TORCH_CUDA_ARCH_LIST (PyTorch likes this),
     TORCH_CUDA_ARCH_LIST = ";".join(kept)
     os.environ["TORCH_CUDA_ARCH_LIST"] = TORCH_CUDA_ARCH_LIST
 
@@ -315,40 +250,29 @@ nanomodel_version = version_vars["version"]
 # -----------------------------
 # Prebuilt wheel download config
 # -----------------------------
-# Default template (GitHub Releases), can be overridden via env.
-# DEFAULT_WHEEL_URL_TEMPLATE = "https://github.com/ModelCloud/GPTQModel/releases/download/{tag_name}/{wheel_name}"
-# WHEEL_URL_TEMPLATE = os.environ.get("GPTQMODEL_WHEEL_URL_TEMPLATE")
-# WHEEL_BASE_URL = os.environ.get("GPTQMODEL_WHEEL_BASE_URL")
-# WHEEL_TAG = os.environ.get("GPTQMODEL_WHEEL_TAG")  # Optional override of release tag
+DEFAULT_WHEEL_URL_TEMPLATE = "https://github.com/ModelCloud/NanoModel/releases/download/{tag_name}/{wheel_name}"
+WHEEL_URL_TEMPLATE = os.environ.get("NANOMODEL_WHEEL_URL_TEMPLATE")  # 可自定义完整模板
+WHEEL_BASE_URL = os.environ.get("NANOMODEL_WHEEL_BASE_URL")          # 或者只给基地址
+WHEEL_TAG = os.environ.get("NANOMODEL_WHEEL_TAG")                    # 可覆盖默认 tag（否则用 v{version}）
 
+def _resolve_wheel_url(tag_name: str, wheel_name: str) -> str | None:
+    """
+    构造预编译 wheel 的下载 URL：
+      1) NANOMODEL_WHEEL_URL_TEMPLATE（最高优先级）
+      2) NANOMODEL_WHEEL_BASE_URL（拼接 wheel_name）
+      3) 默认 GitHub Releases 模板
+    """
+    if WHEEL_URL_TEMPLATE:
+        tmpl = WHEEL_URL_TEMPLATE
+        if ("{wheel_name}" in tmpl) or ("{tag_name}" in tmpl):
+            return tmpl.format(tag_name=tag_name, wheel_name=wheel_name)
+        return (tmpl + wheel_name) if tmpl.endswith("/") else (tmpl + "/" + wheel_name)
 
-# def _resolve_wheel_url(tag_name: str, wheel_name: str) -> str:
-#     """
-#     Build the final wheel URL based on:
-#       1) NANOMODEL_WHEEL_URL_TEMPLATE (highest priority)
-#       2) NANOMODEL_WHEEL_BASE_URL (append /{wheel_name})
-#       3) DEFAULT_WHEEL_URL_TEMPLATE (GitHub Releases)
-#     """
-#     # Highest priority: explicit template
-#     if WHEEL_URL_TEMPLATE:
-#         tmpl = WHEEL_URL_TEMPLATE
-#         # If {wheel_name} or {tag_name} not present, treat as base and append name.
-#         if ("{wheel_name}" in tmpl) or ("{tag_name}" in tmpl):
-#             return tmpl.format(tag_name=tag_name, wheel_name=wheel_name)
-#         # Otherwise, join as base
-#         if tmpl.endswith("/"):
-#             return tmpl + wheel_name
-#         return tmpl + "/" + wheel_name
+    if WHEEL_BASE_URL:
+        base = WHEEL_BASE_URL
+        return (base + wheel_name) if base.endswith("/") else (base + "/" + wheel_name)
 
-#     # Next priority: base URL
-#     if WHEEL_BASE_URL:
-#         base = WHEEL_BASE_URL
-#         if base.endswith("/"):
-#             return base + wheel_name
-#         return base + "/" + wheel_name
-
-#     # Fallback: default GitHub template
-#     return DEFAULT_WHEEL_URL_TEMPLATE.format(tag_name=tag_name, wheel_name=wheel_name)
+    return DEFAULT_WHEEL_URL_TEMPLATE.format(tag_name=tag_name, wheel_name=wheel_name)
 
 # Decide HAS_CUDA_V8 without torch
 HAS_CUDA_V8 = False
@@ -371,13 +295,9 @@ include_dirs = ["nanomodel_ext"]
 extensions = []
 additional_setup_kwargs = {}
 
-
 # ---------------------------
 # Build CUDA/ROCm extensions (only when enabled)
 # ---------------------------
-# -----------------------------
-# Per-extension build toggles
-# -----------------------------
 def _env_enabled(val: str) -> bool:
     if val is None:
         return True
@@ -395,26 +315,17 @@ BUILD_MARLIN = _env_enabled_any(os.environ.get("NANOMODEL_BUILD_MARLIN", "1"))
 BUILD_AWQ = _env_enabled(os.environ.get("NANOMODEL_BUILD_AWQ", "1"))
 
 if BUILD_CUDA_EXT == "1":
-    # Import torch's cpp_extension only if we're truly building GPU extensions
     try:
-
         from torch.utils import cpp_extension as cpp_ext  # type: ignore
     except Exception:
         if FORCE_BUILD:
             sys.exit(
                 "FORCE_BUILD is set but PyTorch C++ extension headers are unavailable. "
-                "Install torch build deps first (see https://pytorch.org/) or unset NANOMODEL_FORCE_BUILD."
+                "Install torch build deps first or unset NANOMODEL_FORCE_BUILD."
             )
-        # If we can't import cpp_extension, fall back to prebuilt wheel path
         cpp_ext = None
 
     if cpp_ext is not None:
-        # Optional conda CUDA runtime headers
-        #conda_cuda_include_dir = os.path.join(get_python_lib(), "nvidia/cuda_runtime/include")
-        # if os.path.isdir(conda_cuda_include_dir):
-        #     include_dirs.append(conda_cuda_include_dir)
-        #     print(f"appending conda cuda include dir {conda_cuda_include_dir}")
-
         extra_link_args = []
         extra_compile_args = {
             "cxx": ["-O3", "-std=c++17", "-DENABLE_BF16"],
@@ -431,7 +342,6 @@ if BUILD_CUDA_EXT == "1":
             ],
         }
 
-        # Windows/OpenMP note: adjust flags as needed for MSVC if you add native Windows wheels
         if sys.platform == "win32":
             extra_compile_args["cxx"] = ["/O2", "/std:c++17", "/openmp", "/DNDEBUG", "/DENABLE_BF16"]
 
@@ -440,29 +350,16 @@ if BUILD_CUDA_EXT == "1":
         extra_compile_args["nvcc"] += [f"-D_GLIBCXX_USE_CXX11_ABI={CXX11_ABI}"]
 
         if not ROCM_VERSION:
-            # if _version_geq(NVCC_VERSION, 13, 0):
-            #     extra_compile_args["nvcc"].append("--device-entity-has-hidden-visibility=false")
             extra_compile_args["nvcc"] += [
-                # Allow instantiations of __global__ templates to live in different
-                # translation units (we split marlin kernels for Ninja parallelism).
                 "-static-global-template-stub=false",
-                "--threads", "8",  # NVCC parallelism
-                "--optimize=3",  # alias for -O3
-                # "-rdc=true",  # enable relocatable device code, required for future cuda > 13.x <-- TODO FIX ME broken loading
-                # "-dlto",      # compile and link <-- TODO FIX ME
-                # Print register/shared-memory usage per kernel (debug aid, no perf effect)
-                # Ensure PTXAS uses maximum optimization
-                # Cache global loads in both L1 and L2 (better for memory-bound kernels)
+                "--threads", "8",
+                "--optimize=3",
                 "-Xptxas", "-v,-O3,-dlcm=ca",
-                "-lineinfo",  # keep source line info for profiling
-                # "--resource-usage",  # show per-kernel register/SMEM usage
-                "-Xfatbin", "-compress-all",  # compress fatbin
-                # "--expt-relaxed-constexpr",  # relaxed constexpr rules <-- not used
-                # "--expt-extended-lambda",  # allow device lambdas <-- not used
-                "-diag-suppress=179,39,177",  # silence some template warnings
+                "-lineinfo",
+                "-Xfatbin", "-compress-all",
+                "-diag-suppress=179,39,177",
             ]
         else:
-            # hipify CUDA-like flags
             def _hipify_compile_flags(flags):
                 modified_flags = []
                 for flag in flags:
@@ -477,8 +374,6 @@ if BUILD_CUDA_EXT == "1":
                     else:
                         modified_flags.append(flag)
                 return modified_flags
-
-
             extra_compile_args["nvcc"] = _hipify_compile_flags(extra_compile_args["nvcc"])
 
         if sys.platform != "win32":
@@ -516,7 +411,6 @@ if BUILD_CUDA_EXT == "1":
 
             if BUILD_AWQ:
                 extensions += [
-                    # contain un-hipifiable inline PTX
                     cpp_ext.CUDAExtension(
                         "nanomodel_awq_kernels",
                         [
@@ -527,9 +421,6 @@ if BUILD_CUDA_EXT == "1":
                         extra_link_args=extra_link_args,
                         extra_compile_args=extra_compile_args,
                     ),
-                    # TODO only compatible with ampere?
-                    # arch_flags = get_compute_capabilities({80, 86, 89, 90})
-                    # extra_compile_args_v2 = get_extra_compile_args(arch_flags, generator_flags)
                     cpp_ext.CUDAExtension(
                         "nanomodel_awq_v2_kernels",
                         [
@@ -553,16 +444,14 @@ if BUILD_CUDA_EXT == "1":
 
 class CachedWheelsCommand(_bdist_wheel):
     def run(self):
-        # No implicit torch checks; allow explicit override via env
         xpu_avail = _bool_env("XPU_AVAILABLE", False)
         if FORCE_BUILD or xpu_avail:
             return super().run()
 
         python_version = f"cp{sys.version_info.major}{sys.version_info.minor}"
+        # 这里统一使用 nanomodel 前缀，避免 UNKNOWN/gptqmodel 混乱
+        wheel_filename = f"nanomodel-{nanomodel_version}+{get_version_tag()}-{python_version}-{python_version}-linux_x86_64.whl"
 
-        wheel_filename = f"gptqmodel-{nanomodel_version}+{get_version_tag()}-{python_version}-{python_version}-linux_x86_64.whl"
-
-        # Allow tag override via env; default to "v{nanomodel_version}"
         tag_name = WHEEL_TAG if WHEEL_TAG else f"v{nanomodel_version}"
         wheel_url = _resolve_wheel_url(tag_name=tag_name, wheel_name=wheel_filename)
 
@@ -594,7 +483,8 @@ print(f"SETUP_KWARGS {additional_setup_kwargs}")
 print(f"nanomodel_version={nanomodel_version}")
 
 setup(
-    version = nanomodel_version,
+    name="nanomodel",  # 显式指定包名，避免 UNKNOWN
+    version=nanomodel_version,
     packages=find_packages(),
     include_package_data=True,
     extras_require={
@@ -608,7 +498,7 @@ setup(
         "openai": ["uvicorn", "fastapi", "pydantic"],
         "mlx": ["mlx_lm>=0.28.2"],
     },
-    include_dirs=include_dirs,
+    include_dirs=["nanomodel_ext"],
     cmdclass=(
         {"bdist_wheel": CachedWheelsCommand, "build_ext": additional_setup_kwargs.get("cmdclass", {}).get("build_ext")}
         if (BUILD_CUDA_EXT == "1" and additional_setup_kwargs)
