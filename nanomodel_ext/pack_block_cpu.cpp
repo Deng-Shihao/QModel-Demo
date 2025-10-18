@@ -7,7 +7,7 @@
 #include <cmath>
 #include <tuple>
 
-namespace gptqmodel {
+namespace nanomodel {
 
 std::tuple<at::Tensor, at::Tensor> pack_block_cpu(
     const at::Tensor& weight,
@@ -220,15 +220,15 @@ std::tuple<at::Tensor, at::Tensor> pack_block_cpu(
     return {qweight, qzeros};
 }
 
-} // namespace gptqmodel
+} // namespace nanomodel
 
-TORCH_LIBRARY(gptqmodel, m) {
+TORCH_LIBRARY(nanomodel, m) {
     m.def(
         "pack_block_cpu(Tensor weight, Tensor scales, Tensor zeros, Tensor g_idx, int bits, int word_bits, int block_in, int threads) -> (Tensor, Tensor)"
     );
     m.impl(
         "pack_block_cpu",
         c10::DispatchKey::CPU,
-        TORCH_FN(gptqmodel::pack_block_cpu)
+        TORCH_FN(nanomodel::pack_block_cpu)
     );
 }
