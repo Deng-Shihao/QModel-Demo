@@ -11,7 +11,7 @@ from torch.nn import Module
 from .. import DEVICE_THREAD_POOL
 from ..looper.input_cache import InputCache
 from ..looper.named_module import NamedModule
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..models.writer import (PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
                              PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS,
                              QUANT_LOG_NSAMPLES)
@@ -486,13 +486,13 @@ class LoopProcessor:
 
     # last step, after all loop processor is called
     # submodule_finalize is called in reverse after all next sequential processes are called
-    def submodule_finalize(self, module: NamedModule, model: BaseQModel, **kwargs):
+    def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         pass
         #self.offload_to_disk(module=module)
 
     # last step, after all loop processor is called
     # finalize is called in reverse after all next sequential processes are called
-    def finalize(self, model: BaseQModel, **kwargs):
+    def finalize(self, model: BaseNanoModel, **kwargs):
         self._close_device_smi_handles()
         del self.inputs_cache
         del self._results
