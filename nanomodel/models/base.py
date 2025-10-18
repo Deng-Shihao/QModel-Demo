@@ -8,7 +8,7 @@ import re
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, Union
 
@@ -485,26 +485,27 @@ class BaseNanoModel(nn.Module):
 
         processed_examples: List[Dict[str, torch.Tensor]] = []
         for idx, example in enumerate(raw_examples):
-            if isinstance(example, dict):
-                if "messages" in example:
+            if isinstance(example, Mapping):
+                example_dict = dict(example)
+                if "messages" in example_dict:
                     apply_fn = getattr(self.tokenizer, "apply_template", None) if self.tokenizer else None
                     if apply_fn is None:
-                        if "text" in example:
-                            processed_examples.append(_tokenize_text_value(example["text"], idx))
+                        if "text" in example_dict:
+                            processed_examples.append(_tokenize_text_value(example_dict["text"], idx))
                             continue
                         raise ValueError(
                             "tokenizer must expose `apply_template` or calibration data must provide `text` when using `messages`."
                         )
-                    processed_examples.append(_tokenize_messages_value(example["messages"], idx))
+                    processed_examples.append(_tokenize_messages_value(example_dict["messages"], idx))
                     continue
-                if "text" in example:
-                    processed_examples.append(_tokenize_text_value(example["text"], idx))
+                if "text" in example_dict:
+                    processed_examples.append(_tokenize_text_value(example_dict["text"], idx))
                     continue
-                if "input_ids" in example:
-                    processed_examples.append(_pack_ids(example["input_ids"], example.get("attention_mask"), idx))
+                if "input_ids" in example_dict:
+                    processed_examples.append(_pack_ids(example_dict["input_ids"], example_dict.get("attention_mask"), idx))
                     continue
                 raise ValueError(
-                    f"Quantize: unsupported calibration example structure at index {idx}: keys={list(example.keys())}"
+                    f"Quantize: unsupported calibration example structure at index {idx}: keys={list(example_dict.keys())}"
                 )
 
             if isinstance(example, str):
