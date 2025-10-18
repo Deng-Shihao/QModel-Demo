@@ -180,8 +180,13 @@ def ModelWriter(cls):
                     self.tokenizer.save_pretrained(save_dir)
                     saved_tokenizer_config = get_tokenizer_config(save_dir)
                     cls_name = saved_tokenizer_config.get("tokenizer_class")
-                    if cls_name and not cls_name.endswith("Fast") and isinstance(self.tokenizer.tokenizer, PreTrainedTokenizerFast):
-                        saved_tokenizer_config["tokenizer_class"] = cls_name + "Fast"
+                    tokenizer_fast = None
+                    if isinstance(self.tokenizer, PreTrainedTokenizerFast):
+                        tokenizer_fast = self.tokenizer
+                    elif isinstance(self.tokenizer, ProcessorMixin) and isinstance(getattr(self.tokenizer, "tokenizer", None), PreTrainedTokenizerFast):
+                        tokenizer_fast = self.tokenizer.tokenizer
+                    if cls_name and not cls_name.endswith("Fast") and tokenizer_fast is not None:
+                        saved_tokenizer_config["tokenizer_class"] = tokenizer_fast.__class__.__name__
                         with open(os.path.join(save_dir, "tokenizer_config.json"), "w", encoding="utf-8") as f:
                             json.dump(saved_tokenizer_config, f, indent=2, ensure_ascii=False)
 
