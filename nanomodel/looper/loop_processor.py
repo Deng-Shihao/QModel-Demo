@@ -73,6 +73,8 @@ class LoopProcessor:
 
         self.tokenizer = tokenizer
         self.qcfg = qcfg
+        self.qcfg_dynamic = None # cloned and dynamic filtered
+
         self.require_fwd = require_fwd
         self.fwd_after_process = fwd_after_process
         self.fwd_all_modules_in_single_pass = fwd_all_modules_in_single_pass
