@@ -482,7 +482,7 @@ print(f"SETUP_KWARGS {additional_setup_kwargs}")
 print(f"nanomodel_version={nanomodel_version}")
 
 setup(
-    name="nanomodel",  # 显式指定包名，避免 UNKNOWN
+    name="nanomodel",
     version=nanomodel_version,
     packages=find_packages(),
     include_package_data=True,

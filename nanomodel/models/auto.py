@@ -4,9 +4,15 @@ import os
 
 # from ..utils.logger import setup_logger
 
-# TODO: waiting for pytorch implementgation of aten ops for MPS
-if sys.platform == "darwin":
-    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+if not os.environ.get("PYTORCH_ALLOC_CONF", None):
+    os.environ["PYTORCH_ALLOC_CONF"] = 'expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.7'
+
+if not os.environ.get("CUDA_DEVICE_ORDER", None):
+    os.environ["CUDA_DEVICE_ORDER"] = 'PCI_BUS_ID'
+
+if 'CUDA_VISIBLE_DEVICES' in os.environ and 'ROCR_VISIBLE_DEVICES' in os.environ:
+    del os.environ['ROCR_VISIBLE_DEVICES']
+
 
 import os.path  # noqa: E402
 import random  # noqa: E402
@@ -29,15 +35,6 @@ from ..utils.eval import EVAL  # noqa: E402
 from ..utils.model import find_modules  # noqa: E402
 from ..utils.torch import CPU, torch_empty_cache  # noqa: E402
 from .base import BaseNanoModel, QuantizeConfig  # noqa: E402
-
-if not os.environ.get("PYTORCH_ALLOC_CONF", None):
-    os.environ["PYTORCH_ALLOC_CONF"] = 'expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.7'
-
-if not os.environ.get("CUDA_DEVICE_ORDER", None):
-    os.environ["CUDA_DEVICE_ORDER"] = 'PCI_BUS_ID'
-
-if 'CUDA_VISIBLE_DEVICES' in os.environ and 'ROCR_VISIBLE_DEVICES' in os.environ:
-    del os.environ['ROCR_VISIBLE_DEVICES']
 
 import sys  # noqa: E402
 if sys.platform == "darwin":
