@@ -3,7 +3,7 @@ from typing import Union
 import torch
 from transformers import PreTrainedModel
 
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..nn_modules.qlinear.torch import TorchQuantLinear
 from ..quantization import FORMAT
 from .logger import setup_logger
@@ -23,9 +23,9 @@ except ImportError:
 
 log = setup_logger()
 
-def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedModel, BaseQModel], gptq_config: dict, lm_head_name: str):
+def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedModel, BaseNanoModel], gptq_config: dict, lm_head_name: str):
     if not MLX_AVAILABLE:
-        raise ValueError("MLX not installed. Please install via `pip install gptqmodel[mlx] --no-build-isolation`.")
+        raise ValueError("MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`.")
 
     if gptq_config["bits"] not in [2, 3, 4, 8]:
         raise ValueError("Model bits is not in [2,3,4,8]")
@@ -47,7 +47,7 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
     model_path, _ = get_model_path(model_id_or_path)
     config = load_config(model_path)
 
-    if isinstance(model, BaseQModel):
+    if isinstance(model, BaseNanoModel):
         model = model.model
 
     # Convert weights
@@ -101,7 +101,7 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
 @torch.inference_mode()
 def mlx_generate(model, tokenizer, **kwargs,):
     if not MLX_AVAILABLE:
-        raise ValueError("MLX not installed. Please install via `pip install gptqmodel[mlx] --no-build-isolation`.")
+        raise ValueError("MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`.")
 
     prompt = kwargs.pop("prompt", None)
     if prompt is None:

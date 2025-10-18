@@ -1,6 +1,6 @@
 """Model definitions for NanoModel."""
 
-from .llama import LlamaQModel
-from .qwen3 import Qwen3QModel
+from .llama import LlamaNanoModel
+from .qwen3 import Qwen3NanoModel
 
-__all__ = ["LlamaQModel", "Qwen3QModel"]
+__all__ = ["LlamaNanoModel", "Qwen3NanoModel"]

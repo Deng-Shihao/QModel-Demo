@@ -1,4 +1,4 @@
-from . import LlamaQModel
+from . import LlamaNanoModel
 
-class Qwen3QModel(LlamaQModel):
+class Qwen3NanoModel(LlamaNanoModel):
     pass

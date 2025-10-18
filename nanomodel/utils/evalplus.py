@@ -1,6 +1,6 @@
 import types
 
-from tokenicer import Tokenicer
+# from tokenicer import Tokenicer
 from transformers import PreTrainedModel
 
 
@@ -11,19 +11,19 @@ def patch_tostring(self):
     return self.config.name_or_path
 
 def patch_evalplus(model):
-    from ..models.base import BaseQModel
-    if isinstance(model, BaseQModel) or isinstance(model, PreTrainedModel):
+    from ..models.base import BaseNanoModel
+    if isinstance(model, BaseNanoModel) or isinstance(model, PreTrainedModel):
         model.strip = types.MethodType(patch_strip, model)
         model.__str__ = types.MethodType(patch_tostring, model)
         model.__repr__ = types.MethodType(patch_tostring, model)
 
     import torch
     from evalplus.provider.base import DecoderBase
-    from evalplus.provider.gptqmodel import GPTQModelDecoder
+    from evalplus.provider.nanomdel import GPTQModelDecoder
     from evalplus.provider.utility import extra_eos_for_direct_completion
 
     from .. import GPTQModel
-    from ..models import BaseQModel
+    from ..models import BaseNanoModel
 
     class PatchedGPTQModelDecoder(DecoderBase):
         def __init__(
@@ -56,7 +56,7 @@ def patch_evalplus(model):
             }
             self.skip_special_tokens = True
             self.force_base_prompt = force_base_prompt
-            if isinstance(name, BaseQModel):
+            if isinstance(name, BaseNanoModel):
                 self.model = name
                 self.tokenizer = self.model.tokenizer
             elif isinstance(name, PreTrainedModel):
@@ -82,7 +82,7 @@ def patch_evalplus(model):
                 return self.model
             elif isinstance(self.model, PreTrainedModel):
                 return self.model.config.name_or_path
-            elif isinstance(self.model, BaseQModel):
+            elif isinstance(self.model, BaseModelModel):
                 return self.model.model_local_path
             else:
                 return self.model.__class__.__name__

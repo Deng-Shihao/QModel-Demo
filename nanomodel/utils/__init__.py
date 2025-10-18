@@ -8,8 +8,8 @@ from .vram import get_vram
 
 
 # log = setup_logger() # Removed custom logger initialization
-logger = logging.getLogger("gptqmodel.utils") # Using standard logging
-logger.setLevel(os.environ.get("GPTQMODEL_LOGLEVEL", "INFO").upper())
+logger = logging.getLogger("nanomodel.utils") # Using standard logging
+logger.setLevel(os.environ.get("NANOMODEL_LOGLEVEL", "INFO").upper())
 if not logger.handlers:
     # Simple console handler setup
     handler = logging.StreamHandler()
@@ -23,7 +23,7 @@ SERIAL_BG_QUEUE = SerialWorker()
 
 # TODO: datasets is not compatible with free threading
 if has_gil_disabled():
-    logger.info("Python GIL is disabled and GPTQModel will auto enable multi-gpu quant acceleration for MoE models plus multi-cpu accelerated packing.") # Replaced log.info
+    logger.info("Python GIL is disabled and nanomodel will auto enable multi-gpu quant acceleration for MoE models plus multi-cpu accelerated packing.") # Replaced log.info
     from .perplexity import Perplexity
 else:
     if has_gil_control():

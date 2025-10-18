@@ -31,10 +31,10 @@ META_FIELD = "meta"
 # quantizer is the tool that did the quantization
 META_FIELD_QUANTIZER = "quantizer"
 
-META_QUANTIZER_GPTQMODEL = "gptqmodel"
+META_QUANTIZER_NANOMODEL = "nanomodel"
 
 META_FIELD_URI = "uri"
-META_VALUE_URI = "https://github.com/modelcloud/gptqmodel"
+META_VALUE_URI = "DEMO"
 
 META_FIELD_DAMP_PERCENT = "damp_percent"
 META_FIELD_DAMP_AUTO_INCREMENT = "damp_auto_increment"
@@ -160,7 +160,7 @@ class QuantizeConfig():
     quant_method: METHOD = field(default=METHOD.GPTQ)
 
     # default to gptq v1 format for maximum compat with 3rd party inference libs with minimal loss vs v2
-    # if you inference with gptqmodel, save to gptq_v2 format for best result
+    # if you inference with nanomodel, save to gptq_v2 format for best result
     format: FORMAT = field(default=FORMAT.GPTQ)
 
     # quantization_order: str = "activate",
@@ -242,7 +242,7 @@ class QuantizeConfig():
         if valid_formats is None:
             raise ValueError(f"QuantizeConfig: Unsupported `quant_method`: {self.quant_method}")
 
-        # TODO FIXME qqq compat which didn't have checkpoint_format before merging to gptqmodel
+        # TODO FIXME qqq compat which didn't have checkpoint_format before merging to nanomodel
         if self.quant_method == METHOD.QQQ and self.format != FORMAT.QQQ:
             # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.QQQ}`")
             print(f"QuantizeConfig: Auto fix `format` to `{FORMAT.QQQ}`")
@@ -260,7 +260,7 @@ class QuantizeConfig():
             else:
                 self.damp_auto_increment = 0.01
 
-        # TODO FIXME awq compat which didn't have checkpoint_format before merging to gptqmodel
+        # TODO FIXME awq compat which didn't have checkpoint_format before merging to nanomodel
         if self.quant_method == METHOD.AWQ and self.format not in [FORMAT.MARLIN, FORMAT.GEMV, FORMAT.GEMV_FAST, FORMAT.GEMM]:
             # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
             print(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
@@ -348,7 +348,7 @@ class QuantizeConfig():
         if self.offload_to_disk and not self.offload_to_disk_path:
             randWords = random_word.RandomWords()
             path_key = f"{randWords.get_random_word()}-{randWords.get_random_word()}"
-            self.offload_to_disk_path = f"./gptqmodel_offload/{path_key}/"
+            self.offload_to_disk_path = f"./nanomodel_offload/{path_key}/"
             # log.info(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
             print(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
 
@@ -411,13 +411,13 @@ class QuantizeConfig():
                 result.append((parts[0].lower(), parts[1].lower()))
         return result
 
-    # is quantized model quantized or packed by gptqmodel version with v2 format code
+    # is quantized model quantized or packed by nanomodel version with v2 format code
     def is_quantized_by_v2(self) -> bool:
         # check meta.quantizer
         result = self.meta_get_versionable(META_FIELD_QUANTIZER)
         if len(result) > 0:
             for producer, _version in result:
-                if producer == META_QUANTIZER_GPTQMODEL:
+                if producer == META_QUANTIZER_NANOMODEL:
                     return version.parse(_version) >= version.parse(MIN_VERSION_WITH_V2)
 
         return False

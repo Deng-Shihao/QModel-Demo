@@ -127,14 +127,14 @@ def evalplus(
         batch: int = 1,
         trust_remote_code: bool = False,
         output_file: Optional[str] = None,
-        backend: str = 'gptqmodel'
+        backend: str = 'nanomodel'
 ):
     patch_evalplus(model)
 
     try:
         from evalplus.evaluate import evaluate
     except BaseException:
-        raise ValueError("evalplus is not installed. Please install via `pip install gptqmodel[evalplus]`.")
+        raise ValueError("evalplus is not installed. Please install via `pip install nanomodel[evalplus]`.")
 
     assert dataset in ["humaneval", "mbpp"], f"Invalid dataset {dataset}"
 
@@ -142,7 +142,7 @@ def evalplus(
              greedy=True)
 
     if output_file is None:
-        output_file = model.strip("./").replace("/", "--") + "_gptqmodel_temp_0.0_eval_results.json"
+        output_file = model.strip("./").replace("/", "--") + "_nanomodel_temp_0.0_eval_results.json"
         output_file = os.path.join("evalplus_results", dataset, output_file)
 
     if not os.path.exists(output_file):

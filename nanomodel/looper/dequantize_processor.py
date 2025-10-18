@@ -4,7 +4,7 @@ import torch
 
 from ..looper.loop_processor import LoopProcessor
 from ..looper.named_module import NamedModule
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..nn_modules.qlinear.torch import TorchQuantLinear
 from ..utils.logger import setup_logger
 
@@ -56,7 +56,7 @@ class DequantizeProcessor(LoopProcessor):
             "wq": wq,
         })
 
-    def submodule_finalize(self, module: NamedModule, model: BaseQModel, **kwargs):
+    def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         module.state.pop("w", None)  # no need for these weights now
         module.state.pop("wq", None) # no need for these weights now
 

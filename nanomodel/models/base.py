@@ -794,7 +794,7 @@ class BaseNanoModel(nn.Module):
 
         if self.quantize_config.format == FORMAT.MARLIN:
             raise ValueError(
-                "FORMAT.MARLIN is deprecated for quantization. Please switch to FORMAT.GPTQ. GPTQMOdel will auto-use Marlin kernel for accelerated inference for FORMAT.GPTQ."
+                "FORMAT.MARLIN is deprecated for quantization. Please switch to FORMAT.GPTQ. Nano Model will auto-use Marlin kernel for accelerated inference for FORMAT.GPTQ."
             )
 
         if self.quantize_config.quant_method == METHOD.AWQ:
@@ -850,9 +850,9 @@ class BaseNanoModel(nn.Module):
 
         # rotate model
         if self.quantize_config.rotation:
-            from nanomodel.models.definitions.llama import LlamaQModel
-            from nanomodel.models.definitions.qwen2 import Qwen2QModel
-            if not isinstance(self, (LlamaQModel, Qwen2QModel)):
+            from nanomodel.models.definitions.llama import LlamaNanoModel
+            from nanomodel.models.definitions.qwen2 import Qwen2NanoModel
+            if not isinstance(self, (LlamaNanoModel, Qwen2NanoModel)):
                 raise ValueError(f"rotation only supports: llama/qwen2 model, "
                                     f"current model is {self.__class__.__name__}")
 
@@ -970,7 +970,7 @@ class BaseNanoModel(nn.Module):
                     exists_ok: bool = False,  # set to true if repo already exists
                     token: Optional[str] = None):
 
-        log.error("`push_to_hub()` api cannot be used on the model instance. Please use `GPTQModel.push_to_hub()` static api instead.")
+        log.error("`push_to_hub()` api cannot be used on the model instance. Please use `NANOMODEL.push_to_hub()` static api instead.")
 
     def save(
             self,
@@ -1281,7 +1281,7 @@ class BaseNanoModel(nn.Module):
             return 0
 
         default_bytes = 512 * 1024 ** 3 #512MB
-        raw = os.getenv("GPTQMODEL_RELOAD_THRESHOLD")
+        raw = os.getenv("NANOMODEL_RELOAD_THRESHOLD")
         if raw is None or raw.strip() == "":
             return default_bytes
 
@@ -1300,7 +1300,7 @@ class BaseNanoModel(nn.Module):
         match = re.match(r"^([0-9]*\.?[0-9]+)\s*([a-z]*)$", value)
         if match is None:
             log.warn(
-                "GPTQMODEL_RELOAD_THRESHOLD value `%s` is invalid; defaulting to 512MB.",
+                "NANOMODEL_RELOAD_THRESHOLD value `%s` is invalid; defaulting to 512MB.",
                 raw,
             )
             return default_bytes
@@ -1310,7 +1310,7 @@ class BaseNanoModel(nn.Module):
         multiplier = units.get(unit, None)
         if multiplier is None:
             log.warn(
-                "GPTQMODEL_RELOAD_THRESHOLD unit `%s` is unsupported; defaulting to bytes.",
+                "NANOMODEL_RELOAD_THRESHOLD unit `%s` is unsupported; defaulting to bytes.",
                 unit,
             )
             multiplier = 1

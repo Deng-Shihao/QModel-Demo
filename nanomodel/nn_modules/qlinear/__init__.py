@@ -508,21 +508,21 @@ class PackableQuantLinear(BaseQuantLinear):
                 "pack_block extension requires out_features to be divisible by 32"
             )
 
-        disable_ext = env_flag("GPTQMODEL_DISABLE_PACK_EXT")
-        force_ext = env_flag("GPTQMODEL_FORCE_PACK_EXT")
+        disable_ext = env_flag("NANOMODEL_DISABLE_PACK_EXT")
+        force_ext = env_flag("NANOMODEL_FORCE_PACK_EXT")
         pack_block_threads = workers if workers and workers > 0 else 1
-        env_threads = os.getenv("GPTQMODEL_PACK_THREADS")
+        env_threads = os.getenv("NANOMODEL_PACK_THREADS")
         if env_threads:
             try:
                 pack_block_threads = max(int(env_threads), 1)
             except ValueError:
                 # log.warning(
-                #     "pack_block: invalid GPTQMODEL_PACK_THREADS `%s`; defaulting to %d.",
+                #     "pack_block: invalid NANOMODEL_PACK_THREADS `%s`; defaulting to %d.",
                 #     env_threads,
                 #     pack_block_threads,
                 # )
                 print(
-                    "pack_block: invalid GPTQMODEL_PACK_THREADS `%s`; defaulting to %d.",
+                    "pack_block: invalid NANOMODEL_PACK_THREADS `%s`; defaulting to %d.",
                     env_threads,
                     pack_block_threads,
                 )

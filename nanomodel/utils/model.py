@@ -365,7 +365,7 @@ def create_quant_module(
             tmp_sym = overrides.get("sym", sym)
             tmp_pack_dtype = overrides.get("pack_dtype", pack_dtype)
 
-    # when loading a quantized model, device is target device passed in GPTQModel.load()
+    # when loading a quantized model, device is target device passed in AutoNanoModel.load()
     # check in_features and out_features validate
     _, err = linear_cls.validate(
         bits=tmp_bits,
@@ -579,7 +579,7 @@ def hf_convert_gptq_v2_to_v1_format(
     checkpoint_format: str,
     meta: Optional[Dict[str, any]],
 ) -> Tuple[nn.Module, bool]:
-    # note: sym=False is valid for gptq_v2 for all gptqmodel and gptq(v1) for gptqmodel >= `0.9.0`
+    # note: sym=False is valid for gptq_v2 for all nanomodel and gptq(v1) for nanomodel>= `0.9.0`
     if sym and checkpoint_format == "gptq_v2":
         quantize_config = QuantizeConfig(bits=bits)
         return convert_gptq_v2_to_v1_format(model, quantize_config, qlinear_kernel), True
@@ -895,12 +895,12 @@ def simple_dispatch_model(model, device_map):
 
 
 # public/stable api exposed to transformer/optimum
-def hf_gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def hf_nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
-    return gptqmodel_post_init(model, use_act_order, quantize_config, max_input_length)
+    return nanomodel_post_init(model, use_act_order, quantize_config, max_input_length)
 
 
-def gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
     """Finalize quantized layers after model load."""
 

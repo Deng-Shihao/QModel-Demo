@@ -13,7 +13,7 @@ from torch.nn import Module
 from .. import DEVICE_THREAD_POOL
 from ..looper.input_cache import InputCache
 from ..looper.named_module import NamedModule
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..models.writer import (
     PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
     PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS, QUANT_LOG_NSAMPLES
@@ -164,7 +164,7 @@ class LoopProcessor:
             self.gpu_memorys.append(mem_alloc)
             log.info(f"[Layer {layer_index}] GPU Memory: {mem_alloc:.2f} GB (reserved {mem_reserved:.2f} GB)")
 
-    def finalize(self, model: BaseQModel, **kwargs):
+    def finalize(self, model: BaseNanoModel, **kwargs):
         del self.inputs_cache
         del self._results
         log.info("Finalized LoopProcessor and released resources.")

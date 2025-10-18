@@ -20,7 +20,7 @@ from ..utils.safe import ThreadSafe
 from ..utils.torch import ALL_DEVICES, CPU, torch_sync
 
 
-USE_TORCH_REPLICATE = env_flag("GPTQMODEL_USE_TORCH_REPLICATE", True)
+USE_TORCH_REPLICATE = env_flag("NANOMODEL_USE_TORCH_REPLICATE", True)
 
 
 _THREAD_SAFE_PARALLEL = ThreadSafe(torch_parallel)

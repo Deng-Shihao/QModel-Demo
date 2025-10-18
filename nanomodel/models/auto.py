@@ -49,9 +49,9 @@ if sys.platform == "darwin":
 
 
 # Support Models
-from .definitions.llama import LlamaQModel  # noqa: E402
-from .definitions.qwen2 import Qwen2QModel  # noqa: E402
-from .definitions.qwen3 import Qwen3QModel  # noqa: E402
+from .definitions.llama import LlamaNanoModel  # noqa: E402
+from .definitions.qwen2 import Qwen2NanoModel  # noqa: E402
+from .definitions.qwen3 import Qwen3NanoModel  # noqa: E402
 
 # make quants and inference more determinisitc
 torch.manual_seed(787)
@@ -59,9 +59,9 @@ random.seed(787)
 numpy.random.seed(787)
 
 MODEL_MAP = {
-    "llama": LlamaQModel,
-    "qwen2": Qwen2QModel,
-    "qwen3": Qwen3QModel # Base on Llama
+    "llama": LlamaNanoModel,
+    "qwen2": Qwen2NanoModel,
+    "qwen3": Qwen3NanoModel # Base on Llama
 }
 
 SUPPORTED_MODELS = list(MODEL_MAP.keys())
@@ -76,9 +76,9 @@ def check_and_get_model_type(model_dir, trust_remote_code=False):
 class AutoNanoModel:
     def __init__(self):
         raise EnvironmentError(
-            "GPTQModel is not designed to be instantiated\n"
-            "use `GPTQModel.from_pretrained` to load pretrained model and prepare for quantization via `.quantize()`.\n"
-            "use `GPTQModel.from_quantized` to inference with post-quantized model."
+            "NanoModel is not designed to be instantiated\n"
+            "use `NanoModel.from_pretrained` to load pretrained model and prepare for quantization via `.quantize()`.\n"
+            "use `NanoModel.from_quantized` to inference with post-quantized model."
         )
 
     @classmethod
@@ -103,28 +103,28 @@ class AutoNanoModel:
         if isinstance(backend, str):
             backend = BACKEND(backend)
 
-        is_gptqmodel_quantized = False
+        is_model_quantized = False
         model_cfg = AutoConfig.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
         if hasattr(model_cfg, "quantization_config") and "quant_format" in model_cfg.quantization_config:
-            # only if the model is quantized or compatible with gptqmodel should we set is_quantized to true
+            # only if the model is quantized or compatible with model should we set is_quantized to true
             if model_cfg.quantization_config["quant_format"].lower() in (METHOD.GPTQ, METHOD.AWQ, METHOD.QQQ):
-                is_gptqmodel_quantized = True
+                is_model_quantized = True
         else:
-            # TODO FIX ME...not decoded to check if quant method is compatible or quantized by gptqmodel
+            # TODO FIX ME...not decoded to check if quant method is compatible or quantized by nanomodel
             for name in [QUANT_CONFIG_FILENAME, "quant_config.json"]:
                 if isdir(model_id_or_path):  # Local
                     if os.path.exists(join(model_id_or_path, name)):
-                        is_gptqmodel_quantized = True
+                        is_model_quantized = True
                         break
 
                 else:  # Remote
                     files = list_repo_files(repo_id=model_id_or_path)
                     for f in files:
                         if f == name:
-                            is_gptqmodel_quantized = True
+                            is_model_quantized = True
                             break
 
-        if is_gptqmodel_quantized:
+        if is_model_quantized:
             m = cls.from_quantized(
                 model_id_or_path=model_id_or_path,
                 device_map=device_map,
@@ -171,7 +171,7 @@ class AutoNanoModel:
         if quantize_config and quantize_config.dynamic:
             print("NanoModel's per-module `dynamic` quantization feature is fully supported in latest vLLM and SGLang but not yet available in hf transformers.")
             # log.warn(
-            #     "GPTQModel's per-module `dynamic` quantization feature is fully supported in latest vLLM and SGLang but not yet available in hf transformers.")
+            #     "NanoModel's per-module `dynamic` quantization feature is fully supported in latest vLLM and SGLang but not yet available in hf transformers.")
 
         model_type = check_and_get_model_type(model_id_or_path, trust_remote_code)
         return MODEL_MAP[model_type].from_pretrained(

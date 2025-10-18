@@ -1,4 +1,4 @@
-"""Environment variable helpers used across GPTQModel."""
+"""Environment variable helpers used across NanoModel."""
 
 from __future__ import annotations
 

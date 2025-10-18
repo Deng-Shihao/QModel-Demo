@@ -1,6 +1,6 @@
-from ..base import BaseQModel
+from ..base import BaseNanoModel
 
-class LlamaQModel(BaseQModel):
+class LlamaNanoModel(BaseNanoModel):
 
     pre_lm_head_norm_module = "model.norm"
 

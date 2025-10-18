@@ -173,14 +173,14 @@ debug
 example.py
 
 # dynamically generated from template
-/gptqmodel_ext/marlin/kernel_bf16_kfe2m1f.cu
-/gptqmodel_ext/marlin/kernel_bf16_kfe4m3fn.cu
-/gptqmodel_ext/marlin/kernel_bf16_ku4.cu
-/gptqmodel_ext/marlin/kernel_bf16_ku4b8.cu
-/gptqmodel_ext/marlin/kernel_bf16_ku8b128.cu
-/gptqmodel_ext/marlin/kernel_fp16_kfe2m1f.cu
-/gptqmodel_ext/marlin/kernel_fp16_kfe4m3fn.cu
-/gptqmodel_ext/marlin/kernel_fp16_ku4.cu
-/gptqmodel_ext/marlin/kernel_fp16_ku4b8.cu
-/gptqmodel_ext/marlin/kernel_fp16_ku8b128.cu
-/gptqmodel_offload/
+/nanomodel_ext/marlin/kernel_bf16_kfe2m1f.cu
+/nanomodel_ext/marlin/kernel_bf16_kfe4m3fn.cu
+/nanomodel_ext/marlin/kernel_bf16_ku4.cu
+/nanomodel_ext/marlin/kernel_bf16_ku4b8.cu
+/nanomodel_ext/marlin/kernel_bf16_ku8b128.cu
+/nanomodel_ext/marlin/kernel_fp16_kfe2m1f.cu
+/nanomodel_ext/marlin/kernel_fp16_kfe4m3fn.cu
+/nanomodel_ext/marlin/kernel_fp16_ku4.cu
+/nanomodel_ext/marlin/kernel_fp16_ku4b8.cu
+/nanomodel_ext/marlin/kernel_fp16_ku8b128.cu
+/nanomodel_ext/

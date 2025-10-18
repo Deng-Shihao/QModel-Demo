@@ -9,7 +9,7 @@ from torch.nn import Module
 
 from ..looper.loop_processor import DTYPE_SIZE_COLUMN, MODULE_FEATURE_COLUMN, LoopProcessor
 from ..looper.named_module import NamedModule
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..models._const import CPU
 from ..models.writer import (PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
                              PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS, QUANT_LOG_NSAMPLES)
@@ -252,7 +252,7 @@ class GPTQProcessor(LoopProcessor):
         module.weight.data = wq
 
     # submodule_finalized is called in reverse after all next sequential processes are called
-    def submodule_finalize(self, module: NamedModule, model: BaseQModel, **kwargs):
+    def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         # generate complete, safe to move to cpu
         # module.weight.data = move_to(module.state.pop("wq"), device=CPU) # large weights is slow to init on cpu
 
@@ -346,7 +346,7 @@ class GPTQProcessor(LoopProcessor):
         self._release_host_buffers(q_scales, q_zeros, q_g_idx)
         module.unregister_parameter("weight")
 
-    def finalize(self, model: BaseQModel, **kwargs):
+    def finalize(self, model: BaseNanoModel, **kwargs):
         # print("finalize")
         # print_module_tree(model.model)
 

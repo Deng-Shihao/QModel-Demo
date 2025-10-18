@@ -31,7 +31,7 @@ from ..quantization.config import (
     META_FIELD_URI,
     META_FIELD_V2_ALPHA,
     META_FIELD_V2_ENABLED,
-    META_QUANTIZER_GPTQMODEL,
+    META_QUANTIZER_NANOMODEL,
     META_VALUE_URI,
     METHOD,
     MIN_VERSION_WITH_V2,
@@ -121,7 +121,7 @@ def ModelWriter(cls):
             elif step == "update metadata":
                 pre_quantized_size_mb = get_model_files_size(self.model_local_path)
                 pre_quantized_size_gb = pre_quantized_size_mb / 1024
-                quantizers = [f"{META_QUANTIZER_GPTQMODEL}:{__version__}"]
+                quantizers = [f"{META_QUANTIZER_NANOMODEL}:{__version__}"]
                 if meta_quantizer:
                     if len(meta_quantizer.split(":")) == 2:
                         quantizers.append(meta_quantizer.replace(" ", ""))
@@ -137,7 +137,7 @@ def ModelWriter(cls):
                     raise ValueError("Save aborted as model is not quantized. Please call `quantize()` first.")
                 if quantize_config.format == FORMAT.GPTQ_V2:
                     logger.warning(
-                        f"Using 'format = {FORMAT.GPTQ_V2}': the serialized model is only supported by GPTQModel version >= {MIN_VERSION_WITH_V2}."
+                        f"Using 'format = {FORMAT.GPTQ_V2}': the serialized model is only supported by NanoModel version >= {MIN_VERSION_WITH_V2}."
                     )
 
                 if self.load_quantized_model:

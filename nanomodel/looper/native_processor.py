@@ -6,7 +6,7 @@ from torch.nn import Module
 
 from ..looper.loop_processor import LoopProcessor
 from ..looper.named_module import NamedModule
-from ..models import BaseQModel
+from ..models import BaseNanoModel
 from ..quantization.config import QuantizeConfig
 from ..utils.torch import CPU, DEVICE_1
 
@@ -71,10 +71,10 @@ class NativeProcessor(LoopProcessor):
     def process(self, module: NamedModule):
         module.state[NATIVE_INPUTS_STATE_KEY] = self.native_inp_caches.pop(module.name)
 
-    def submodule_finalize(self, module: NamedModule, model: BaseQModel, **kwargs):
+    def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         module.state.pop(NATIVE_INPUTS_STATE_KEY, None)
 
-    def finalize(self, model: BaseQModel, **kwargs):
+    def finalize(self, model: BaseNanoModel, **kwargs):
         del self.native_inp_caches
 
     def verify_calibration_dataset(self, processor_index: int) -> bool:

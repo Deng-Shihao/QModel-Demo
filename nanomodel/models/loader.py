@@ -13,11 +13,11 @@ import transformers
 from ..utils.structure import print_module_tree
 
 
-if os.getenv('GPTQMODEL_USE_MODELSCOPE', 'False').lower() in ['true', '1']:
+if os.getenv('NANOMODEL_USE_MODELSCOPE', 'False').lower() in ['true', '1']:
     try:
         from modelscope import snapshot_download
     except Exception:
-        raise ModuleNotFoundError("env `GPTQMODEL_USE_MODELSCOPE` used but modelscope pkg is not found: please install with `pip install modelscope`.")
+        raise ModuleNotFoundError("env `NANOMODEL_USE_MODELSCOPE` used but modelscope pkg is not found: please install with `pip install modelscope`.")
 else:
     from huggingface_hub import snapshot_download
 
@@ -40,7 +40,7 @@ from ..utils.model import (
     find_modules,
     get_checkpoints,
     get_module_by_name_prefix,
-    gptqmodel_post_init,
+    nanomodel_post_init,
     load_checkpoint_in_model_then_tie_weights,
     make_quant,
     simple_dispatch_model,
@@ -49,8 +49,8 @@ from ._const import DEVICE, normalize_device
 
 
 # log = setup_logger() # 移除自定义 logger 初始化
-logger = logging.getLogger("gptqmodel") # using logging
-logger.setLevel(os.environ.get("GPTQMODEL_LOGLEVEL", "INFO").upper())
+logger = logging.getLogger("nanomodel") # using logging
+logger.setLevel(os.environ.get("NANOMODEL_LOGLEVEL", "INFO").upper())
 if not logger.handlers:
     # simple console handler setup for basic logging
     handler = logging.StreamHandler()
@@ -579,7 +579,7 @@ def ModelLoader(cls):
                 # validate sym=False v1 loading needs to be protected for models produced with new v2 format codebase
                 if not qcfg.sym and not qcfg.is_quantized_by_v2():
                     raise ValueError(
-                        f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by gptqmodel version >= {MIN_VERSION_WITH_V2}"
+                        f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by nanomodel version >= {MIN_VERSION_WITH_V2}"
                     )
 
                 if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
@@ -644,7 +644,7 @@ def ModelLoader(cls):
             model.seqlen = 4096
 
         # Any post-initialization that require device information, for example buffers initialization on device.
-        model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
+        model = nanomodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
 
         model.eval()
 
@@ -659,8 +659,8 @@ def ModelLoader(cls):
                 from ..utils.mlx import convert_gptq_to_mlx_weights, mlx_generate
             except ModuleNotFoundError as exception:
                 raise type(exception)(
-                    "GPTQModel load mlx model required dependencies are not installed.",
-                    "Please install via `pip install gptqmodel[mlx] --no-build-isolation`.",
+                    "NanoModel load mlx model required dependencies are not installed.",
+                    "Please install via `pip install nanomodel[mlx] --no-build-isolation`.",
                 )
 
             with tempfile.TemporaryDirectory() as temp_dir:

@@ -1,9 +1,3 @@
-/*
- * Copyright (C) Marlin.2024 Elias Frantar (elias.frantar@ist.ac.at)
- *
- * LICENSE: GPTQModel/licenses/LICENSE.apache
- */
-
 #include <torch/extension.h>
 
 #include "gptq_marlin.cuh"

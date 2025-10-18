@@ -21,7 +21,7 @@ def pack_block_cpu(
     ext = load_pack_block_extension()
     if ext is None:
         raise RuntimeError("pack_block_cpu extension unavailable")
-    return torch.ops.gptqmodel.pack_block_cpu(
+    return torch.ops.nanomodel.pack_block_cpu(
         weight,
         scales,
         zeros,

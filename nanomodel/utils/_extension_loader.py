@@ -58,7 +58,7 @@ def _ensure_torch_shared_libraries_loaded() -> None:
 
 
 def load_extension_module(module_name: str,
-                          package: Optional[str] = "gptqmodel") -> ModuleType:
+                          package: Optional[str] = "nanomodel") -> ModuleType:
     """Import a compiled extension, with fallbacks for editable installs.
 
     Args:
@@ -135,7 +135,7 @@ def _candidate_directories(package: Optional[str]) -> Iterable[Path]:
 
     # Fallbacks cover source checkout and editable installs.
     current = Path(__file__).resolve()
-    base = current.parent.parent  # gptqmodel/
+    base = current.parent.parent  # nanomodel/
     for candidate in (
         base,
         base.parent,

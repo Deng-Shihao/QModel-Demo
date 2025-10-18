@@ -20,7 +20,7 @@ Install a PyTorch build that matches your accelerator and Python version. Follow
 git clone <repository-url>
 cd NanoModel
 python -m pip install --upgrade pip setuptools wheel
-pip install -v gptqmodel --no-build-isolation
+pip install -v NanoModel --no-build-isolation
 ```
 
 #### Controlling extension builds
@@ -136,8 +136,7 @@ NanoModel is evolving quickly. Contributions are welcome—particularly new mode
 3. Any profiling data, accuracy deltas, or environment notes that help reviewers validate the patch.
 
 ## Project Status
-
-The public interface (`AutoNanoModel`, `QuantizeConfig`, `get_best_device`, and the model registry under `nanomodel.models`) is considered alpha. Expect API consolidation as we broaden hardware coverage and finalize the rename from the legacy GPTQModel codebase. Pin to a specific release if you ship production workloads.
+The public interface (`AutoNanoModel`, `QuantizeConfig`, `get_best_device`, and the model registry under `nanomodel.models`) is considered alpha.
 
 ## Citation
 ```shell

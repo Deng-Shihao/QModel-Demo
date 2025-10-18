@@ -22,7 +22,7 @@ def main():
     )
 
     # load un-quantized model, by default, the model will always be loaded into CPU memory
-    # model = GPTQModel.load(pretrained_model_id, quantize_config)
+    # model = AutoNanoModel.load(pretrained_model_id, quantize_config)
     model = AutoNanoModel.load(pretrained_model_id, quantize_config)
 
     # quantize model, the calibration_dataset should be list of dict whose keys can only be "input_ids" and "attention_mask"
@@ -39,7 +39,7 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=device)
 
     # download quantized model from Hugging Face Hub and load to the first GPU
-    # model = GPTQModel.from_quantized(repo_id, device="cuda:0",)
+    # model = AutoNanoModel.from_quantized(repo_id, device="cuda:0",)
 
     # inference with model.generate
     print(tokenizer.decode(model.generate(**tokenizer("NanoModel is", return_tensors="pt").to(model.device))[0]))
