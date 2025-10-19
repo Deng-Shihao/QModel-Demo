@@ -124,12 +124,42 @@ class AWQProcessor(LoopProcessor):
         modules, _ = get_module_by_name_prefix(
             self.gptq_model.model, self.gptq_model.extract_layers_node()
         )
-        # make sure samples tensor's shape is [1, max_calib_seq_len]
-        samples = [
-            data["input_ids"][:, : self.max_calib_seq_len]
-            for data in self.calibration_dataset
-            if data["input_ids"].shape[1] >= self.max_calib_seq_len
-        ]
+        # make sure samples tensor's shape is [*, max_calib_seq_len]
+        pad_token_id = getattr(getattr(self.model, "config", None), "pad_token_id", None)
+        if pad_token_id is None and self.tokenizer is not None:
+            pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
+        if pad_token_id is None and self.tokenizer is not None:
+            pad_token_id = getattr(self.tokenizer, "eos_token_id", None)
+        if pad_token_id is None:
+            pad_token_id = 0
+
+        samples = []
+        for data in self.calibration_dataset:
+            input_ids = data["input_ids"]
+            if input_ids.ndim == 1:
+                input_ids = input_ids.unsqueeze(0)
+
+            sample = input_ids[:, : self.max_calib_seq_len]
+            if sample.shape[1] == 0:
+                continue
+
+            if sample.shape[1] < self.max_calib_seq_len:
+                pad_length = self.max_calib_seq_len - sample.shape[1]
+                pad_tensor = torch.full(
+                    (sample.shape[0], pad_length),
+                    pad_token_id,
+                    dtype=sample.dtype,
+                    device=sample.device,
+                )
+                sample = torch.cat([sample, pad_tensor], dim=1)
+
+            samples.append(sample)
+
+        if not samples:
+            raise RuntimeError(
+                "AWQProcessor: calibration dataset did not yield any usable input_ids. "
+                "Consider supplying longer calibration samples or lowering max_calib_seq_len."
+            )
 
         samples = torch.cat(samples, dim=0)
 
