@@ -241,6 +241,12 @@ class QuantizeConfig():
         if valid_formats is None:
             raise ValueError(f"QuantizeConfig: Unsupported `quant_method`: {self.quant_method}")
 
+        # If the user does not pass it, the default value will be set according to quant_method
+        if self.damp_percent is None:
+            self.damp_percent = 0.05
+        if self.damp_auto_increment is None:
+            self.damp_auto_increment = 0.01
+
         # TODO FIXME awq compat which didn't have checkpoint_format before merging to nanomodel
         if self.quant_method == METHOD.AWQ and self.format not in [FORMAT.MARLIN, FORMAT.GEMV, FORMAT.GEMV_FAST, FORMAT.GEMM]:
             # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
