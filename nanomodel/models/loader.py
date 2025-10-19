@@ -577,7 +577,6 @@ def ModelLoader(cls):
                         qlinear_kernel=preload_qlinear_kernel,
                     )
 
-                    # qcfg.runtime_format = FORMAT.GPTQ_V2
 
         if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.format == FORMAT.MARLIN):
             if is_sharded:

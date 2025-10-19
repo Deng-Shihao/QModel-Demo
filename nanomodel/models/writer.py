@@ -184,11 +184,6 @@ def ModelWriter(cls):
                 "Save aborted as model is not quantized. Please call `quantize()` first."
             )
 
-        if quantize_config.format == FORMAT.GPTQ_V2:
-            log.warn(
-                f"Using 'format = {FORMAT.GPTQ_V2}': the serialized model is only supported by GPTQModel version >= {MIN_VERSION_WITH_V2}."
-            )
-
         if self.load_quantized_model:
             self.model = self.get_model_with_quantize(
                 qcfg=quantize_config,
