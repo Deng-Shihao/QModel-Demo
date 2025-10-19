@@ -401,7 +401,18 @@ def ModelLoader(cls):
 
                 vllm_kwargs = dict(kwargs)
 
-                if "dtype" not in vllm_kwargs and dtype is not None:
+                # vLLM constraint: GPTQ quantization currently supports only float16.
+                # Force dtype to float16 to avoid vLLM engine validation errors when using GPTQ.
+                if qcfg.quant_method == METHOD.GPTQ:
+                    # Respect user intent but override incompatible dtype with a friendly log.
+                    user_dtype = vllm_kwargs.get("dtype")
+                    user_dtype_str = (
+                        user_dtype if isinstance(user_dtype, str) else str(user_dtype).split(".")[-1]
+                    ) if user_dtype is not None else None
+                    if user_dtype_str and user_dtype_str.lower() != "float16":
+                        log.info("Loading Quantized Model: Overriding dtype to float16 for vLLM+GPTQ")
+                    vllm_kwargs["dtype"] = "float16"
+                elif "dtype" not in vllm_kwargs and dtype is not None:
                     if isinstance(dtype, torch.dtype):
                         vllm_kwargs["dtype"] = str(dtype).split(".")[-1]
                     else:
