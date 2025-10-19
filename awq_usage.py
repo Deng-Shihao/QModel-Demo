@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 
+import torch
 from datasets import load_dataset
 from parameterized import parameterized
 from transformers import AutoTokenizer
@@ -75,6 +76,7 @@ class TestGroupSize(unittest.TestCase):
             self.pretrained_model_id,
             quantize_config=quantize_config,
             debug=True,
+            dtype=torch.float16,
         )
         model.quantize(self.calibration_dataset, batch_size=1, calibration_concat_size=0)
         with tempfile.TemporaryDirectory() as tmp_dir_name:
@@ -93,13 +95,19 @@ class TestGroupSize(unittest.TestCase):
             model = AutoNanoModel.load(
                 tmp_dir_name,
                 backend=backend,
+                dtype=torch.float16,
             )
+
+            if backend == BACKEND.MARLIN:
+                from nanomodel.quantization.awq.modules.linear import marlin_post_init
+
+                marlin_post_init(model.model)
 
             self.assert_awq_linear(model, backend)
 
             tokens = model.generate("Capital of France is", max_new_tokens=100)[0]
             result = model.tokenizer.decode(tokens)
-            print(f"BACKEND: {BACKEND.GEMM}, Result: {result}")
+            print(f"BACKEND: {backend}, Result: {result}")
             if "paris" not in result.lower() and "city" not in result.lower():
                 raise AssertionError(" `paris` not found in `result`")
 

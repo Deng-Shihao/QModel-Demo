@@ -6,8 +6,8 @@ from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-pretrained_model_id = "Qwen/Qwen3-0.6B"
-quantized_model_id = "qwen3-0.6-4bit"
+pretrained_model_id = "Qwen/Qwen3-1.7B"
+quantized_model_id = "qwen3-1.7-4bit"
 
 
 def main():
