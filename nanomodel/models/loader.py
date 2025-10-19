@@ -289,8 +289,35 @@ def ModelLoader(cls):
         if backend == BACKEND.VLLM:
             import os
 
-            # to optimize vllm inference, set an environment variable 'VLLM_ATTENTION_BACKEND' to 'FLASHINFER'.
-            os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASHINFER'
+            # Prefer FLASHINFER when a compatible flashinfer build is present but avoid forcing
+            # an incompatible version, which results in runtime crashes inside vLLM.
+            if os.environ.get('VLLM_ATTENTION_BACKEND') is None:
+                try:
+                    import flashinfer  # type: ignore
+
+                    version_str = getattr(flashinfer, "__version__", None)
+                    if version_str is None:
+                        raise ValueError("flashinfer has no __version__ attribute")
+
+                    if parse_version_string(version_str) >= Version("0.3.0"):
+                        os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASHINFER'
+                    else:
+                        log.info(
+                            "Loader: flashinfer %s detected but is older than 0.3.0; "
+                            "falling back to vLLM default attention backend.",
+                            version_str,
+                        )
+                except (ImportError, ValueError) as err:
+                    log.info(
+                        "Loader: Unable to enable FLASHINFER attention backend automatically (%s); "
+                        "using vLLM default.",
+                        err,
+                    )
+                except InvalidVersion as err:
+                    log.info(
+                        "Loader: flashinfer version string is invalid (%s); using vLLM default attention backend.",
+                        err,
+                    )
 
         if backend == BACKEND.TRITON:
             from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT
