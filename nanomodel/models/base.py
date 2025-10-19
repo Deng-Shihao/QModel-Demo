@@ -16,11 +16,9 @@ import torch
 import torch._dynamo
 import torch.nn as nn
 
-# TODO: Remove it
-# from tokenicer import Tokenicer
+
 from transformers import (
     AutoModelForCausalLM,
-    AutoTokenizer,
     AutoProcessor,
     PreTrainedModel,
     PreTrainedTokenizerBase,
@@ -863,14 +861,16 @@ class BaseNanoModel(nn.Module):
                 "lm_head_name": self.lm_head
             }
 
-            self.model = fuse_layer_norms(model=self.model,
-                                          pre_lm_head_norm_module_name=self.pre_lm_head_norm_module,
-                                          **module_name_args)
+            # TODO: FFF
+            # self.model = fuse_layer_norms(model=self.model,
+            #                               pre_lm_head_norm_module_name=self.pre_lm_head_norm_module,
+            #                               **module_name_args)
 
+            # TODO: FFF
             # MPS does not support float64.
-            rotation_device = self.quantize_config.device if self.quantize_config.device != DEVICE.MPS else DEVICE.CPU
-            self.model, _ = rotate_model(model=self.model, rotate_mode=self.quantize_config.rotation,
-                                            device=rotation_device, **module_name_args)
+            # rotation_device = self.quantize_config.device if self.quantize_config.device != DEVICE.MPS else DEVICE.CPU
+            # self.model, _ = rotate_model(model=self.model, rotate_mode=self.quantize_config.rotation,
+            #                                 device=rotation_device, **module_name_args)
 
         # init processor with default GPTQ processor
         from ..looper.tensorparallel_weight_processor import TensorParallelWeightProcessor
