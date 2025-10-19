@@ -21,7 +21,7 @@ def _probe_cmd(args, timeout=6):
     try:
         return subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=timeout)
     except Exception:
-        return ""
+        return None
 
 
 def _bool_env(name, default=False):
@@ -491,7 +491,7 @@ setup(
         "openai": ["uvicorn", "fastapi", "pydantic"],
         "mlx": ["mlx_lm>=0.28.2"],
     },
-    include_dirs=["nanomodel_ext"],
+    include_dirs=include_dirs,
     cmdclass=(
         {"bdist_wheel": CachedWheelsCommand, "build_ext": additional_setup_kwargs.get("cmdclass", {}).get("build_ext")}
         if (BUILD_CUDA_EXT == "1" and additional_setup_kwargs)

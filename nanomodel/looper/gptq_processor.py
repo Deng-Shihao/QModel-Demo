@@ -7,30 +7,54 @@ from typing import Callable, Optional, Tuple
 import torch
 from torch.nn import Module
 
-from ..looper.loop_processor import DTYPE_SIZE_COLUMN, MODULE_FEATURE_COLUMN, LoopProcessor
+from ..looper.loop_processor import (
+    DTYPE_SIZE_COLUMN,
+    MODULE_FEATURE_COLUMN,
+    LoopProcessor,
+)
+
 from ..looper.named_module import NamedModule
 from ..models import BaseNanoModel
 from ..models._const import CPU
-from ..models.writer import (PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
-                             PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS, QUANT_LOG_NSAMPLES)
+from ..models.writer import (
+    PROCESS_LOG_FWD_TIME,
+    PROCESS_LOG_LAYER,
+    PROCESS_LOG_MODULE,
+    PROCESS_LOG_NAME,
+    PROCESS_LOG_TIME,
+    PROCESS_USED_MEMORY,
+    QUANT_LOG_DAMP,
+    QUANT_LOG_LOSS,
+    QUANT_LOG_NSAMPLES,
+)
 from ..quantization import GPTQ
 from ..quantization.config import METHOD, QuantizeConfig
+
 from ..utils.importer import select_quant_linear
 from ..utils.logger import setup_logger, log_time_block
 from ..utils.device import get_device
-from ..utils.model import create_quant_module, find_modules, move_to, pack_model, pack_module
+from ..utils.model import (
+    create_quant_module,
+    find_modules,
+    move_to,
+    pack_model,
+    pack_module,
+)
 from ..utils.torch import tf32_disable_guard
 
 log = setup_logger()
 lock = threading.Lock()
 
-
 class _PinnedHostPool:
     def __init__(self) -> None:
         self._lock = threading.Lock()
 
-    def acquire(self, shape: torch.Size, dtype: torch.dtype, layout: torch.layout) -> torch.Tensor:
-        return torch.empty(shape, dtype=dtype, layout=layout, device="cpu", pin_memory=True)
+    def acquire(
+        self, shape: torch.Size, dtype: torch.dtype, layout: torch.layout
+    ) -> torch.Tensor:
+        return torch.empty(
+            shape, dtype=dtype, layout=layout, device="cpu", pin_memory=True
+        )
 
     def release(self, tensor: torch.Tensor) -> None:
         # No pooling to avoid cross-thread pinned storage reuse issues.
@@ -38,22 +62,37 @@ class _PinnedHostPool:
 
 
 class GPTQProcessor(LoopProcessor):
-    def __init__(self, tokenizer, qcfg: QuantizeConfig, calibration, prepare_dataset_func,
-                 calibration_concat_size: Optional[int], calibration_sort: Optional[str], batch_size: int,
-                 require_fwd: bool = True, calculate_w_wq_diff: bool = False):
-
-        super().__init__(tokenizer=tokenizer, qcfg=qcfg, calibration=calibration,
-                         calibration_concat_size=calibration_concat_size,
-                         calibration_sort=calibration_sort,
-                         prepare_dataset_func=prepare_dataset_func, batch_size=batch_size,
-                         require_fwd=require_fwd)
+    def __init__(
+        self,
+        tokenizer,
+        qcfg: QuantizeConfig,
+        calibration,
+        prepare_dataset_func,
+        calibration_concat_size: Optional[int],
+        calibration_sort: Optional[str],
+        batch_size: int,
+        require_fwd: bool = True,
+        calculate_w_wq_diff: bool = False,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            qcfg=qcfg,
+            calibration=calibration,
+            calibration_concat_size=calibration_concat_size,
+            calibration_sort=calibration_sort,
+            prepare_dataset_func=prepare_dataset_func,
+            batch_size=batch_size,
+            require_fwd=require_fwd,
+        )
 
         self.calculate_w_wq_diff = calculate_w_wq_diff
         self.avg_losses = []
         self._host_pool = _PinnedHostPool()
 
     def set_calibration_dataset(self, calibration_dataset):
-        raise NotImplementedError("GPTQProcessor's calibration_dataset cannot be modified")
+        raise NotImplementedError(
+            "GPTQProcessor's calibration_dataset cannot be modified"
+        )
 
     def preprocess(self, module: NamedModule, fail_safe: bool):
         # entire module is skipped
@@ -64,27 +103,46 @@ class GPTQProcessor(LoopProcessor):
 
         # dynamic overrides
         if self.qcfg.dynamic is not None:
-            qcfg_clone.bits = self.qcfg.dynamic_get(module.full_name, "bits", qcfg_clone.bits)
-            qcfg_clone.sym = self.qcfg.dynamic_get(module.full_name, "sym", qcfg_clone.sym)
-            qcfg_clone.mse = self.qcfg.dynamic_get(module.full_name, "mse", qcfg_clone.mse)
+            qcfg_clone.bits = self.qcfg.dynamic_get(
+                module.full_name, "bits", qcfg_clone.bits
+            )
+            qcfg_clone.sym = self.qcfg.dynamic_get(
+                module.full_name, "sym", qcfg_clone.sym
+            )
+            qcfg_clone.mse = self.qcfg.dynamic_get(
+                module.full_name, "mse", qcfg_clone.mse
+            )
 
-            qcfg_clone.group_size = self.qcfg.dynamic_get(module.full_name, "group_size", qcfg_clone.group_size)
-            desc_act_override = self.qcfg.dynamic_get(module.full_name, "desc_act", None)
+            qcfg_clone.group_size = self.qcfg.dynamic_get(
+                module.full_name, "group_size", qcfg_clone.group_size
+            )
+            desc_act_override = self.qcfg.dynamic_get(
+                module.full_name, "desc_act", None
+            )
             if desc_act_override is not None:
                 qcfg_clone.desc_act = desc_act_override
-            act_group_aware_override = self.qcfg.dynamic_get(module.full_name, "act_group_aware", None)
+            act_group_aware_override = self.qcfg.dynamic_get(
+                module.full_name, "act_group_aware", None
+            )
             if act_group_aware_override is not None:
                 qcfg_clone.act_group_aware = act_group_aware_override
-            qcfg_clone.damp_percent = self.qcfg.dynamic_get(module.full_name, "damp_percent", qcfg_clone.damp_percent)
-            qcfg_clone.static_groups = self.qcfg.dynamic_get(module.full_name, "static_groups", qcfg_clone.static_groups)
+            qcfg_clone.damp_percent = self.qcfg.dynamic_get(
+                module.full_name, "damp_percent", qcfg_clone.damp_percent
+            )
+            qcfg_clone.static_groups = self.qcfg.dynamic_get(
+                module.full_name, "static_groups", qcfg_clone.static_groups
+            )
             qcfg_clone.v2 = self.qcfg.dynamic_get(module.full_name, "v2", qcfg_clone.v2)
-            qcfg_clone.v2_alpha = self.qcfg.dynamic_get(module.full_name, "v2_alpha", qcfg_clone.v2_alpha)
+            qcfg_clone.v2_alpha = self.qcfg.dynamic_get(
+                module.full_name, "v2_alpha", qcfg_clone.v2_alpha
+            )
 
-            qcfg_clone._resolve_activation_ordering(desc_act_override, act_group_aware_override)
+            qcfg_clone._resolve_activation_ordering(
+                desc_act_override, act_group_aware_override
+            )
 
         # store last used qcfg_dynamic
         self.qcfg_dynamic = qcfg_clone
-
 
         tmp = GPTQ(module=module, qcfg=qcfg_clone)
         tmp.fail_safe = fail_safe
@@ -102,18 +160,21 @@ class GPTQProcessor(LoopProcessor):
         else:
             return False
 
-    def pre_process_fwd_hook(self, name: str) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
+    def pre_process_fwd_hook(
+        self, name: str
+    ) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
         def tmp(module, inp: Tuple[torch.Tensor, ...], out: torch.Tensor):
             g = self.tasks[name]  # noqa: F821
             batch_idx = self.current_batch_index()
             with tf32_disable_guard():
                 g.add_batch(inp[0].data, out.data, batch_index=batch_idx)  # noqa: F821
             del inp, out
+
         return tmp
 
     def process(self, module: NamedModule):
         # Reset peak memory stats
-        #torch.cuda.reset_peak_memory_stats()
+        # torch.cuda.reset_peak_memory_stats()
         self.pb.title(f"Quantizing {module.name} in layer ").draw()
 
         # logger.info(f"Quantizing module START: {name}, {gptq[name].shape()}")
@@ -142,7 +203,7 @@ class GPTQProcessor(LoopProcessor):
                 )
 
             g_module = getattr(g, "module", None)
-            g_weight = getattr(g_module, "weight", None) if g_module is not None else None
+            g_weight = (getattr(g_module, "weight", None) if g_module is not None else None)
             if g_weight is not None:
                 assert g_weight.device == expected_device, (
                     f"GPTQ task for module '{module.full_name}' expected device {expected_device}, "
@@ -167,7 +228,16 @@ class GPTQProcessor(LoopProcessor):
                 )
 
         with tf32_disable_guard():
-            wq, q_scales, q_zeros, q_g_idx, duration, avg_loss, damp_percent, nsamples = g.quantize()
+            (
+                wq,
+                q_scales,
+                q_zeros,
+                q_g_idx,
+                duration,
+                avg_loss,
+                damp_percent,
+                nsamples,
+            ) = g.quantize()
 
         module.stream_state_payload_to_cpu(
             {
@@ -184,10 +254,10 @@ class GPTQProcessor(LoopProcessor):
             self.avg_losses.append(avg_loss)
             self.module_names.append(f"layer-{module.layer_index}-{module.name}")
         ## Assign the quantized weight to the weight
-        #gptq[name].layer.weight.data = q_full_weight.to(device=gptq[name].device)
+        # gptq[name].layer.weight.data = q_full_weight.to(device=gptq[name].device)
 
         ## Offload the quantized weight to CPU for EoRA
-        #quantized_weights['model.layers.%d.%s' % (module_index, name)] = q_full_weights.cpu()
+        # quantized_weights['model.layers.%d.%s' % (module_index, name)] = q_full_weights.cpu()
 
         # if task is not None:
         #     task.get_logger().report_scalar(
@@ -204,10 +274,8 @@ class GPTQProcessor(LoopProcessor):
         #         iteration=name_index,
         #     )
 
-
-
         stat = {
-            PROCESS_LOG_NAME:  self.name(),
+            PROCESS_LOG_NAME: self.name(),
             PROCESS_LOG_LAYER: module.layer_index,
             PROCESS_LOG_MODULE: module.name,
             MODULE_FEATURE_COLUMN: self.module_feature_summary(module),
@@ -231,22 +299,28 @@ class GPTQProcessor(LoopProcessor):
 
         if self.calculate_w_wq_diff:
             # diff in float32
-            w_wq_diff = module.weight.data.to(dtype=torch.float32) - wq.to(dtype=torch.float32)
+            w_wq_diff = module.weight.data.to(dtype=torch.float32) - wq.to(
+                dtype=torch.float32
+            )
             # assert module.weight.data.dtype in (torch.float16, torch.bfloat16)
 
             with self.lock:
-                module.state.update({
-                    "w_wq_diff": w_wq_diff,
-                })
+                module.state.update(
+                    {
+                        "w_wq_diff": w_wq_diff,
+                    }
+                )
 
         with self.lock:
             self.tasks[module.name].free()
 
             # logger.info(f"Quantizing module END: {name}, {gptq[name].shape()}")
             if self.calculate_w_wq_diff:
-                module.state.update({
-                    "wq": wq,  # fp16, quantized weight but not int4 (packed qweight)
-                })
+                module.state.update(
+                    {
+                        "wq": wq,  # fp16, quantized weight but not int4 (packed qweight)
+                    }
+                )
 
         # single largest deallocation of vram happens here
         module.weight.data = wq
@@ -258,12 +332,12 @@ class GPTQProcessor(LoopProcessor):
 
         # cleanup all memory or states vars persistently added by this processor
         module.stream_sync()
-        with (self.lock):
+        with self.lock:
             # if calculate_w_wq_diff is enabled (eora), we need to revert our original wq
             if self.calculate_w_wq_diff:
                 module.weight.data = module.state.pop("wq").to(CPU)
 
-            module.state.pop("w", None) #
+            module.state.pop("w", None)  #
             module.state.pop("w_wq_diff", None)
 
             # need to clone to due to steamed pinned memory and access on diff thread
@@ -312,7 +386,9 @@ class GPTQProcessor(LoopProcessor):
         # pack module
         qModules = {
             name: submodule
-            for name, submodule in find_modules(model.model, [model.qlinear_kernel]).items()
+            for name, submodule in find_modules(
+                model.model, [model.qlinear_kernel]
+            ).items()
             if name == module.full_name
         }
         pack_start = time.perf_counter() if timer is not None else None

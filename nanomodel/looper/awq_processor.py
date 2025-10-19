@@ -9,36 +9,78 @@ import torch
 from torch import nn
 from torch.nn import Module
 
-from ..looper.loop_processor import DTYPE_SIZE_COLUMN, MODULE_FEATURE_COLUMN, LoopProcessor
+from ..looper.loop_processor import (
+    DTYPE_SIZE_COLUMN,
+    MODULE_FEATURE_COLUMN,
+    LoopProcessor,
+)
 from ..looper.named_module import NamedModule
+
 from ..models import BaseNanoModel
-from ..models.writer import (PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
-                             PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_LOSS, QUANT_LOG_NSAMPLES)
+from ..models.writer import (
+    PROCESS_LOG_LAYER,
+    PROCESS_LOG_MODULE,
+    PROCESS_LOG_NAME,
+    PROCESS_LOG_TIME,
+    PROCESS_USED_MEMORY,
+    QUANT_LOG_LOSS,
+    QUANT_LOG_NSAMPLES,
+)
+
 from ..nn_modules.qlinear.awq_gemm import AwqGEMMQuantLinear
 from ..nn_modules.qlinear.awq_gemv import AwqGEMVQuantLinear
 from ..nn_modules.qlinear.awq_gemv_fast import AwqGEMVFastQuantLinear
 from ..nn_modules.qlinear.awq_marlin import AwqMarlinQuantLinear
-from ..quantization.awq.modules.linear import WQLinear_GEMM, WQLinear_GEMV, WQLinear_GEMVFast, WQLinear_Marlin
+
+from ..quantization.awq.modules.linear import (
+    WQLinear_GEMM,
+    WQLinear_GEMV,
+    WQLinear_GEMVFast,
+    WQLinear_Marlin,
+)
 from ..quantization.awq.quantize.scale import apply_clip, apply_scale
-from ..quantization.awq.utils.module import append_str_prefix, get_op_name, set_op_by_name
+from ..quantization.awq.utils.module import (
+    append_str_prefix,
+    get_op_name,
+    set_op_by_name,
+)
 from ..quantization.awq.utils.utils import get_best_device
 from ..quantization.config import FORMAT, METHOD, QuantizeConfig
+
 # from ..utils.logger import setup_logger
+
 from ..utils.ctx import ctx
 from ..utils.model import get_module_by_name_prefix, move_to
 from ..utils.torch import CPU, tf32_disable_guard, tf32_enable_guard, torch_sync
 
 # log = setup_logger()
 
-class AWQProcessor(LoopProcessor):
-    def __init__(self, tokenizer, qcfg: QuantizeConfig, calibration, prepare_dataset_func,
-                 calibration_concat_size: Optional[int], calibration_sort: Optional[str], batch_size: int, gptq_model, model,
-                 require_fwd: bool = True, calculate_w_wq_diff: bool = False):
 
-        super().__init__(tokenizer=tokenizer, qcfg=qcfg, calibration=calibration,
-                         calibration_concat_size=calibration_concat_size, calibration_sort=calibration_sort,
-                         prepare_dataset_func=prepare_dataset_func, batch_size=batch_size,
-                         require_fwd=require_fwd)
+class AWQProcessor(LoopProcessor):
+    def __init__(
+        self,
+        tokenizer,
+        qcfg: QuantizeConfig,
+        calibration,
+        prepare_dataset_func,
+        calibration_concat_size: Optional[int],
+        calibration_sort: Optional[str],
+        batch_size: int,
+        gptq_model,
+        model,
+        require_fwd: bool = True,
+        calculate_w_wq_diff: bool = False,
+    ):
+        super().__init__(
+            tokenizer=tokenizer,
+            qcfg=qcfg,
+            calibration=calibration,
+            calibration_concat_size=calibration_concat_size,
+            calibration_sort=calibration_sort,
+            prepare_dataset_func=prepare_dataset_func,
+            batch_size=batch_size,
+            require_fwd=require_fwd,
+        )
 
         self.calculate_w_wq_diff = calculate_w_wq_diff
         self.avg_losses = []
@@ -74,12 +116,20 @@ class AWQProcessor(LoopProcessor):
         self.modules, self.module_kwargs, self.inps = self.init_quant()
 
     def set_calibration_dataset(self, calibration_dataset):
-        raise NotImplementedError("AWQProcessor's calibration_dataset cannot be modified")
+        raise NotImplementedError(
+            "AWQProcessor's calibration_dataset cannot be modified"
+        )
 
     def init_quant(self):
-        modules, _ = get_module_by_name_prefix(self.gptq_model.model, self.gptq_model.extract_layers_node())
+        modules, _ = get_module_by_name_prefix(
+            self.gptq_model.model, self.gptq_model.extract_layers_node()
+        )
         # make sure samples tensor's shape is [1, max_calib_seq_len]
-        samples = [data['input_ids'][:, :self.max_calib_seq_len] for data in self.calibration_dataset if data['input_ids'].shape[1] >= self.max_calib_seq_len]
+        samples = [
+            data["input_ids"][:, : self.max_calib_seq_len]
+            for data in self.calibration_dataset
+            if data["input_ids"].shape[1] >= self.max_calib_seq_len
+        ]
 
         samples = torch.cat(samples, dim=0)
 
@@ -120,7 +170,7 @@ class AWQProcessor(LoopProcessor):
             # If use_cache=True, layer_kwargs will contain past_key_values instead of attention_mask.
             # Autoawq does not pass the use_cache parameter here.
             # I haven't found the root cause yet.
-            
+
             # Check if model parameters are on meta device and use best_device instead
             # to avoid torch.autocast(device_type="meta") error in transformers
             model_device = next(self.model.parameters()).device
@@ -129,7 +179,9 @@ class AWQProcessor(LoopProcessor):
             else:
                 target_device = model_device
 
-            print(f"AWQProcessor: model parameters are on meta device, using {target_device} instead")
+            print(
+                f"AWQProcessor: model parameters are on meta device, using {target_device} instead"
+            )
 
             with tf32_enable_guard():
                 self.model(samples.to(torch.device(target_device)), use_cache=False)
@@ -145,7 +197,7 @@ class AWQProcessor(LoopProcessor):
 
         del samples
         inps = inps[0]
-        
+
         # we no longer need embed, reduce vram
         self.gptq_model.move_embed("cpu")
 
@@ -175,7 +227,10 @@ class AWQProcessor(LoopProcessor):
                 "block_sparse_moe": layer.block_sparse_moe,
             }
 
-        if self.model.config.model_type == "deepseek_v2" or self.model.config.model_type == "deepseek_v3":
+        if (
+            self.model.config.model_type == "deepseek_v2"
+            or self.model.config.model_type == "deepseek_v3"
+        ):
             named_linears = {
                 **named_linears,
                 "mlp": layer.mlp,
@@ -219,13 +274,13 @@ class AWQProcessor(LoopProcessor):
 
     @torch.inference_mode()
     def _search_best_scale(
-            self,
-            module,
-            prev_op,
-            layers: List[nn.Linear],
-            inp: torch.Tensor,
-            module2inspect=None,
-            kwargs={},
+        self,
+        module,
+        prev_op,
+        layers: List[nn.Linear],
+        inp: torch.Tensor,
+        module2inspect=None,
+        kwargs={},
     ):
         self.nsamples += inp.shape[0]
 
@@ -282,7 +337,9 @@ class AWQProcessor(LoopProcessor):
             fp16_output = self._module_forward(inp, module2inspect, module_kwargs)
 
         with tf32_disable_guard():
-            fp16_output = fp16_output.clip(torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max)
+            fp16_output = fp16_output.clip(
+                torch.finfo(fp16_output.dtype).min, torch.finfo(fp16_output.dtype).max
+            )
 
             # [STEP 4]: Compute loss
             best_scales, loss = self._compute_best_scale(
@@ -293,11 +350,13 @@ class AWQProcessor(LoopProcessor):
             get_op_name(module, prev_op),
             tuple([get_op_name(module, m) for m in layers]),
             best_scales,
-            loss
+            loss,
         )
 
     # The module here is model.layers[x]
-    def layer_quantize(self, module: Module, device: torch.device, named_childs: Dict[str, NamedModule]):
+    def layer_quantize(
+        self, module: Module, device: torch.device, named_childs: Dict[str, NamedModule]
+    ):
         start = time.time()
         common_device = device
 
@@ -317,15 +376,17 @@ class AWQProcessor(LoopProcessor):
                 )
 
         # TODO FIX ME: ???
-        if (self.module_kwargs.get('attention_mask') is None):
-            self.module_kwargs['attention_mask'] = None
+        if self.module_kwargs.get("attention_mask") is None:
+            self.module_kwargs["attention_mask"] = None
 
         for k, v in self.module_kwargs.items():
             # position embeddings found in tuple
             if isinstance(v, tuple):
                 self.module_kwargs[k] = tuple(
-                    item.to(common_device) if isinstance(item, (torch.Tensor, nn.Module))
-                    else item for item in v
+                    item.to(common_device)
+                    if isinstance(item, (torch.Tensor, nn.Module))
+                    else item
+                    for item in v
                 )
 
         # [STEP 1]: Get layer, extract linear modules, extract input features
@@ -346,8 +407,7 @@ class AWQProcessor(LoopProcessor):
                 module, input_feat, self.module_kwargs
             )
             scales_list = [
-                self._search_best_scale(module, **layer)
-                for layer in module_config
+                self._search_best_scale(module, **layer) for layer in module_config
             ]
             apply_scale(module, scales_list, input_feat_dict=input_feat)
         scales_list = append_str_prefix(
@@ -357,9 +417,7 @@ class AWQProcessor(LoopProcessor):
         # [STEP 3]: Compute and apply clipping list
         if self.apply_clip:
             with tf32_disable_guard():
-                clip_list = self._search_best_clip(
-                    module, named_linears, input_feat
-                )
+                clip_list = self._search_best_clip(module, named_linears, input_feat)
                 apply_clip(module, clip_list)
             clip_list = append_str_prefix(
                 clip_list, get_op_name(self.model, module) + "."
@@ -392,18 +450,20 @@ class AWQProcessor(LoopProcessor):
 
     @torch.inference_mode()
     def _compute_best_clip(
-            self,
-            w: torch.Tensor,
-            input_feat: torch.Tensor,
-            n_grid=20,
-            max_shrink=0.5,
-            n_sample_token=512,
+        self,
+        w: torch.Tensor,
+        input_feat: torch.Tensor,
+        n_grid=20,
+        max_shrink=0.5,
+        n_sample_token=512,
     ):
         assert w.dim() == 2
         org_w_shape = w.shape
         # w           [co, ci]      -> [co, 1, n_group, group size]
         # input_feat  [n_token, ci] -> [1, n_token, n_group, group size]
-        group_size = self.qcfg.group_size if self.qcfg.group_size > 0 else org_w_shape[1]
+        group_size = (
+            self.qcfg.group_size if self.qcfg.group_size > 0 else org_w_shape[1]
+        )
         input_feat = input_feat.view(-1, input_feat.shape[-1])
         input_feat = input_feat.reshape(1, input_feat.shape[0], -1, group_size)
 
@@ -419,7 +479,7 @@ class AWQProcessor(LoopProcessor):
         best_max_val_all = []
 
         for i_b in range(org_w_shape[0] // oc_batch_size):
-            w = w_all[i_b * oc_batch_size: (i_b + 1) * oc_batch_size]
+            w = w_all[i_b * oc_batch_size : (i_b + 1) * oc_batch_size]
 
             org_max_val = w.abs().amax(dim=-1, keepdim=True)  # co, 1, n_group, 1
 
@@ -449,11 +509,13 @@ class AWQProcessor(LoopProcessor):
         del org_out
 
         return best_max_val.squeeze(1)
-    
+
     def pseudo_quantize_tensor(self, w: torch.Tensor):
         org_w_shape = w.shape
         if self.qcfg.group_size > 0:
-            assert org_w_shape[-1] % self.qcfg.group_size == 0, f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({self.qcfg.group_size})!"
+            assert org_w_shape[-1] % self.qcfg.group_size == 0, (
+                f"org_w_shape ({org_w_shape[-1]}) must be a multiple of group_size ({self.qcfg.group_size})!"
+            )
             w = w.reshape(-1, self.qcfg.group_size)
         assert w.dim() == 2
         assert torch.isnan(w).sum() == 0
@@ -495,7 +557,7 @@ class AWQProcessor(LoopProcessor):
         module2inspect: torch.nn.Module,
         linears2scale: List[nn.Linear],
         fp16_output: torch.Tensor,
-        kwargs: Dict={},
+        kwargs: Dict = {},
     ):
         """
         Compute loss and select best scales
@@ -524,7 +586,9 @@ class AWQProcessor(LoopProcessor):
 
             # NOTE: s^-1 * x is fused here, according to paper
             if self.duo_scaling:
-                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(min=1e-4)
+                scales = (x_mean.pow(ratio) / (w_mean.pow(1 - ratio) + 1e-4)).clamp(
+                    min=1e-4
+                )
             else:
                 scales = x_mean.pow(ratio).clamp(min=1e-4).view(-1)
             scales = scales / (scales.max() * scales.min()).sqrt()
@@ -543,7 +607,9 @@ class AWQProcessor(LoopProcessor):
 
             # W * X
             int_w_output = self._module_forward(x, module2inspect, kwargs)
-            int_w_output = int_w_output.clip(torch.finfo(int_w_output.dtype).min, torch.finfo(int_w_output.dtype).max)
+            int_w_output = int_w_output.clip(
+                torch.finfo(int_w_output.dtype).min, torch.finfo(int_w_output.dtype).max
+            )
 
             # compute mean squared error (L2 norm)
             loss = self._compute_loss(fp16_output, int_w_output, device)
@@ -566,10 +632,10 @@ class AWQProcessor(LoopProcessor):
 
     @torch.inference_mode()
     def _compute_loss(
-            self,
-            fp16_output: torch.Tensor,
-            int_w_output: torch.Tensor,
-            device: torch.device,
+        self,
+        fp16_output: torch.Tensor,
+        int_w_output: torch.Tensor,
+        device: torch.device,
     ):
         loss = 0.0
         fp16_output_flat = fp16_output.view(-1)
@@ -588,7 +654,13 @@ class AWQProcessor(LoopProcessor):
 
         # Compute the loss for each chunk
         for fp16_chunk, int_w_chunk in zip(fp16_chunks, int_w_chunks):
-            chunk_loss = (fp16_chunk.to(device) - int_w_chunk.to(device)).float().pow(2).sum().item()
+            chunk_loss = (
+                (fp16_chunk.to(device) - int_w_chunk.to(device))
+                .float()
+                .pow(2)
+                .sum()
+                .item()
+            )
             loss += chunk_loss
 
         # Normalize the loss by the total number of elements
@@ -598,7 +670,7 @@ class AWQProcessor(LoopProcessor):
 
     @torch.inference_mode()
     def _module_forward(
-            self, x: torch.Tensor, module: torch.nn.Module, module_kwargs: Dict
+        self, x: torch.Tensor, module: torch.nn.Module, module_kwargs: Dict
     ) -> torch.Tensor:
         with tf32_enable_guard():
             if self.n_parallel_calib_samples is None:
@@ -623,7 +695,9 @@ class AWQProcessor(LoopProcessor):
 
         return module_output
 
-    def _apply_quant(self, module, named_linears: Dict[str, NamedModule], start_time, scales_list):
+    def _apply_quant(
+        self, module, named_linears: Dict[str, NamedModule], start_time, scales_list
+    ):
         for name, named_module in named_linears.items():
             self.pb.title(f"Quantizing {named_module.name} in layer ").draw()
             linear_layer = named_module.module
@@ -642,14 +716,14 @@ class AWQProcessor(LoopProcessor):
                 pad = weight_for_quant.new_zeros(weight_for_quant.shape[0], pad_cols)
                 weight_for_quant = torch.cat((weight_for_quant, pad), dim=1)
 
-            wq, scales, zeros = self.pseudo_quantize_tensor(
-                weight_for_quant
-            )
+            wq, scales, zeros = self.pseudo_quantize_tensor(weight_for_quant)
 
             if pad_cols:
                 wq = wq[:, :original_cols]
                 if self.qcfg.group_size > 0:
-                    valid_groups = max(1, math.ceil(original_cols / self.qcfg.group_size))
+                    valid_groups = max(
+                        1, math.ceil(original_cols / self.qcfg.group_size)
+                    )
                     scales = scales[:, :valid_groups]
                     if zeros is not None:
                         zeros = zeros[:, :valid_groups]
@@ -663,15 +737,21 @@ class AWQProcessor(LoopProcessor):
                     w_wq_diff = linear_layer.weight.data - wq
                 else:
                     # diff in float32
-                    w_wq_diff = linear_layer.weight.data.to(dtype=torch.float32) - wq.to(dtype=torch.float32)
+                    w_wq_diff = linear_layer.weight.data.to(
+                        dtype=torch.float32
+                    ) - wq.to(dtype=torch.float32)
 
-                named_module.state.update({
-                    "w_wq_diff": w_wq_diff,
-                })
+                named_module.state.update(
+                    {
+                        "w_wq_diff": w_wq_diff,
+                    }
+                )
 
-            named_module.state.update({
-                "wq": wq,  # fp16, quantized weight but not int4 (packed qweight)
-            })
+            named_module.state.update(
+                {
+                    "wq": wq,  # fp16, quantized weight but not int4 (packed qweight)
+                }
+            )
 
             if isinstance(tp_info, dict):
                 named_module.state.pop("tp_pad_info", None)
@@ -733,7 +813,9 @@ class AWQProcessor(LoopProcessor):
                 PROCESS_USED_MEMORY: self.device_memory_report(),
             }
             with self.lock:
-                self.module_names.append(f"layer-{named_module.layer_index}-{named_module.name}")
+                self.module_names.append(
+                    f"layer-{named_module.layer_index}-{named_module.name}"
+                )
                 self.log.append(stat)
 
             # Log the new row
@@ -772,7 +854,9 @@ class AWQProcessor(LoopProcessor):
         #     return False
         pass
 
-    def pre_process_fwd_hook(self, name: str) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
+    def pre_process_fwd_hook(
+        self, name: str
+    ) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
         pass
 
     def process(self, module: NamedModule):
@@ -783,8 +867,10 @@ class AWQProcessor(LoopProcessor):
     # submodule_finalized is called in reverse after all next sequential processes are called
     def submodule_finalize(self, module: NamedModule, **kwargs):
         # generate complete, safe to move to cpu
-        module.weight.data = move_to(module.weight.data, device=CPU) # large weights is slow to init on cpu
-        module.state.pop("w", None) # no need for original weights now
+        module.weight.data = move_to(
+            module.weight.data, device=CPU
+        )  # large weights is slow to init on cpu
+        module.state.pop("w", None)  # no need for original weights now
 
     def finalize(self, model: BaseNanoModel, **kwargs):
         if model.quantize_config.format == FORMAT.GEMM:

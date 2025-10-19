@@ -64,7 +64,6 @@ class FORMAT(str, Enum):
 # quant methods
 class METHOD(str, Enum):
     GPTQ = "gptq"
-    QQQ = "qqq"
     AWQ = "awq"
 
 

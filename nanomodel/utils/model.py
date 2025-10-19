@@ -30,11 +30,11 @@ from transformers.utils.hub import cached_file
 
 from nanomodel.nn_modules.qlinear.marlin import MarlinQuantLinear
 
-
 from ..looper.named_module import NamedModule
 from ..models._const import (
     CPU,
     DEVICE,
+    EXLLAMA_DEFAULT_MAX_INPUT_LENGTH,
     EXPERT_INDEX_PLACEHOLDER,
     SUPPORTS_MODULE_TYPES,
 )
@@ -44,7 +44,7 @@ from ..quantization.config import FORMAT_FIELD_CHECKPOINT, METHOD, dynamic_get
 from . import has_gil_disabled
 from .backend import BACKEND
 from .ctx import ctx
-from .device import get_cpu_concurrency, get_device
+from .device import get_device
 from .importer import select_quant_linear
 from .logger import log_time_block, setup_logger
 from .torch import HAS_CUDA, torch_empty_cache
@@ -226,13 +226,15 @@ def make_quant(
 
     bits = qcfg.bits
     group_size =qcfg.group_size
+    extension = qcfg.adapter
     format = qcfg.format
     desc_act = qcfg.desc_act
     sym = qcfg.sym
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
 
-    if not pack and format == FORMAT.GPTQ:
+    # Bitblas needs to be loaded as gptq's quant linear first, and then converted to bitblas format.
+    if not pack and format == FORMAT.GPTQ and backend == BACKEND.BITBLAS:
         backend = BACKEND.TORCH
 
     # returns multiple validated kernels
@@ -249,6 +251,7 @@ def make_quant(
         device=device,
         pack_dtype=pack_dtype,
         multi_select=True,
+        adapter=extension,
     )
 
     log.info(f"Kernel: candidates -> `[{', '.join(cls.__name__ for cls in quant_linear_candidates)}]`")
@@ -274,6 +277,7 @@ def make_quant(
                 lm_head_name=lm_head_name,
                 pack_dtype=pack_dtype,
                 backend=backend,
+                adapter=qcfg.adapter,
             )
             log.info(f"Kernel: selected -> `{linear_cls.__name__}`.")
             return linear_cls
@@ -365,7 +369,7 @@ def create_quant_module(
             tmp_sym = overrides.get("sym", sym)
             tmp_pack_dtype = overrides.get("pack_dtype", pack_dtype)
 
-    # when loading a quantized model, device is target device passed in AutoNanoModel.load()
+    # when loading a quantized model, device is target device passed in GPTQModel.load()
     # check in_features and out_features validate
     _, err = linear_cls.validate(
         bits=tmp_bits,
@@ -556,7 +560,7 @@ def convert_gptq_v1_to_v2_format(
     # with tctl.threadpool_limits(limits=1):
     time.time()
     log.info(
-        f"Format: Converting `{FORMAT_FIELD_CHECKPOINT}` from `{FORMAT.GPTQ}` to internal `FORMAT.GPTQ_V2`.")
+        f"Format: Converting `{FORMAT_FIELD_CHECKPOINT}` from `{FORMAT.GPTQ}` to internal `{FORMAT.GPTQ_V2}`.")
 
     for _, submodule in model.named_modules():
         # v1 checkpoint format used to do `qzeros = qzeros -= 1` before serialization, thus the
@@ -579,7 +583,7 @@ def hf_convert_gptq_v2_to_v1_format(
     checkpoint_format: str,
     meta: Optional[Dict[str, any]],
 ) -> Tuple[nn.Module, bool]:
-    # note: sym=False is valid for gptq_v2 for all nanomodel and gptq(v1) for nanomodel>= `0.9.0`
+    # note: sym=False is valid for gptq_v2 for all gptqmodel and gptq(v1) for gptqmodel >= `0.9.0`
     if sym and checkpoint_format == "gptq_v2":
         quantize_config = QuantizeConfig(bits=bits)
         return convert_gptq_v2_to_v1_format(model, quantize_config, qlinear_kernel), True
@@ -828,7 +832,9 @@ def pack_model(
     lock = threading.Lock()
 
     if has_gil_disabled():
-        max_packers = get_cpu_concurrency()
+        from device_smi import Device
+        cpu = Device("cpu")
+        max_packers = cpu.count * cpu.cores
     else:
         max_packers = 1 # due to gil, there is no point packing with more than 1 thread
 
@@ -893,21 +899,17 @@ def simple_dispatch_model(model, device_map):
 
 
 # public/stable api exposed to transformer/optimum
-def hf_nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def hf_gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
-    return nanomodel_post_init(model, use_act_order, quantize_config, max_input_length)
+    return gptqmodel_post_init(model, use_act_order, quantize_config, max_input_length)
 
 
-def nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
-    """Finalize quantized layers after model load."""
-
-    for _, submodule in model.named_modules():
-        if isinstance(submodule, BaseQuantLinear):
-            submodule.post_init()
-
+    """
+    The max_input_length argument is specific to the exllama backend, that requires to initialize a buffer temp_state.
+    """
     torch_empty_cache()
-
     return model
 
 

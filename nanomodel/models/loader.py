@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import os
 import time
 from importlib.metadata import PackageNotFoundError, version
@@ -31,7 +30,7 @@ from ..quantization import QuantizeConfig
 from ..quantization.config import FORMAT, METHOD, MIN_VERSION_WITH_V2
 from ..utils.backend import BACKEND
 from ..utils.importer import auto_select_device, normalize_device_device_map, select_quant_linear
-# from ..utils.logger import setup_logger # 移除自定义 logger 导入
+from ..utils.logger import setup_logger
 from ..utils.marlin import _validate_marlin_device_support
 from ..utils.model import (
     auto_dtype,
@@ -40,24 +39,14 @@ from ..utils.model import (
     find_modules,
     get_checkpoints,
     get_module_by_name_prefix,
-    nanomodel_post_init,
+    gptqmodel_post_init,
     load_checkpoint_in_model_then_tie_weights,
     make_quant,
     simple_dispatch_model,
 )
 from ._const import DEVICE, normalize_device
 
-
-# log = setup_logger() # 移除自定义 logger 初始化
-logger = logging.getLogger("nanomodel") # using logging
-logger.setLevel(os.environ.get("NANOMODEL_LOGLEVEL", "INFO").upper())
-if not logger.handlers:
-    # simple console handler setup for basic logging
-    handler = logging.StreamHandler()
-    formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
-    handler.setFormatter(formatter)
-    logger.addHandler(handler)
-
+log = setup_logger()
 
 ATTN_IMPLEMENTATION = "attn_implementation"
 def parse_version_string(version_str: str):
@@ -175,7 +164,7 @@ def ModelLoader(cls):
         atten_impl = model_init_kwargs.get("attn_implementation", None)
 
         if atten_impl is not None and atten_impl != "auto":
-            logger.info(f"Loader: overriding attn_implementation in config to `{atten_impl}`") # 替换 print
+            log.info(f"Loader: overriding attn_implementation in config to `{atten_impl}`")
             config._attn_implementation = atten_impl
 
         # normalize and auto select quantization device is not passed
@@ -212,12 +201,10 @@ def ModelLoader(cls):
         if quantize_config.offload_to_disk:
             model = build_shell_model(cls.loader, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            logger.info("Printing module tree for shell model:")
             print_module_tree(model=model)
 
             # enable mmap with low_cpu_mem_usage
-            # turtle_spinner = log.spinner(title="Turtle model loading...", interval=0.1) # 移除自定义 spinner
-            logger.info("Turtle model loading started (using low_cpu_mem_usage=True)...")
+            turtle_spinner = log.spinner(title="Turtle model loading...", interval=0.1)
             try:
                 turtle_model = cls.loader.from_pretrained(
                     model_local_path,
@@ -225,23 +212,17 @@ def ModelLoader(cls):
                     low_cpu_mem_usage=True,
                     **model_init_kwargs,
                 )
-            except Exception as e:
-                # turtle_spinner.close() # 移除自定义 spinner
-                logger.error(f"Turtle model loading failed: {e}")
-                raise e
             finally:
-                # turtle_spinner.close() # 移除自定义 spinner
-                pass
+                turtle_spinner.close()
 
             # TODO FIX ME...temp store model_init args
             turtle_model._model_init_kwargs = model_init_kwargs
             # print("actual turtle model-----------")
             # print_module_tree(model=turtle_model)
         else:
-            logger.info("loading model directly to CPU (not using meta device or turtle_model)-----------") # 替换 print
+            print("loading model directly to CPU (not using meta device or turtle_model)-----------")
             model = cls.loader.from_pretrained(model_local_path, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            logger.info("Printing module tree for model loaded directly to CPU:")
             print_module_tree(model=model)
 
             turtle_model = None
@@ -252,7 +233,7 @@ def ModelLoader(cls):
         if config_seq_len is not None:
             model.seqlen = config_seq_len
         else:
-            logger.warning("Model: can't get model's sequence length from model config, will set to 4096.") # 替换 log.warn
+            log.warn("Model: can't get model's sequence length from model config, will set to 4096.")
             model.seqlen = 4096
 
         model.eval()
@@ -302,7 +283,7 @@ def ModelLoader(cls):
 
         # TODO need to normalize backend and others in a unified api
         if isinstance(backend, str):
-            backend = (backend)
+            backend =  (backend)
         device = auto_select_device(device, backend)
 
         if backend == BACKEND.VLLM:
@@ -374,7 +355,7 @@ def ModelLoader(cls):
 
         if qcfg.quant_method == METHOD.AWQ and qcfg.format in [FORMAT.GEMV_FAST]:
             # GEMV_FAST only supports torch.float16
-            logger.info("Loading Quantized Model: Auto fix `dtype` to `torch.float16`") # 替换 log.info
+            log.info("Loading Quantized Model: Auto fix `dtype` to `torch.float16`")
             dtype = torch.float16
 
         qcfg.calculate_bits_per_weight()
@@ -425,6 +406,15 @@ def ModelLoader(cls):
             if backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and backend != BACKEND.AUTO:
                 raise TypeError(f"FORMAT.MARLIN requires BACKEND.AUTO or BACKEND.MARLIN: actual = `{backend}`.")
             backend = BACKEND.MARLIN
+
+        # marlin_compatible = False if backend == BACKEND.IPEX else _validate_marlin_device_support()
+        # check for marlin compat for cuda device only
+        # if backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and device == DEVICE.CUDA:
+        #     unsupported = _validate_marlin_compatibility(qcfg)
+        #     if unsupported is None and marlin_compatible:
+        #         logger.info(
+        #             "Hint: Model is compatible with the Marlin kernel. Marlin is optimized for batched inference on Nvidia GPU: `model = GPTQModel.load(..., backend=BACKEND.MARLIN)`."
+        #         )
 
         possible_model_basenames = [
             f"gptq_model-{qcfg.bits}bit-{qcfg.group_size}g",
@@ -484,7 +474,7 @@ def ModelLoader(cls):
                     args[ATTN_IMPLEMENTATION] = kwargs.pop(ATTN_IMPLEMENTATION, None)
                 elif is_flash_attn_2_available():
                     args = {ATTN_IMPLEMENTATION: "flash_attention_2"}
-                    logger.info("Loader: Auto enabling flash attention2") # 替换 log.info
+                    log.info("Loader: Auto enabling flash attention2")
 
             model = cls.loader.from_config(
                 config, trust_remote_code=trust_remote_code, dtype=dtype, **args
@@ -506,11 +496,11 @@ def ModelLoader(cls):
                     continue
 
                 if not any(name.startswith(prefix) for prefix in cls.extract_layers_node()) or any(name.startswith(ignore_module) for ignore_module in ignore_modules) or all(
-                            not name.endswith(ignore_module) for sublist in cls.simple_layer_modules(config, qcfg) for ignore_module in sublist
+                        not name.endswith(ignore_module) for sublist in cls.simple_layer_modules(config, qcfg) for ignore_module in sublist
                 ):
                     # log non-lm-head quantized modules only
                     if name is not cls.lm_head:
-                        logger.info(f"The layer {name} is not quantized.") # 替换 log.info
+                        log.info(f"The layer {name} is not quantized.")
                     del modules[name]
 
             preload_qlinear_kernel = make_quant(
@@ -561,7 +551,6 @@ def ModelLoader(cls):
             )
 
         load_checkpoint_in_model = True
-        # compat: runtime convert checkpoint gptq(v1) to gptq_v2 format
         if qcfg.format in [FORMAT.GPTQ, FORMAT.GEMM]:
             load_checkpoint_in_model_then_tie_weights(
                 model,
@@ -582,7 +571,16 @@ def ModelLoader(cls):
                         f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by nanomodel version >= {MIN_VERSION_WITH_V2}"
                     )
 
-        if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and qcfg.format == FORMAT.MARLIN:
+                if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
+                    model = convert_gptq_v1_to_v2_format(
+                        model,
+                        cfg=qcfg,
+                        qlinear_kernel=preload_qlinear_kernel,
+                    )
+
+                    # qcfg.runtime_format = FORMAT.GPTQ_V2
+
+        if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.format == FORMAT.MARLIN):
             if is_sharded:
                 raise ValueError(
                     "Format: The loading of sharded checkpoints with Marlin is currently not supported."
@@ -595,8 +593,10 @@ def ModelLoader(cls):
             # Validate the model can run in Marlin.
             if dtype != torch.float16:
                 raise ValueError("Marlin kernel requires dtype=torch.float16.")
+ 
 
-
+        # If we use marlin or bitblas to load the quantized model, the model is already a converted model,
+        # and we no longer need to call load_checkpoint_in_model()
         if load_checkpoint_in_model and backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16]:
             load_checkpoint_in_model_then_tie_weights(
                 model,
@@ -631,11 +631,11 @@ def ModelLoader(cls):
         if config_seq_len is not None:
             model.seqlen = config_seq_len
         else:
-            logger.warning("can't get model's sequence length from model config, will set to 4096.") # 替换 log.warn
+            log.warn("can't get model's sequence length from model config, will set to 4096.")
             model.seqlen = 4096
 
         # Any post-initialization that require device information, for example buffers initialization on device.
-        model = nanomodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
+        model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
 
         model.eval()
 
@@ -664,6 +664,7 @@ def ModelLoader(cls):
                 model, _ = load(temp_dir)
 
                 cls.generate = lambda _, **kwargs: mlx_generate(model=model, tokenizer=tokenizer, **kwargs)
+
 
         return cls(
             model,
