@@ -25,10 +25,10 @@ def main():
     device = get_best_device(backend)
 
     if backend == BACKEND.SGLANG:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.6.2"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.8.5"])
         subprocess.check_call([sys.executable, "-m", "pip", "install", "sglang[srt]>=0.3.2"])
     elif backend == BACKEND.VLLM:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.6.2"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.8.5"])
 
     prompt = "What model you are ?"
 
@@ -36,7 +36,7 @@ def main():
         quantized_model_id = "qwen3-1.7B-GPTQ-4bit"
 
         if backend == BACKEND.SGLANG:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.6.2"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.8.5"])
             subprocess.check_call([sys.executable, "-m", "pip", "install", "sglang[srt]>=0.3.2"])
             model = AutoNanoModel.load(
                 quantized_model_id,
@@ -49,13 +49,15 @@ def main():
             model.shutdown()
             del model
         else:
-            subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.6.2"])
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.8.5"])
             model = AutoNanoModel.load(
                 quantized_model_id,
                 device=device,
                 backend=backend,
             )
             output = model.generate(prompts=prompt, temperature=0.8, top_p=0.95)[0].outputs[0].text
+            model.shutdown()
+            del model
     else:
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
         examples = [

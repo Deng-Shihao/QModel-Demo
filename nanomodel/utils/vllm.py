@@ -57,12 +57,20 @@ def load_model_by_vllm(
     if not VLLM_AVAILABLE:
         raise ValueError(VLLM_INSTALL_HINT)
 
-    model = LLM(
-        model=model,
-        **kwargs,
-    )
-
-    return model
+    try:
+        llm = LLM(
+            model=model,
+            **kwargs,
+        )
+        return llm
+    except Exception:
+        try:
+            import torch.distributed as dist  # type: ignore
+            if dist.is_available() and dist.is_initialized():
+                dist.destroy_process_group()
+        except Exception:
+            pass
+        raise
 
 
 @torch.inference_mode()

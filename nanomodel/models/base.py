@@ -1094,6 +1094,20 @@ class BaseNanoModel(nn.Module):
         if self.server is not None:
             self.server.shutdown()
 
+    def shutdown(self):
+        model = getattr(self, "model", None)
+        if model is not None and hasattr(model, "shutdown"):
+            try:
+                model.shutdown()
+            except Exception:
+                pass
+        try:
+            import torch.distributed as dist  # type: ignore
+            if dist.is_available() and dist.is_initialized():
+                dist.destroy_process_group()
+        except Exception:
+            pass
+
     def serve_wait_until_ready(self, timeout: int = 30, check_interval: float = 0.1):
         if self.server is not None:
             self.server.wait_until_ready(timeout=timeout, check_interval=check_interval)
