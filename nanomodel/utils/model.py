@@ -34,7 +34,6 @@ from ..looper.named_module import NamedModule
 from ..models._const import (
     CPU,
     DEVICE,
-    EXLLAMA_DEFAULT_MAX_INPUT_LENGTH,
     EXPERT_INDEX_PLACEHOLDER,
     SUPPORTS_MODULE_TYPES,
 )
