@@ -31,8 +31,17 @@ class TestGroupSize(unittest.TestCase):
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.pretrained_model_id, use_fast=True)
 
-        traindata = load_dataset("json", data_files="/monster/data/model/dataset/c4-train.00000-of-01024.json.gz",
-                                 split="train")
+        dataset_path = os.environ.get(
+            "NANOMODEL_CALIBRATION_DATA",
+            os.path.join(os.path.dirname(__file__), "example", "data", "c4_sample_calibration.jsonl"),
+        )
+        if not os.path.exists(dataset_path):
+            raise FileNotFoundError(
+                f"Calibration dataset not found at {dataset_path}. "
+                "Set NANOMODEL_CALIBRATION_DATA to a valid json/jsonl file."
+            )
+
+        traindata = load_dataset("json", data_files=dataset_path, split="train")
         self.calibration_dataset = traindata.select(range(1024))
 
     # def test_load_group_128(self):
