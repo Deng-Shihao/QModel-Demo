@@ -225,7 +225,6 @@ def make_quant(
 
     bits = qcfg.bits
     group_size =qcfg.group_size
-    extension = qcfg.adapter
     format = qcfg.format
     desc_act = qcfg.desc_act
     sym = qcfg.sym
@@ -249,7 +248,6 @@ def make_quant(
         device=device,
         pack_dtype=pack_dtype,
         multi_select=True,
-        adapter=extension,
     )
 
     log.info(f"Kernel: candidates -> `[{', '.join(cls.__name__ for cls in quant_linear_candidates)}]`")
@@ -275,7 +273,6 @@ def make_quant(
                 lm_head_name=lm_head_name,
                 pack_dtype=pack_dtype,
                 backend=backend,
-                adapter=qcfg.adapter,
             )
             log.info(f"Kernel: selected -> `{linear_cls.__name__}`.")
             return linear_cls
