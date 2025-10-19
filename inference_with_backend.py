@@ -68,7 +68,7 @@ def main():
             bits=4,  # quantize model to 4-bit
             group_size=128,  # it is recommended to set the value to 128
             # set to False can significantly speed up inference but the perplexity may slightly bad
-            desc_act=False if backend == BACKEND.BITBLAS or backend == BACKEND.MARLIN else True,
+            desc_act=False if backend == BACKEND.MARLIN else True,
         )
 
         # load un-quantized model, by default, the model will always be loaded into CPU memory
