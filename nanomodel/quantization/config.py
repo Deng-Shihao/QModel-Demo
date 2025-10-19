@@ -241,24 +241,6 @@ class QuantizeConfig():
         if valid_formats is None:
             raise ValueError(f"QuantizeConfig: Unsupported `quant_method`: {self.quant_method}")
 
-        # TODO FIXME qqq compat which didn't have checkpoint_format before merging to nanomodel
-        if self.quant_method == METHOD.QQQ and self.format != FORMAT.QQQ:
-            # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.QQQ}`")
-            print(f"QuantizeConfig: Auto fix `format` to `{FORMAT.QQQ}`")
-            self.format = FORMAT.QQQ
-
-        # If the user does not pass it, the default value will be set according to quant_method
-        if self.damp_percent is None:
-            if self.quant_method == METHOD.QQQ:
-                self.damp_percent = 0.005
-            else:
-                self.damp_percent = 0.05
-        if self.damp_auto_increment is None:
-            if self.quant_method == METHOD.QQQ:
-                self.damp_auto_increment = 0.001
-            else:
-                self.damp_auto_increment = 0.01
-
         # TODO FIXME awq compat which didn't have checkpoint_format before merging to nanomodel
         if self.quant_method == METHOD.AWQ and self.format not in [FORMAT.MARLIN, FORMAT.GEMV, FORMAT.GEMV_FAST, FORMAT.GEMM]:
             # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
@@ -470,7 +452,7 @@ class QuantizeConfig():
                 val = val.lower()
                 if val == FORMAT.MARLIN:
                     normalized[FORMAT_FIELD_CODE] = FORMAT.MARLIN
-                elif val not in {METHOD.GPTQ, METHOD.QQQ, METHOD.AWQ}:
+                elif val not in {METHOD.GPTQ, METHOD.AWQ}:
                     raise ValueError(f"QuantizeConfig: Unknown quantization method: `{val}`.")
                 else:
                     normalized[QUANT_METHOD_FIELD] = val

@@ -232,8 +232,7 @@ def make_quant(
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
 
-    # Bitblas needs to be loaded as gptq's quant linear first, and then converted to bitblas format.
-    if not pack and format == FORMAT.GPTQ and backend == BACKEND.BITBLAS:
+    if not pack and format == FORMAT.GPTQ:
         backend = BACKEND.TORCH
 
     # returns multiple validated kernels

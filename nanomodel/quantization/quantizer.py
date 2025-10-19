@@ -161,8 +161,4 @@ class Quantizer(nn.Module):
     # def ready(self):
     # return torch.all(self.scale != 0)
 
-class QQQQuantizer(Quantizer):
-    def requires_groupwise_processing(self) -> bool:
-        return self.qcfg.group_size == -1 and self.qcfg.sym
-
 __all__ = ["Quantizer"]
