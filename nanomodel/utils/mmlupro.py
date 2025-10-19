@@ -4,7 +4,7 @@ import os
 import random
 import time
 
-import pcre as re
+import re
 import torch
 from datasets import load_dataset
 from torch.utils.data import DataLoader

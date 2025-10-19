@@ -5,11 +5,11 @@ import torch
 import transformers
 from torch import nn
 
-# from ..utils.logger import setup_logger
+from ..utils.logger import setup_logger
 from ..utils.torch import tf32_enable_guard
 
 
-# log = setup_logger()
+log = setup_logger()
 
 
 class StopForward(Exception):
@@ -224,8 +224,7 @@ def _replace_module(module, child, name, level: int = 0, debug: bool = False) ->
     level_indent = "---" * level
     instance_type = type(child)
     if debug:
-        # log.info(f"{level_indent} Hook: {instance_type.__name__}: {name}")
-        print(f"{level_indent} Hook: {instance_type.__name__}: {name}")
+        log.info(f"{level_indent} Hook: {instance_type.__name__}: {name}")
 
     if isinstance(child, torch.nn.Linear):
         setattr(module, name, HookedLinear.from_linear(child))
@@ -237,8 +236,7 @@ def _replace_module(module, child, name, level: int = 0, debug: bool = False) ->
         setattr(module, name, HookedConv2d.from_conv2d(child))
     else:
         if debug:
-            # log.error(f"{level_indent} Hook: execute_replace but layer skipped due to type not supported: {name}")
-            print(f"{level_indent} Hook: execute_replace but layer skipped due to type not supported: {name}")
+            log.error(f"{level_indent} Hook: execute_replace but layer skipped due to type not supported: {name}")
         return False
 
     return True
@@ -246,8 +244,7 @@ def _replace_module(module, child, name, level: int = 0, debug: bool = False) ->
 
 def replace_module_with_hooked_legacy(module, level: int = 0, quant_lm_head: bool = False):
     if level == 0:
-        # log.info("Hooked Modules: Using legacy based config for targeting of modules")
-        print("Hooked Modules: Using legacy based config for targeting of modules")
+        log.info("Hooked Modules: Using legacy based config for targeting of modules")
 
     for name, child in module.named_children():
         if not quant_lm_head and hasattr(module, "get_output_embeddings") and child == module.get_output_embeddings():
@@ -259,8 +256,7 @@ def replace_module_with_hooked_legacy(module, level: int = 0, quant_lm_head: boo
 # deprecated features
 def replace_module_with_hooked_tree(module, tree: Union[List,Dict] = [], level: int = 0, debug: bool = False):
     if level == 0:
-        # log.info("Hooked Modules: Using tree based config for accurate targeting of modules")
-        print("Hooked Modules: Using tree based config for accurate targeting of modules")
+        log.info("Hooked Modules: Using tree based config for accurate targeting of modules")
 
     tree = copy.copy(tree) # defensive copy
 
@@ -271,16 +267,14 @@ def replace_module_with_hooked_tree(module, tree: Union[List,Dict] = [], level: 
 
     for name, child in module.named_children():
         if debug:
-            # log.info(f"{level_indent} child name: {name}")
-            print(f"{level_indent} child name: {name}")
+            log.info(f"{level_indent} child name: {name}")
         if execute_replace:
             if name in tree:
                 # do replace if name in tree and tree is a tuple
                 _replace_module(module, child, name, level, debug)
             else:
                 if debug:
-                    # log.warn(f"{level_indent} Hook: execute_replace but layer skipped due to not targeted: {name}")
-                    print(f"{level_indent} Hook: execute_replace but layer skipped due to not targeted: {name}")
+                    log.warn(f"{level_indent} Hook: execute_replace but layer skipped due to not targeted: {name}")
         else:
             if isinstance(tree, Dict):
                 if name in tree:
@@ -290,52 +284,44 @@ def replace_module_with_hooked_tree(module, tree: Union[List,Dict] = [], level: 
                     elif isinstance(tree[name], (Dict, Tuple, List)):
                         # follow tree node if name in tree and tree is a dict
                         if debug:
-                            # log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
-                            print(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
+                            log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
 
                         replace_module_with_hooked_tree(child, tree=tree[name],
                                                         level=level+1, debug=debug)
                     else:
                         if debug:
-                            # log.warn(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
-                            print(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
+                            log.warn(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
 
                 elif "#" in tree and name.isdigit():
                     if debug:
-                        # log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
-                        print(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
+                        log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
                     replace_module_with_hooked_tree(child, tree=tree["#"],
                                                     level=level+1, debug=debug)
                 else:
                     if debug:
-                        # log.warn(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
-                        print(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
+                        log.warn(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs tree: {tree}")
             elif isinstance(tree, List):
                 next_node = tree[0]
                 if isinstance(next_node, Dict):
                     if name in next_node:
                         if debug:
-                            # log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
-                            print(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
+                            log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
                         replace_module_with_hooked_tree(child, tree=next_node[name],
                                                         level=level + 1, debug=debug)
                     elif name.isdigit and "#" in next_node:
                         if debug:
-                            # log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
-                            print(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
+                            log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
                         replace_module_with_hooked_tree(child, tree=next_node["#"],
                                                         level=level + 1, debug=debug)
                     else:
                         if debug:
-                            # log.warn(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs next_node: {next_node}")
-                            print(f"{level_indent} Hook: skipped unknown tree node dict: {name} vs next_node: {next_node}")
+                            log.warn(
+                            f"{level_indent} Hook: skipped unknown tree node dict: {name} vs next_node: {next_node}")
                 elif name == next_node or (next_node == "#" and name.isdigit()):
                     if debug:
-                        # log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
-                        print(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
+                        log.info(f"{level_indent} Hook: follow tree node: {name} -> nest into {name}")
                     replace_module_with_hooked_tree(child, tree=tree[1:],
                                                     level=level + 1, debug=debug)
                 else:
                     if debug:
-                        # log.warn(f"{level_indent} Hook: skipped unknown tree node list: {name} vs next_node: {next_node}")
-                        print(f"{level_indent} Hook: skipped unknown tree node list: {name} vs next_node: {next_node}")
+                        log.warn(f"{level_indent} Hook: skipped unknown tree node list: {name} vs next_node: {next_node}")

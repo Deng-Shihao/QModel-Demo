@@ -16,7 +16,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Type, Union
 
 import accelerate
-import pcre as re
+import re
 import torch
 import torch.nn as nn
 import transformers
@@ -904,6 +904,10 @@ def gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeCon
     """
     The max_input_length argument is specific to the exllama backend, that requires to initialize a buffer temp_state.
     """
+    # The buffers need to have been initialized first before calling make_q4.
+    for _, submodule in model.named_modules():
+        submodule.post_init()
+
     torch_empty_cache()
     return model
 

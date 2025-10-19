@@ -14,11 +14,11 @@ from torch.nn.modules.conv import _ConvNd
 from ...models._const import DEVICE, PLATFORM
 from ...utils.backend import BACKEND
 from ...utils.env import env_flag
-# from ...utils.logger import setup_logger
+from ...utils.logger import setup_logger
 from ...utils.safe import THREADPOOLCTL
 
 
-# log = setup_logger()
+log = setup_logger()
 
 class BaseQuantLinear(nn.Module):
     SUPPORTS_BITS: List[int] = None
@@ -71,6 +71,8 @@ class BaseQuantLinear(nn.Module):
         self.backend = backend
         self.maxq = 2 ** self.bits - 1
         self.pack_dtype = pack_dtype
+        # we need to clone the adapter since passed in adapter may be shared
+        # adapter tensors are lodaed inside adapter so they must be unique per module
 
         self.optimized = False
 
@@ -138,6 +140,7 @@ class BaseQuantLinear(nn.Module):
             else:
                 self.bias = None
 
+
     def list_buffers(self) -> List:
         buf = []
         if hasattr(self, "qweight") and self.qweight is not None:
@@ -164,10 +167,6 @@ class BaseQuantLinear(nn.Module):
 
         self._qzeros_format = format
         return self._qzeros_format
-
-    # override me, to perform post-weight load to device init
-    def post_init(self):
-        pass
 
     @classmethod
     # custom quant linear class can override this and add custom checks
@@ -327,8 +326,7 @@ class BaseQuantLinear(nn.Module):
     # override me, to perform any torch.compile logic on the kernel pre forward
     def optimize(self, backend: str = "inductor", mode: str = None, fullgraph: bool = False):
         self.optimized = True
-        # log.info.once(f"Optimize: `{self.__class__.__name__}` compilation triggered.")
-        print(f"Optimize: `{self.__class__.__name__}` compilation triggered.")
+        log.info.once(f"Optimize: `{self.__class__.__name__}` compilation triggered.")
         pass
 
     # overrides nn.module.train()
@@ -342,7 +340,7 @@ class BaseQuantLinear(nn.Module):
         if mode:
             if not self.SUPPORTS_TRAINING:
                 err = f"{self.__class__.__name__}: `{self.name}` switching to training mode."
-                print(err)
+                log.error(err)
                 raise NotImplementedError(err)
             else:
                 pass
@@ -508,25 +506,19 @@ class PackableQuantLinear(BaseQuantLinear):
                 "pack_block extension requires out_features to be divisible by 32"
             )
 
-        disable_ext = env_flag("NANOMODEL_DISABLE_PACK_EXT")
-        force_ext = env_flag("NANOMODEL_FORCE_PACK_EXT")
+        disable_ext = env_flag("GPTQMODEL_DISABLE_PACK_EXT")
+        force_ext = env_flag("GPTQMODEL_FORCE_PACK_EXT")
         pack_block_threads = workers if workers and workers > 0 else 1
-        env_threads = os.getenv("NANOMODEL_PACK_THREADS")
+        env_threads = os.getenv("GPTQMODEL_PACK_THREADS")
         if env_threads:
             try:
                 pack_block_threads = max(int(env_threads), 1)
             except ValueError:
-                # log.warning(
-                #     "pack_block: invalid NANOMODEL_PACK_THREADS `%s`; defaulting to %d.",
-                #     env_threads,
-                #     pack_block_threads,
-                # )
-                print(
-                    "pack_block: invalid NANOMODEL_PACK_THREADS `%s`; defaulting to %d.",
+                log.warning(
+                    "pack_block: invalid GPTQMODEL_PACK_THREADS `%s`; defaulting to %d.",
                     env_threads,
                     pack_block_threads,
                 )
- 
 
         if not disable_ext and bits in (2, 4, 8):
             try:
@@ -549,8 +541,7 @@ class PackableQuantLinear(BaseQuantLinear):
             except Exception as exc:
                 if force_ext:
                     raise
-                # log.debug("pack_block: native extension unavailable, falling back to Python path (%s)", exc)
-                print("pack_block: native extension unavailable, falling back to Python path (%s)", exc)
+                log.debug("pack_block: native extension unavailable, falling back to Python path (%s)", exc)
 
         # NOTE: pack_factor is only meaningful for {2,4,8}. There is NO integer pack_factor for 3-bit.
         if bits in (2, 4, 8):

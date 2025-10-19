@@ -45,6 +45,7 @@ from ..utils.torch import tf32_disable_guard
 log = setup_logger()
 lock = threading.Lock()
 
+
 class _PinnedHostPool:
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -203,7 +204,9 @@ class GPTQProcessor(LoopProcessor):
                 )
 
             g_module = getattr(g, "module", None)
-            g_weight = (getattr(g_module, "weight", None) if g_module is not None else None)
+            g_weight = (
+                getattr(g_module, "weight", None) if g_module is not None else None
+            )
             if g_weight is not None:
                 assert g_weight.device == expected_device, (
                     f"GPTQ task for module '{module.full_name}' expected device {expected_device}, "

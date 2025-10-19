@@ -14,7 +14,7 @@ from ..nn_modules.qlinear.marlin import MarlinQuantLinear
 from ..nn_modules.qlinear.torch import TorchQuantLinear
 from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT, TritonV2QuantLinear
 from ..quantization import FORMAT, METHOD
-# from ..utils.logger import setup_logger
+from ..utils.logger import setup_logger
 from . import BACKEND
 from .rocm import IS_ROCM
 from .torch import HAS_CUDA, HAS_MPS, HAS_XPU
@@ -22,7 +22,7 @@ from .torch import HAS_CUDA, HAS_MPS, HAS_XPU
 
 message_logged = False
 
-# log = setup_logger()
+log = setup_logger()
 
 AUTO_SELECT_BACKEND_ORDER_MAP = {
     METHOD.GPTQ: OrderedDict({
@@ -179,8 +179,7 @@ def select_quant_linear(
                 trainable=trainable,
             )
             if os.environ.get("DEBUG") and not validate:
-                # log.info(f"skip {k} for {str(err)}")
-                print(f"skip {k} for {str(err)}")
+                log.info(f"skip {k} for {str(err)}")
             if validate:
                 if pack:
                     check_pack_func = issubclass(cls, PackableQuantLinear) or (
@@ -190,8 +189,7 @@ def select_quant_linear(
                         #if not message_logged:
                         #    logger.info(f"Auto pick kernel based on compatibility: {cls}")
                         #    message_logged = True
-                        # log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
-                        print(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
+                        log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
                         validated_qlinears.append(cls)
                         if not multi_select:
                             return cls
@@ -199,8 +197,7 @@ def select_quant_linear(
                     #if not message_logged:
                     #    logger.info(f"Auto pick kernel based on compatibility: {cls}")
                     #    message_logged = True
-                    # log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
-                    print(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
+                    log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
                     validated_qlinears.append(cls)
                     if not multi_select:
                         return cls
@@ -237,8 +234,8 @@ def select_quant_linear(
 
     validate, err = qlinear.validate(bits=bits, group_size=group_size, desc_act=desc_act, sym=sym, pack_dtype=pack_dtype, dynamic=dynamic, device=device, trainable=trainable)
 
-    # log.info(f"{'Packing' if pack else ''} Kernel: selected: `{qlinear.__name__}`")
-    print(f"{'Packing' if pack else ''} Kernel: selected: `{qlinear.__name__}`")
+    log.info(f"{'Packing' if pack else ''} Kernel: selected: `{qlinear.__name__}`")
+
     if not validate:
         raise ValueError(err)
     else:

@@ -10,10 +10,10 @@ import torch
 from packaging import version
 from random_word import random_word
 
-# from ..utils.logger import setup_logger
+from ..utils.logger import setup_logger
 
 
-# log = setup_logger()
+log = setup_logger()
 
 BITS_FIELD_CODE = "bits"
 GROUP_SIZE_FIELD_CODE = "group_size"
@@ -53,7 +53,6 @@ META_FIELD_V2_MEMORY_DEVICE = "v2_memory_device"
 # saved formats
 class FORMAT(str, Enum):
     GPTQ = "gptq"
-    # v2 format fixed sym = False quantization
     MARLIN = "marlin"
 
     GEMM = "gemm"
@@ -127,8 +126,7 @@ def dynamic_get(dynamic: Dict[str, Dict[str, Union[int, bool]]], module_name: st
                     if isinstance(sub_value, Dict):
                         return sub_value.get(sub_key, default)
                     else:
-                        # log.info(f"QuantConfig: Dynamic `sub_key`: `{sub_key}` failed extraction from  `sub_value`: `{sub_value}`")
-                        print(f"QuantConfig: Dynamic `sub_key`: `{sub_key}` failed extraction from  `sub_value`: `{sub_value}`")
+                        log.info(f"QuantConfig: Dynamic `sub_key`: `{sub_key}` failed extraction from  `sub_value`: `{sub_value}`")
                 else:
                     return overrides.get(key, default)
     return default
@@ -184,8 +182,6 @@ class QuantizeConfig():
 
     # packing implementation hinpt (`original` = legacy CPU pack, `gpu` enables CUDA pack, `cpu` forces block CPU pack).
     pack_impl: str = field(default="cpu")
-
-    # pending used field
 
     # quantization only:
     # controls cpu memory saving by offloading layers/modules to disk in the slow quantization process
@@ -263,8 +259,8 @@ class QuantizeConfig():
 
         if self.dynamic is not None:
             self.dynamic = {
-                **{k: v for k, v in self.dynamic.items() if k.startswith('-')},  # 先添加以 "-" 开头的键
-                **{k: v for k, v in self.dynamic.items() if not k.startswith('-')}  # 然后添加其他键
+                **{k: v for k, v in self.dynamic.items() if k.startswith('-')},
+                **{k: v for k, v in self.dynamic.items() if not k.startswith('-')}
             }
 
             for layer, layer_dict in self.dynamic.items():
@@ -336,8 +332,7 @@ class QuantizeConfig():
             randWords = random_word.RandomWords()
             path_key = f"{randWords.get_random_word()}-{randWords.get_random_word()}"
             self.offload_to_disk_path = f"./nanomodel_offload/{path_key}/"
-            # log.info(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
-            print(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
+            log.info(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
 
 
     def _resolve_activation_ordering(
@@ -358,11 +353,7 @@ class QuantizeConfig():
             )
 
         if desc_act_enabled_by_user and act_group_aware_user_value is None and self.act_group_aware:
-            # log.warn(
-            #     "QuantizeConfig: `desc_act=True` automatically disables `act_group_aware`. "
-            #     "Set `act_group_aware=False` explicitly to silence this warning."
-            # )
-            print(
+            log.warn(
                 "QuantizeConfig: `desc_act=True` automatically disables `act_group_aware`. "
                 "Set `act_group_aware=False` explicitly to silence this warning."
             )
@@ -413,8 +404,7 @@ class QuantizeConfig():
         with open(join(save_dir, QUANT_CONFIG_FILENAME), "w", encoding="utf-8") as f:
             d = self.to_dict()
             json_str = json.dumps(d, indent=2)
-            # log.info(f"Saved Quantize Config: \n{json_str}")
-            print(f"Saved Quantize Config: \n{json_str}")
+            log.info(f"Saved Quantize Config: \n{json_str}")
             f.write(json_str)
 
     @classmethod
@@ -465,18 +455,12 @@ class QuantizeConfig():
             elif key in field_names:
                 normalized[key] = val
             else:
-                # log.info(f"QuantizeConfig: Ignoring unknown parameter in the quantization configuration: {key}.")
-                print(f"QuantizeConfig: Ignoring unknown parameter in the quantization configuration: {key}.")
+                log.info(f"QuantizeConfig: Ignoring unknown parameter in the quantization configuration: {key}.")
 
         if format_auto_inferred:
-            # log.info(f"QuantizeConfig: `{FORMAT_FIELD_CHECKPOINT}` is missing from the quantization configuration and is automatically inferred to {normalized[FORMAT_FIELD_CODE]}")
-            print(f"QuantizeConfig: `{FORMAT_FIELD_CHECKPOINT}` is missing from the quantization configuration and is automatically inferred to {normalized[FORMAT_FIELD_CODE]}")
-
+            log.info(f"QuantizeConfig: `{FORMAT_FIELD_CHECKPOINT}` is missing from the quantization configuration and is automatically inferred to {normalized[FORMAT_FIELD_CODE]}")
         if "sym" not in normalized:
-            # log.warn(
-            #     "QuantizeConfig: config does not contain `sym` (symmetric quantization). This may result in silent errors. Defaulting to `sym=True`."
-            # )
-            print(
+            log.warn(
                 "QuantizeConfig: config does not contain `sym` (symmetric quantization). This may result in silent errors. Defaulting to `sym=True`."
             )
 
@@ -532,11 +516,6 @@ class QuantizeConfig():
             # awq compat with vllm/sglang/transformers loaders
             out["version"] = self.format
 
-        # dynamic = out["dynamic"]
-        # if dynamic:
-        #     # dynamic adapter config is only used in the quantize phase and is deleted when saving.
-        #     for _, v in dynamic.items():
-        #         v.pop("adapter", None)
 
         # simplify: clean keys where the value is None or empty [list, dict]
         out = {k: v for k, v in out.items() if v is not None and (v not in [None, {}])}
@@ -565,13 +544,11 @@ class QuantizeConfig():
         else:
             # there is only one scale int32 + one qzero int32 per entire module so overall it contributes to close to 0 bpw
             bpw = self.bits
-        # log.info(f"Estimated Quantization BPW (bits per weight): {bpw} bpw, based on [bits: {self.bits}, group_size: {self.group_size}]")
-        print(f"Estimated Quantization BPW (bits per weight): {bpw} bpw, based on [bits: {self.bits}, group_size: {self.group_size}]")
+        log.info(f"Estimated Quantization BPW (bits per weight): {bpw} bpw, based on [bits: {self.bits}, group_size: {self.group_size}]")
 
 # deprecated: will be removed in future update
 @dataclass
 class BaseQuantizeConfig(QuantizeConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # log.warn("QuantizeConfig: BaseQuantizeConfig is re-named and pending deprecation. Please use `QuantizeConfig` instead.")
-        print("QuantizeConfig: BaseQuantizeConfig is re-named and pending deprecation. Please use `QuantizeConfig` instead.")
+        log.warn("QuantizeConfig: BaseQuantizeConfig is re-named and pending deprecation. Please use `QuantizeConfig` instead.")

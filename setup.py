@@ -3,23 +3,21 @@ import subprocess
 import sys
 from pathlib import Path
 
-import re # pcre
+import re
 from setuptools import find_packages, setup
 from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
 
 
-# ---------------------------
 # Helpers (no torch required)
-# ---------------------------
-
 def _read_env(name, default=None):
     v = os.environ.get(name)
     return v if (v is not None and str(v).strip() != "") else default
 
 
-def _probe_cmd(args, timeout=6):
+def _probe_cmd(args):
     try:
-        return subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        out = subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=5)
+        return out.strip()
     except Exception:
         return None
 
@@ -37,6 +35,7 @@ def _detect_rocm_version():
         return v
     hip = _probe_cmd(["hipcc", "--version"])
     if hip:
+        import re
         m = re.search(r"\b([0-9]+\.[0-9]+)\b", hip)
         if m:
             return m.group(1)
@@ -124,19 +123,19 @@ def _detect_torch_version() -> str:
                     return parts[1]
 
     try:
-        import importlib.metadata as im
+        import importlib.metadata as im  # py3.8+
         version = im.version("torch")
-        if version:
-            return version
+        if not version:
+            raise Exception("torch not found")
     except Exception:
-        pass
-
-    raise Exception("Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1")
+        raise Exception("Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1")
 
 
 def _major_minor(v: str) -> str:
-    parts = v.split(".")
-    return ".".join(parts[:2]) if parts else v
+    if v:
+        parts = v.split(".")
+        return ".".join(parts[:2]) if parts else v
+    return v
 
 
 def _version_geq(version: str | None, major: int, minor: int = 0) -> bool:
@@ -186,9 +185,7 @@ def get_version_tag() -> str:
     return f"{base}{torch_suffix}"
 
 
-# ---------------------------
 # Env and versioning
-# ---------------------------
 TORCH_VERSION = _read_env("TORCH_VERSION")
 RELEASE_MODE = _read_env("RELEASE_MODE")
 CUDA_VERSION = _read_env("CUDA_VERSION")
@@ -247,9 +244,7 @@ version_vars = {}
 exec("exec(open('nanomodel/version.py').read()); version=__version__", {}, version_vars)
 nanomodel_version = version_vars["version"]
 
-# -----------------------------
 # Prebuilt wheel download config
-# -----------------------------
 DEFAULT_WHEEL_URL_TEMPLATE = "https://github.com/ModelCloud/NanoModel/releases/download/{tag_name}/{wheel_name}"
 WHEEL_URL_TEMPLATE = os.environ.get("NANOMODEL_WHEEL_URL_TEMPLATE")
 WHEEL_BASE_URL = os.environ.get("NANOMODEL_WHEEL_BASE_URL") 
@@ -289,9 +284,7 @@ include_dirs = ["nanomodel_ext"]
 extensions = []
 additional_setup_kwargs = {}
 
-# ---------------------------
 # Build CUDA/ROCm extensions (only when enabled)
-# ---------------------------
 def _env_enabled(val: str) -> bool:
     if val is None:
         return True
@@ -432,10 +425,7 @@ if BUILD_CUDA_EXT == "1":
             "cmdclass": {"build_ext": cpp_ext.BuildExtension},
         }
 
-# ---------------------------
 # Cached wheel fetcher
-# ---------------------------
-
 class CachedWheelsCommand(_bdist_wheel):
     def run(self):
         xpu_avail = _bool_env("XPU_AVAILABLE", False)

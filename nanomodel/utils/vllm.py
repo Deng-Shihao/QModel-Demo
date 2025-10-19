@@ -57,19 +57,61 @@ def load_model_by_vllm(
     if not VLLM_AVAILABLE:
         raise ValueError(VLLM_INSTALL_HINT)
 
-    try:
-        llm = LLM(
-            model=model,
-            **kwargs,
-        )
-        return llm
-    except Exception:
+    # Respect a user hint to avoid FlashInfer by mapping to vLLM's attention backend.
+    if kwargs.pop("disable_flashinfer", False):
+        kwargs.setdefault("attn_backend", "fa2")
+
+    def _destroy_pg_safely():
         try:
             import torch.distributed as dist  # type: ignore
             if dist.is_available() and dist.is_initialized():
                 dist.destroy_process_group()
         except Exception:
             pass
+
+    def _make_llm(make_kwargs):
+        return LLM(
+            model=model,
+            **make_kwargs,
+        )
+
+    try:
+        return _make_llm(kwargs)
+    except Exception as e:
+        _destroy_pg_safely()
+
+        emsg = str(e).lower()
+        likely_flashinfer_issue = (
+            "flashinfer" in emsg
+            or "tensor core plan" in emsg
+            or "mismatched number of arguments" in emsg
+        )
+
+        # Fallback 1: force FA2 attention backend when FlashInfer is problematic.
+        if kwargs.get("attn_backend") != "fa2" and likely_flashinfer_issue:
+            fallback_kwargs = dict(kwargs)
+            fallback_kwargs["attn_backend"] = "fa2"
+            try:
+                return _make_llm(fallback_kwargs)
+            except Exception as e2:
+                _destroy_pg_safely()
+                emsg2 = str(e2).lower()
+                # Fallback 2: try eager mode to avoid CUDA graph capture issues.
+                if "enforce_eager" not in fallback_kwargs:
+                    fallback_kwargs["enforce_eager"] = True
+                    try:
+                        return _make_llm(fallback_kwargs)
+                    except Exception:
+                        _destroy_pg_safely()
+                        # Fallback 3: last resort force CUDA backend
+                        try:
+                            fallback_kwargs.pop("attn_backend", None)
+                            fallback_kwargs["attn_backend"] = "cuda"
+                            return _make_llm(fallback_kwargs)
+                        except Exception:
+                            _destroy_pg_safely()
+                            raise e2
+                raise e2
         raise
 
 

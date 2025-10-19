@@ -21,7 +21,7 @@ Notes:
 
 from typing import Dict, Iterable, Optional, Set, Tuple
 
-import pcre as re
+import re
 import torch
 from torch import nn
 

@@ -288,37 +288,8 @@ def ModelLoader(cls):
 
         if backend == BACKEND.VLLM:
             import os
-
-            # Prefer FLASHINFER when a compatible flashinfer build is present. Older builds are
-            # ABI-incompatible with current vLLM releases, so proactively fall back to FLASHATTN
-            # instead of letting vLLM attempt to load the broken kernels (which crashes at runtime).
-            if os.environ.get('VLLM_ATTENTION_BACKEND') is None:
-                preferred_backend = "FLASHATTN"
-                try:
-                    import flashinfer  # type: ignore
-
-                    version_str = getattr(flashinfer, "__version__", None)
-                    if version_str is None:
-                        raise ValueError("flashinfer has no __version__ attribute")
-
-                    if parse_version_string(version_str) >= Version("0.3.0"):
-                        preferred_backend = "FLASHINFER"
-                    else:
-                        log.info(
-                            "Loader: flashinfer %s detected but is older than 0.3.0; forcing FLASHATTN fallback.",
-                            version_str,
-                        )
-                except (ImportError, ValueError) as err:
-                    log.info(
-                        "Loader: flashinfer unavailable (%s); using FLASHATTN backend.",
-                        err,
-                    )
-                except InvalidVersion as err:
-                    log.info(
-                        "Loader: flashinfer version string is invalid (%s); using FLASHATTN backend.",
-                        err,
-                    )
-                os.environ['VLLM_ATTENTION_BACKEND'] = preferred_backend
+            # to optimize vllm inference, set an environment variable 'VLLM_ATTENTION_BACKEND' to 'FLASHINFER'.
+            os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASHINFER'
 
         if backend == BACKEND.TRITON:
             from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT
@@ -399,35 +370,10 @@ def ModelLoader(cls):
             if backend == BACKEND.VLLM:
                 from ..utils.vllm import load_model_by_vllm, vllm_generate
 
-                vllm_kwargs = dict(kwargs)
-
-                # vLLM constraint: GPTQ quantization currently supports only float16.
-                # Force dtype to float16 to avoid vLLM engine validation errors when using GPTQ.
-                if qcfg.quant_method == METHOD.GPTQ:
-                    # Respect user intent but override incompatible dtype with a friendly log.
-                    user_dtype = vllm_kwargs.get("dtype")
-                    user_dtype_str = (
-                        user_dtype if isinstance(user_dtype, str) else str(user_dtype).split(".")[-1]
-                    ) if user_dtype is not None else None
-                    if user_dtype_str and user_dtype_str.lower() != "float16":
-                        log.info("Loading Quantized Model: Overriding dtype to float16 for vLLM+GPTQ")
-                    vllm_kwargs["dtype"] = "float16"
-                elif "dtype" not in vllm_kwargs and dtype is not None:
-                    if isinstance(dtype, torch.dtype):
-                        vllm_kwargs["dtype"] = str(dtype).split(".")[-1]
-                    else:
-                        vllm_kwargs["dtype"] = dtype
-
-                if "quantization" not in vllm_kwargs:
-                    if qcfg.quant_method == METHOD.GPTQ:
-                        vllm_kwargs["quantization"] = "gptq"
-                    elif qcfg.quant_method == METHOD.AWQ:
-                        vllm_kwargs["quantization"] = "awq"
-
                 model = load_model_by_vllm(
                     model=model_local_path,
                     trust_remote_code=trust_remote_code,
-                    **vllm_kwargs,
+                    **kwargs,
                 )
 
                 model.config = model.llm_engine.model_config

@@ -1720,7 +1720,7 @@ class ModuleLooper():
 
                 processor_name = reverse_p.name()
                 total_log[processor_name] = reverse_p.log
-                if processor_name in ["gptq",]:
+                if processor_name in ["gptq"]:
                     self.gptq_model.quant_log = reverse_p.log
 
                 for module_log in reverse_p.log:

@@ -54,6 +54,7 @@ def main():
                 quantized_model_id,
                 device=device,
                 backend=backend,
+                disable_flashinfer=True,
             )
             output = model.generate(prompts=prompt, temperature=0.8, top_p=0.95)[0].outputs[0].text
             model.shutdown()
