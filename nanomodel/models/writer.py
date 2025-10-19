@@ -368,12 +368,18 @@ def ModelWriter(cls):
             # fixed this issue: https://github.com/huggingface/transformers/issues/35832
             saved_tokenizer_config = get_tokenizer_config(save_dir)
             config_tokenizer_class = saved_tokenizer_config.get("tokenizer_class")
+            is_fast_tokenizer = bool(getattr(self.tokenizer, "is_fast", False))
+            if not is_fast_tokenizer:
+                backend_tokenizer = getattr(self.tokenizer, "tokenizer", None)
+                is_fast_tokenizer = isinstance(backend_tokenizer, PreTrainedTokenizerFast)
             # if the tokenizer is fast, but the tokenizer_config.json does not have Fast suffix, add "Fast" suffix
-            if (not config_tokenizer_class.endswith("Fast")) and (
-                isinstance(self.tokenizer.tokenizer, PreTrainedTokenizerFast)
+            if (
+                config_tokenizer_class
+                and not config_tokenizer_class.endswith("Fast")
+                and is_fast_tokenizer
             ):
                 saved_tokenizer_config["tokenizer_class"] = (
-                    saved_tokenizer_config["tokenizer_class"] + "Fast"
+                    config_tokenizer_class + "Fast"
                 )
                 with open(
                     os.path.join(save_dir, "tokenizer_config.json"),
