@@ -42,8 +42,10 @@ class TestGroupSize(unittest.TestCase):
             )
 
         traindata = load_dataset("json", data_files=dataset_path, split="train")
-        sample_size = min(1024, len(traindata))
-        self.calibration_dataset = traindata.select(range(sample_size))
+        if len(traindata) <= 1024:
+            self.calibration_dataset = traindata
+        else:
+            self.calibration_dataset = traindata.select(range(1024))
 
     # def test_load_group_128(self):
     #     model = GPTQModel.load(
