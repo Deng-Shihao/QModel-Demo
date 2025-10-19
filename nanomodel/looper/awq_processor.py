@@ -181,6 +181,12 @@ class AWQProcessor(LoopProcessor):
                 super().__init__()
                 self.module = module
 
+            def __getattr__(self, name):
+                # PyTorch accesses attributes like `attention_type` directly on the module.
+                if name == "module" or name.startswith("_"):
+                    return super().__getattr__(name)
+                return getattr(self.module, name)
+
             def forward(self, *args, **kwargs):
                 # assume first input to forward is hidden states
                 if len(args) > 0:
