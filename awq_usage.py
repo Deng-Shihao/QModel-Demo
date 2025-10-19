@@ -26,7 +26,7 @@ class TestGroupSize(unittest.TestCase):
 
     @classmethod
     def setUpClass(self):
-        self.pretrained_model_id = "/monster/data/model/Llama-3.2-1B"
+        self.pretrained_model_id = "Qwen/Qwen3-0.6B"
         # "/monster/data/model/Qwen2.5-0.5B-Instruct/" "/monster/data/model/Qwen2.5-0.5B-Instruct/" #
 
         self.tokenizer = AutoTokenizer.from_pretrained(self.pretrained_model_id, use_fast=True)
@@ -108,3 +108,20 @@ class TestGroupSize(unittest.TestCase):
                 has_qqq = True
                 break
         self.assertTrue(has_qqq)
+
+
+def main():
+    TestGroupSize.setUpClass()
+    test_case = TestGroupSize()
+    scenarios = [
+        (FORMAT.GEMM, BACKEND.GEMM, 128),
+        (FORMAT.GEMM, BACKEND.MARLIN, 128),
+        (FORMAT.GEMV, BACKEND.GEMV, 128),
+        (FORMAT.GEMV_FAST, BACKEND.GEMV_FAST, 128),
+    ]
+    for checkpoint_format, backend, group_size in scenarios:
+        test_case.test_quant_and_inference(checkpoint_format, backend, group_size)
+
+
+if __name__ == "__main__":
+    main()
