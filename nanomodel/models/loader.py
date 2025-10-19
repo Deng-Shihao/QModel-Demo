@@ -289,9 +289,11 @@ def ModelLoader(cls):
         if backend == BACKEND.VLLM:
             import os
 
-            # Prefer FLASHINFER when a compatible flashinfer build is present but avoid forcing
-            # an incompatible version, which results in runtime crashes inside vLLM.
+            # Prefer FLASHINFER when a compatible flashinfer build is present. Older builds are
+            # ABI-incompatible with current vLLM releases, so proactively fall back to FLASHATTN
+            # instead of letting vLLM attempt to load the broken kernels (which crashes at runtime).
             if os.environ.get('VLLM_ATTENTION_BACKEND') is None:
+                preferred_backend = "FLASHATTN"
                 try:
                     import flashinfer  # type: ignore
 
@@ -300,24 +302,23 @@ def ModelLoader(cls):
                         raise ValueError("flashinfer has no __version__ attribute")
 
                     if parse_version_string(version_str) >= Version("0.3.0"):
-                        os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASHINFER'
+                        preferred_backend = "FLASHINFER"
                     else:
                         log.info(
-                            "Loader: flashinfer %s detected but is older than 0.3.0; "
-                            "falling back to vLLM default attention backend.",
+                            "Loader: flashinfer %s detected but is older than 0.3.0; forcing FLASHATTN fallback.",
                             version_str,
                         )
                 except (ImportError, ValueError) as err:
                     log.info(
-                        "Loader: Unable to enable FLASHINFER attention backend automatically (%s); "
-                        "using vLLM default.",
+                        "Loader: flashinfer unavailable (%s); using FLASHATTN backend.",
                         err,
                     )
                 except InvalidVersion as err:
                     log.info(
-                        "Loader: flashinfer version string is invalid (%s); using vLLM default attention backend.",
+                        "Loader: flashinfer version string is invalid (%s); using FLASHATTN backend.",
                         err,
                     )
+                os.environ['VLLM_ATTENTION_BACKEND'] = preferred_backend
 
         if backend == BACKEND.TRITON:
             from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT
