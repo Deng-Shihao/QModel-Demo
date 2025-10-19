@@ -1,5 +1,7 @@
 # NanoModel
 
+## Available NOW !!!
+
 NanoModel is an opinionated quantization toolkit for large language models. It wraps the research-grade GPTQ/AWQ/QQQ kernels behind a lightweight Python API so you can quantize, package, and serve transformer models without juggling device placement, calibration loops, or backend-specific details.
 
 - Works directly with Hugging Face `transformers` configs and checkpoints.
@@ -48,7 +50,7 @@ from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
 from nanomodel.quantization import FORMAT, METHOD
 
 model_id = "Qwen/Qwen3-0.6B"
-quantized_dir = "qwen3-0.6B-gptq"
+quantized_dir = "qwen3-0.6B-gptq-4bit"
 
 tokenizer = AutoTokenizer.from_pretrained(model_id, use_fast=True)
 
