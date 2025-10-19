@@ -123,16 +123,12 @@ class TestGroupSize(unittest.TestCase):
 
 
 def main():
-    TestGroupSize.setUpClass()
-    test_case = TestGroupSize()
-    scenarios = [
-        (FORMAT.GEMM, BACKEND.GEMM, 128),
-        (FORMAT.GEMM, BACKEND.MARLIN, 128),
-        (FORMAT.GEMV, BACKEND.GEMV, 128),
-        (FORMAT.GEMV_FAST, BACKEND.GEMV_FAST, 128),
-    ]
-    for checkpoint_format, backend, group_size in scenarios:
-        test_case.test_quant_and_inference(checkpoint_format, backend, group_size)
+    suite = unittest.TestSuite()
+    loader = unittest.TestLoader()
+    for test_case in loader.loadTestsFromTestCase(TestGroupSize):
+        if test_case._testMethodName.startswith("test_quant_and_inference"):
+            suite.addTest(test_case)
+    unittest.TextTestRunner().run(suite)
 
 
 if __name__ == "__main__":
