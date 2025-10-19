@@ -399,10 +399,24 @@ def ModelLoader(cls):
             if backend == BACKEND.VLLM:
                 from ..utils.vllm import load_model_by_vllm, vllm_generate
 
+                vllm_kwargs = dict(kwargs)
+
+                if "dtype" not in vllm_kwargs and dtype is not None:
+                    if isinstance(dtype, torch.dtype):
+                        vllm_kwargs["dtype"] = str(dtype).split(".")[-1]
+                    else:
+                        vllm_kwargs["dtype"] = dtype
+
+                if "quantization" not in vllm_kwargs:
+                    if qcfg.quant_method == METHOD.GPTQ:
+                        vllm_kwargs["quantization"] = "gptq"
+                    elif qcfg.quant_method == METHOD.AWQ:
+                        vllm_kwargs["quantization"] = "awq"
+
                 model = load_model_by_vllm(
                     model=model_local_path,
                     trust_remote_code=trust_remote_code,
-                    **kwargs,
+                    **vllm_kwargs,
                 )
 
                 model.config = model.llm_engine.model_config
