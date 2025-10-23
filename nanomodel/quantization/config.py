@@ -196,9 +196,9 @@ class QuantizeConfig():
     fail_safe: bool = field(default=False)
 
     # v2 only:
-    # v2: bool = field(default=False)
-    # v2_alpha: float = field(default=0.25)
-    # v2_memory_device: str = field(default="auto")
+    v2: bool = field(default=False)
+    v2_alpha: float = field(default=0.25)
+    v2_memory_device: str = field(default="auto")
 
     # awq only:
     zero_point: bool = field(default=True)
