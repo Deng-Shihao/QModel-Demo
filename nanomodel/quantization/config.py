@@ -52,9 +52,11 @@ META_FIELD_V2_MEMORY_DEVICE = "v2_memory_device"
 
 # saved formats
 class FORMAT(str, Enum):
+    # GPTQ
     GPTQ = "gptq"
     MARLIN = "marlin"
 
+    # AWQ
     GEMM = "gemm"
     GEMV = "gemv"
     GEMV_FAST = "gemv_fast"
