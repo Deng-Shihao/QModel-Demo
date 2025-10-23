@@ -38,7 +38,7 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=get_best_device())
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("GPTQ is", return_tensors="pt").to(model.device))[0]))
+    print(tokenizer.decode(model.generate(**tokenizer("LLMs is ", return_tensors="pt").to(model.device))[0]))
 
 if __name__ == "__main__":
     logging.basicConfig(
