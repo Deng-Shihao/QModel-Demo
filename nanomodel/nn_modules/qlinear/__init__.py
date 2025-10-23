@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import List, Optional, Tuple
 
 import numpy as np
-import torch as t  # conflict with torch.py
+import torch as t
 import torch.nn as nn
 import transformers
 from torch.nn.modules.conv import _ConvNd
@@ -167,6 +167,9 @@ class BaseQuantLinear(nn.Module):
 
         self._qzeros_format = format
         return self._qzeros_format
+
+    def post_init(self):
+        pass
 
     @classmethod
     # custom quant linear class can override this and add custom checks

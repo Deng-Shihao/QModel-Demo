@@ -900,12 +900,9 @@ def hf_gptqmodel_post_init(model, use_act_order: bool, quantize_config: Quantize
 
 def gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
-    """
-    The max_input_length argument is specific to the exllama backend, that requires to initialize a buffer temp_state.
-    """
-    # The buffers need to have been initialized first before calling make_q4.
     for _, submodule in model.named_modules():
-        submodule.post_init()
+        if isinstance(submodule, BaseQuantLinear):
+            submodule.post_init()
 
     torch_empty_cache()
     return model
