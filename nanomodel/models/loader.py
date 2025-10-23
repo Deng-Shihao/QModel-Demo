@@ -628,33 +628,33 @@ def ModelLoader(cls):
         # Any post-initialization that require device information, for example buffers initialization on device.
         model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
 
-        model.eval()
+        # model.eval()
 
         tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
 
-        if backend == BACKEND.MLX:
-            import tempfile
-            try:
-                from mlx_lm import load
-                from mlx_lm.utils import save_config, save_model
+        # if backend == BACKEND.MLX:
+        #     import tempfile
+        #     try:
+        #         from mlx_lm import load
+        #         from mlx_lm.utils import save_config, save_model
 
-                from ..utils.mlx import convert_gptq_to_mlx_weights, mlx_generate
-            except ModuleNotFoundError as exception:
-                raise type(exception)(
-                    "NanoModel load mlx model required dependencies are not installed.",
-                    "Please install via `pip install nanomodel[mlx] --no-build-isolation`.",
-                )
+        #         from ..utils.mlx import convert_gptq_to_mlx_weights, mlx_generate
+        #     except ModuleNotFoundError as exception:
+        #         raise type(exception)(
+        #             "NanoModel load mlx model required dependencies are not installed.",
+        #             "Please install via `pip install nanomodel[mlx] --no-build-isolation`.",
+        #         )
 
-            with tempfile.TemporaryDirectory() as temp_dir:
-                mlx_weights, mlx_config = convert_gptq_to_mlx_weights(model_id_or_path, model, qcfg.to_dict(), cls.lm_head)
+        #     with tempfile.TemporaryDirectory() as temp_dir:
+        #         mlx_weights, mlx_config = convert_gptq_to_mlx_weights(model_id_or_path, model, qcfg.to_dict(), cls.lm_head)
 
-                save_model(temp_dir, mlx_weights, donate_model=True)
-                save_config(mlx_config, config_path=temp_dir + "/config.json")
-                tokenizer.save_pretrained(temp_dir)
+        #         save_model(temp_dir, mlx_weights, donate_model=True)
+        #         save_config(mlx_config, config_path=temp_dir + "/config.json")
+        #         tokenizer.save_pretrained(temp_dir)
 
-                model, _ = load(temp_dir)
+        #         model, _ = load(temp_dir)
 
-                cls.generate = lambda _, **kwargs: mlx_generate(model=model, tokenizer=tokenizer, **kwargs)
+        #         cls.generate = lambda _, **kwargs: mlx_generate(model=model, tokenizer=tokenizer, **kwargs)
 
 
         return cls(

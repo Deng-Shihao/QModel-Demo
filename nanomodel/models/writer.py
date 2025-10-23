@@ -38,7 +38,6 @@ from ..utils.backend import BACKEND
 from ..utils.hf import sanitize_generation_config_file
 from ..utils.logger import setup_logger
 from ..utils.model import (
-    convert_gptq_v2_to_v1_format,
     copy_py_files,
     find_modules,
     get_model_files_size,

@@ -51,7 +51,7 @@ numpy.random.seed(233)
 
 MODEL_MAP = {
     "llama": LlamaNanoModel,
-    "qwen2": Qwen2NanoModel,
+    "qwen2": Qwen2NanoModel, # Base on Llama
     "qwen3": Qwen3NanoModel # Base on Llama
 }
 
