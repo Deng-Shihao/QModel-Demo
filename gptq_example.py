@@ -25,7 +25,7 @@ def main():
     quantize_config = QuantizeConfig(
         bits=4,
         group_size=128,
-        quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.QQQ as needed
+        quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.GPTQ as needed
         format=FORMAT.GPTQ,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
     )
 
@@ -38,8 +38,7 @@ def main():
     logger.info(f"Saving quantized model to: {quantized_model_id}")
     model.save(quantized_model_id)
 
-    device = get_best_device()
-    model = AutoNanoModel.load(quantized_model_id, device=device)
+    model = AutoNanoModel.load(quantized_model_id, device=get_best_device())
 
     # inference with model.generate
     print(tokenizer.decode(model.generate(**tokenizer("GPTQ is", return_tensors="pt").to(model.device))[0]))

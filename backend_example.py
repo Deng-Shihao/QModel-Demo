@@ -7,7 +7,7 @@ from transformers import AutoTokenizer
 
 from nanomodel import BACKEND, AutoNanoModel, QuantizeConfig, get_best_device
 
-
+# Env config
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 

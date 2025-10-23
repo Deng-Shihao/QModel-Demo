@@ -4,6 +4,7 @@ from transformers import AutoTokenizer
 
 from nanomodel import AutoNanoModel, get_best_device
 
+# Env config
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -17,7 +18,7 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=device)
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("What model youa are ?", return_tensors="pt").to(model.device))[0]))
+    print(tokenizer.decode(model.generate(**tokenizer("What model you are ?", return_tensors="pt").to(model.device))[0]))
 
 if __name__ == "__main__":
     import logging
