@@ -891,7 +891,7 @@ class BaseNanoModel(nn.Module):
 
         if self.quantize_config.format == FORMAT.MARLIN:
             raise ValueError(
-                "FORMAT.MARLIN is deprecated for quantization. Please switch to FORMAT.GPTQ. Nano Model will auto-use Marlin kernel for accelerated inference for FORMAT.GPTQ."
+                "FORMAT.MARLIN is deprecated for quantization. Please switch to FORMAT.GPTQ. NanoModel will auto-use Marlin kernel for accelerated inference for FORMAT.GPTQ."
             )
 
         if self.quantize_config.quant_method == METHOD.AWQ:

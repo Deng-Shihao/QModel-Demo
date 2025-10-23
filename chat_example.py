@@ -14,7 +14,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 PRETRAINED_MODEL_ID = "Qwen/Qwen3-1.7B"
-QUANTIZED_MODEL_ID = "qwen3-1.7b-gptq-4bit"
+QUANTIZED_MODEL_ID = "qwen3-1.7b-awq-4bit"
 
 
 def format_bytes(num_bytes: int) -> str:
