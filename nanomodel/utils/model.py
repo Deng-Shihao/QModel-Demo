@@ -454,10 +454,8 @@ def hf_convert_gptq_v1_to_v2_format(
     else:
         return model, False
 
-def convert_gptq_v1_to_v2_format_module(module: BaseQuantLinear, bits: int, pack_dtype: torch.dtype) -> nn.Module:
+def convert_gptq_format_module(module: BaseQuantLinear, bits: int, pack_dtype: torch.dtype) -> nn.Module:
     assert isinstance(module, BaseQuantLinear)
-
-    log.info.once("Format: Converting GPTQ v1 to v2")
 
     # v1 checkpoint format used to do `qzeros = qzeros -= 1` before serialization, thus the
     # additions here do not overflow.
@@ -563,7 +561,7 @@ def convert_gptq_v1_to_v2_format(
         # v1 checkpoint format with sym=False saved via convert_gptq_v2_to_v1_format() will
         # overflow ~<=13% based on testing
         if isinstance(submodule, qlinear_kernel):
-            convert_gptq_v1_to_v2_format_module(module=submodule, bits=cfg.bits, pack_dtype=cfg.pack_dtype)
+            convert_gptq_format_module(module=submodule, bits=cfg.bits, pack_dtype=cfg.pack_dtype)
 
         #log.info(f"Format: Conversion complete: {time.time() - t}s")
 

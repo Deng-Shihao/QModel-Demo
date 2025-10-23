@@ -172,15 +172,15 @@ def ModelWriter(cls):
             value=self.quantize_config.mse,
         )
 
-        self.quantize_config.meta_set(
-            key=META_FIELD_V2_ENABLED,
-            value=self.quantize_config.v2,
-        )
+        # self.quantize_config.meta_set(
+        #     key=META_FIELD_V2_ENABLED,
+        #     value=self.quantize_config.v2,
+        # )
 
-        self.quantize_config.meta_set(
-            key=META_FIELD_V2_ALPHA,
-            value=self.quantize_config.v2_alpha,
-        )
+        # self.quantize_config.meta_set(
+        #     key=META_FIELD_V2_ALPHA,
+        #     value=self.quantize_config.v2_alpha,
+        # )
 
         self.quantize_config.meta_set(
             key=META_FIELD_ACT_GROUP_AWARE,

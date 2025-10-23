@@ -144,7 +144,7 @@ class TorchQuantLinear(PackableQuantLinear):
         if mode == old_train:
             return self
 
-        from ...utils.model import convert_gptq_v1_to_v2_format_module
+        from ...utils.model import convert_gptq_format_module
 
         # IPEX kernel will use Torch for training only and switches back to IPEX for eval/inference
         # If the kernel inherits Torch kernel only for training and can do its own inference in v1 (IPEX, Marlin) then
@@ -157,7 +157,7 @@ class TorchQuantLinear(PackableQuantLinear):
                 if self.qzero_format() == 1:
                     if not hasattr(self, "qzeros_data_v1"):
                         self.qzeros_data_v1 = self.qzeros.data.clone()
-                        convert_gptq_v1_to_v2_format_module(self, bits=self.bits, pack_dtype=self.pack_dtype)
+                        convert_gptq_format_module(self, bits=self.bits, pack_dtype=self.pack_dtype)
                         self.qzeros_data_v2 = self.qzeros.data
                     else:
                         self.qzeros.data = self.qzeros_data_v2
