@@ -2,7 +2,7 @@ import os
 import logging
 from transformers import AutoTokenizer
 from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
-from nanomodel.quantization import FORMAT, METHOD
+from nanomodel.quantization import KERNEL, METHOD
 
 # Env config
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
@@ -26,7 +26,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.GPTQ as needed
-        format=FORMAT.MARLIN,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
+        kernel=KERNEL.MARLIN,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
     )
 
     logger.info("Loading pretrained model for quantization...")

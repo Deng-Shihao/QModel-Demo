@@ -17,7 +17,7 @@ from ..nn_modules.qlinear.tritonv2 import (
     TRITON_INSTALL_HINT,
     TritonV2QuantLinear,
 )
-from ..quantization import FORMAT, METHOD
+from ..quantization import KERNEL, METHOD
 from ..utils.logger import setup_logger
 from . import BACKEND
 from .rocm import IS_ROCM
@@ -49,7 +49,7 @@ AUTO_SELECT_BACKEND_ORDER_MAP = {
 
 SUPPORTS_BACKEND_MAP = {
     METHOD.GPTQ: {
-        FORMAT.GPTQ: [
+        KERNEL.GPTQ: [
             BACKEND.MARLIN,
             BACKEND.TORCH_FUSED,
             BACKEND.TRITON,
@@ -57,13 +57,13 @@ SUPPORTS_BACKEND_MAP = {
             BACKEND.TORCH,
             BACKEND.MARLIN_FP16,
         ],
-        FORMAT.MARLIN: [BACKEND.MARLIN, BACKEND.MARLIN_FP16],
+        KERNEL.MARLIN: [BACKEND.MARLIN, BACKEND.MARLIN_FP16],
     },
     METHOD.AWQ: {
-        FORMAT.GEMM: [BACKEND.MARLIN, BACKEND.GEMM],
-        FORMAT.GEMV: [BACKEND.GEMV],
-        FORMAT.GEMV_FAST: [BACKEND.GEMV_FAST],
-        FORMAT.MARLIN: [BACKEND.MARLIN],
+        KERNEL.GEMM: [BACKEND.MARLIN, BACKEND.GEMM],
+        KERNEL.GEMV: [BACKEND.GEMV],
+        KERNEL.GEMV_FAST: [BACKEND.GEMV_FAST],
+        KERNEL.MARLIN: [BACKEND.MARLIN],
     },
 }
 
@@ -152,7 +152,7 @@ def hf_select_quant_linear(
         sym=sym,
         backend=backend,
         device=device,
-        format=FORMAT.GPTQ,
+        format=KERNEL.GPTQ,
         quant_method=METHOD.GPTQ,
         pack=pack,
         allow_marlin=True,  # TODO: remove this after marlin padding is fixed
@@ -169,7 +169,7 @@ def select_quant_linear(
     sym: bool,
     device: Optional[DEVICE] = None,
     backend: BACKEND = BACKEND.AUTO,
-    format: FORMAT = FORMAT.GPTQ,
+    format: KERNEL = KERNEL.GPTQ,
     quant_method: METHOD = METHOD.GPTQ,
     pack: bool = False,
     allow_marlin: bool = True,  # TODO: remove this after marlin padding is fixed

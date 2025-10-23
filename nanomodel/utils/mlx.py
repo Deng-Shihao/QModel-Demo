@@ -5,7 +5,7 @@ from transformers import PreTrainedModel
 
 from ..models import BaseNanoModel
 from ..nn_modules.qlinear.torch import TorchQuantLinear
-from ..quantization import FORMAT
+from ..quantization import KERNEL
 from .logger import setup_logger
 from .torch import torch_empty_cache
 
@@ -30,7 +30,7 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
     if gptq_config["bits"] not in [2, 3, 4, 8]:
         raise ValueError("Model bits is not in [2,3,4,8]")
 
-    if gptq_config["checkpoint_format"] not in [FORMAT.GPTQ]:
+    if gptq_config["checkpoint_format"] not in [KERNEL.GPTQ]:
         raise ValueError("Model checkpoint format is not gptq or gptq_v2")
 
     if gptq_config.get("dynamic") is not None:

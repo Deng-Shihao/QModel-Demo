@@ -39,7 +39,7 @@ from ..nn_modules.qlinear import BaseQuantLinear
 from ..nn_modules.qlinear.lookahead import configure_default_lookahead
 from ..nn_modules.qlinear.torch import TorchQuantLinear
 from ..quantization import QuantizeConfig
-from ..quantization.config import FORMAT, METHOD, QUANTIZE_BLACK_LIST, dynamic_get
+from ..quantization.config import KERNEL, METHOD, QUANTIZE_BLACK_LIST, dynamic_get
 from ..quantization.rotation.rotation import fuse_layer_norms, rotate_model
 from ..utils.backend import BACKEND
 from ..utils.data import collate_data
@@ -889,17 +889,17 @@ class BaseNanoModel(nn.Module):
             )
             batch_size = 1  # but actually disabled
 
-        if self.quantize_config.format == FORMAT.MARLIN:
+        if self.quantize_config.kernel == KERNEL.MARLIN:
             raise ValueError(
                 "FORMAT.MARLIN is deprecated for quantization. Please switch to FORMAT.GPTQ. NanoModel will auto-use Marlin kernel for accelerated inference for FORMAT.GPTQ."
             )
 
         if self.quantize_config.quant_method == METHOD.AWQ:
-            if self.quantize_config.format == FORMAT.GEMV_FAST:
+            if self.quantize_config.kernel == KERNEL.GEMV_FAST:
                 # AWQ GEMV_FAST only supports pack_dtype is torch.int16
                 log.info("Quantize Model: Auto fix `pack_dtype` to `torch.int16`")
                 self.quantize_config.pack_dtype = torch.int16
-            elif self.quantize_config.format == FORMAT.MARLIN:
+            elif self.quantize_config.kernel == KERNEL.MARLIN:
                 # AWQ MARLIN only supports zero_point is false
                 log.info("Quantize Model: Auto fix `zero_point` to `False`")
                 self.quantize_config.zero_point = False
@@ -926,7 +926,7 @@ class BaseNanoModel(nn.Module):
             desc_act=self.quantize_config.desc_act,
             sym=self.quantize_config.sym,
             backend=preferred_backend,
-            format=self.quantize_config.format,
+            format=self.quantize_config.kernel,
             quant_method=self.quantize_config.quant_method,
             device=DEVICE(self.quantize_config.device),
             pack=True,
@@ -965,7 +965,7 @@ class BaseNanoModel(nn.Module):
             pack_dtype=self.quantize_config.pack_dtype,
             multi_select=False,
             backend=preferred_backend,
-            format=self.quantize_config.format,
+            format=self.quantize_config.kernel,
             quant_method=self.quantize_config.quant_method,
         )
 

@@ -46,7 +46,7 @@ from ..quantization.awq.utils.module import (
     set_op_by_name,
 )
 from ..quantization.awq.utils.utils import get_best_device
-from ..quantization.config import FORMAT, METHOD, QuantizeConfig
+from ..quantization.config import KERNEL, METHOD, QuantizeConfig
 
 from ..utils.logger import setup_logger
 
@@ -105,7 +105,7 @@ class AWQProcessor(BaseProcessor):
         # This argument avoids real quantization by only applying the scales without quantizing down to FP16.
         self.export_compatible = False
 
-        self.version = qcfg.format
+        self.version = qcfg.kernel
 
         # The maximum sequence length of the calibration dataset. Discard samples greater than max_calib_seq_len.
         self.max_calib_seq_len = 512
@@ -902,16 +902,16 @@ class AWQProcessor(BaseProcessor):
         module.state.pop("w", None)  # no need for original weights now
 
     def finalize(self, model: BaseNanoModel, **kwargs):
-        if model.quantize_config.format == FORMAT.GEMM:
+        if model.quantize_config.kernel == KERNEL.GEMM:
             model.qlinear_kernel = AwqGEMMQuantLinear
-        elif model.quantize_config.format == FORMAT.GEMV:
+        elif model.quantize_config.kernel == KERNEL.GEMV:
             model.qlinear_kernel = AwqGEMVQuantLinear
-        elif model.quantize_config.format == FORMAT.GEMV_FAST:
+        elif model.quantize_config.kernel == KERNEL.GEMV_FAST:
             model.qlinear_kernel = AwqGEMVFastQuantLinear
-        elif model.quantize_config.format == FORMAT.MARLIN:
+        elif model.quantize_config.kernel == KERNEL.MARLIN:
             model.qlinear_kernel = AwqMarlinQuantLinear
         else:
-            raise Exception(f"unkown format: {model.quantize_config.format}")
+            raise Exception(f"unkown format: {model.quantize_config.kernel}")
 
         # set quantized state
         model.quantized = True

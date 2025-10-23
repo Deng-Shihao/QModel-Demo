@@ -1,10 +1,10 @@
 import json
 import threading
+import uuid
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 import torch
-from random_word import RandomWords
 from torch import Tensor
 from torch.nn import Module
 
@@ -114,7 +114,7 @@ class BaseProcessor:
         self._log_columns = None
         self._log_header_interval = 20
         current_time = datetime.now().strftime("%m_%d_%Y_%Hh_%Mm_%Ss")
-        self.log_tmp_log_file_name = f"{self.name()}_log_{RandomWords().get_random_word()}_time_{current_time}.log"
+        self.log_tmp_log_file_name = f"{self.name()}_log_{uuid.uuid4().hex}_time_{current_time}.log"
         self._device_smi_handles = self._init_device_smi_handles()
         self._cpu_device_smi = self._init_cpu_device_handle()
         self._device_metric_failures: Set[str] = set()

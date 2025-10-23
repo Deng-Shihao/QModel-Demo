@@ -33,7 +33,7 @@ The `AutoNanoModel` helper decides whether to quantize or simply load an existin
 ```python
 from transformers import AutoTokenizer
 from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
-from nanomodel.quantization import FORMAT, METHOD
+from nanomodel.quantization import KERNEL, METHOD
 
 model_id = "Qwen/Qwen3-0.6B"
 quantized_dir = "qwen3-0.6B-gptq-4bit"
@@ -49,13 +49,13 @@ quantize_config = QuantizeConfig(
     bits=4,
     group_size=128,
     quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.QQQ as needed
-    format=FORMAT.GPTQ,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
+    kernel=KERNEL.GPTQ,  # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
 )
 
 # 1. Load a full-precision checkpoint and quantize it in-place.
 model = AutoNanoModel.load(model_id, quantize_config)
 model.quantize(calibration_dataset)
-model.save(quantized_dir)          # produces safetensors + quantize_config.json
+model.save(quantized_dir)  # produces safetensors + quantize_config.json
 
 # 2. Load the quantized model back on the best available device.
 device = get_best_device()

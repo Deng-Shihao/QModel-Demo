@@ -1,5 +1,6 @@
 import json
 import os.path
+import uuid
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from os.path import join
@@ -8,7 +9,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import re
 import torch
 from packaging import version
-from random_word import random_word
 
 from ..utils.logger import setup_logger
 
@@ -51,7 +51,7 @@ META_FIELD_V2_MEMORY_DEVICE = "v2_memory_device"
 
 
 # saved formats
-class FORMAT(str, Enum):
+class KERNEL(str, Enum):
     # GPTQ
     GPTQ = "gptq"
     MARLIN = "marlin"
@@ -70,14 +70,14 @@ class METHOD(str, Enum):
 
 QUANT_METHOD_FORMAT_MAPPING = {
     METHOD.GPTQ: {
-        FORMAT.GPTQ,
-        FORMAT.MARLIN,
+        KERNEL.GPTQ,
+        KERNEL.MARLIN,
     },
     METHOD.AWQ: {
-        FORMAT.GEMM,
-        FORMAT.GEMV,
-        FORMAT.GEMV_FAST,
-        FORMAT.MARLIN,
+        KERNEL.GEMM,
+        KERNEL.GEMV,
+        KERNEL.GEMV_FAST,
+        KERNEL.MARLIN,
     },
 }
 
@@ -158,7 +158,7 @@ class QuantizeConfig():
 
     quant_method: METHOD = field(default=METHOD.GPTQ)
 
-    format: FORMAT = field(default=FORMAT.GPTQ)
+    kernel: KERNEL = field(default=KERNEL.GPTQ)
 
     # quantization_order: str = "activate",
     # quantization_scale: str = "mse", # or absmax
@@ -244,14 +244,14 @@ class QuantizeConfig():
             self.damp_auto_increment = 0.01
 
         # TODO FIXME awq compat which didn't have checkpoint_format before merging to nanomodel
-        if self.quant_method == METHOD.AWQ and self.format not in [FORMAT.MARLIN, FORMAT.GEMV, FORMAT.GEMV_FAST, FORMAT.GEMM]:
+        if self.quant_method == METHOD.AWQ and self.kernel not in [KERNEL.MARLIN, KERNEL.GEMV, KERNEL.GEMV_FAST, KERNEL.GEMM]:
             # log.info(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
-            print(f"QuantizeConfig: Auto fix `format` to `{FORMAT.GEMM}`")
-            self.format = FORMAT.GEMM
+            print(f"QuantizeConfig: Auto fix `format` to `{KERNEL.GEMM}`")
+            self.kernel = KERNEL.GEMM
 
-        if self.format not in valid_formats:
+        if self.kernel not in valid_formats:
             raise ValueError(
-                f"QuantizeConfig: checkpoint `format` used is {self.format}, and the quantization method is {self.quant_method}. "
+                f"QuantizeConfig: checkpoint `format` used is {self.kernel}, and the quantization method is {self.quant_method}. "
             )
 
         if self.bits not in fields_info[0].metadata["choices"]:
@@ -329,8 +329,7 @@ class QuantizeConfig():
 
 
         if self.offload_to_disk and not self.offload_to_disk_path:
-            randWords = random_word.RandomWords()
-            path_key = f"{randWords.get_random_word()}-{randWords.get_random_word()}"
+            path_key = f"{uuid.uuid4().hex}-{uuid.uuid4().hex}"
             self.offload_to_disk_path = f"./nanomodel_offload/{path_key}/"
             log.info(f"QuantizeConfig: offload_to_disk_path auto set to `{self.offload_to_disk_path}`")
 
@@ -410,7 +409,7 @@ class QuantizeConfig():
     @classmethod
     # normalize quant config for compat and also performs validation
     def from_quant_config(cls, quantize_cfg, format: str = None):
-        valid_formats = {FORMAT.GPTQ, FORMAT.MARLIN}
+        valid_formats = {KERNEL.GPTQ, KERNEL.MARLIN}
         format_auto_inferred = False
         # compat: format can be passed in via from_quantized() if field missing from json
         if format:
@@ -428,7 +427,7 @@ class QuantizeConfig():
         normalized = {
             QUANT_METHOD_FIELD: METHOD.GPTQ,
             # compat: default to gptq(v1) when loading models
-            FORMAT_FIELD_CODE: format if format else FORMAT.GPTQ,
+            FORMAT_FIELD_CODE: format if format else KERNEL.GPTQ,
         }
         for key, val in quantize_cfg.items():
             key = key.lower()
@@ -440,14 +439,14 @@ class QuantizeConfig():
             if key == FORMAT_FIELD_CHECKPOINT:
                 val = val.lower()
 
-                if val in {FORMAT.GPTQ, FORMAT.MARLIN}:
+                if val in {KERNEL.GPTQ, KERNEL.MARLIN}:
                     normalized[key] = val
                 else:
                     raise ValueError(f"QuantizeConfig: Unknown quantization format: `{val}`.")
             elif key == QUANT_METHOD_FIELD:
                 val = val.lower()
-                if val == FORMAT.MARLIN:
-                    normalized[FORMAT_FIELD_CODE] = FORMAT.MARLIN
+                if val == KERNEL.MARLIN:
+                    normalized[FORMAT_FIELD_CODE] = KERNEL.MARLIN
                 elif val not in {METHOD.GPTQ, METHOD.AWQ}:
                     raise ValueError(f"QuantizeConfig: Unknown quantization method: `{val}`.")
                 else:
@@ -501,7 +500,7 @@ class QuantizeConfig():
             "sym": self.sym,
             "lm_head": self.lm_head,
             QUANT_METHOD_FIELD:self.quant_method,
-            FORMAT_FIELD_CHECKPOINT: self.format,
+            FORMAT_FIELD_CHECKPOINT: self.kernel,
             # torch.dtype convert to string
             PACK_DTYPE_FIELD: str(self.pack_dtype).split(".")[-1],
             META_FIELD: self.meta,
@@ -514,7 +513,7 @@ class QuantizeConfig():
         if self.quant_method == METHOD.AWQ:
             out["zero_point"] = self.zero_point
             # awq compat with vllm/sglang/transformers loaders
-            out["version"] = self.format
+            out["version"] = self.kernel
 
 
         # simplify: clean keys where the value is None or empty [list, dict]

@@ -38,7 +38,7 @@ from ..models._const import (
     SUPPORTS_MODULE_TYPES,
 )
 from ..nn_modules.qlinear import BaseQuantLinear
-from ..quantization import FORMAT, QuantizeConfig
+from ..quantization import KERNEL, QuantizeConfig
 from ..quantization.config import FORMAT_FIELD_CHECKPOINT, METHOD, dynamic_get
 from . import has_gil_disabled
 from .backend import BACKEND
@@ -225,13 +225,13 @@ def make_quant(
 
     bits = qcfg.bits
     group_size =qcfg.group_size
-    format = qcfg.format
+    format = qcfg.kernel
     desc_act = qcfg.desc_act
     sym = qcfg.sym
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
 
-    if not pack and format == FORMAT.GPTQ:
+    if not pack and format == KERNEL.GPTQ:
         backend = BACKEND.TORCH
 
     # returns multiple validated kernels
@@ -753,7 +753,7 @@ def pack_module(
         if (
             quantize_config is not None
             and quantize_config.quant_method == METHOD.GPTQ
-            and quantize_config.format == FORMAT.GPTQ
+            and quantize_config.kernel == KERNEL.GPTQ
             and getattr(quant_linear_cls, "REQUIRES_FORMAT_V2", False)
         ):
             with log_time_block(
@@ -779,7 +779,7 @@ def pack_model(
     bits,
     group_size,
     backend: BACKEND,
-    format: str | FORMAT,
+    format: str | KERNEL,
     quant_method: str | METHOD,
     lm_head_name: str,
     desc_act=False,
@@ -790,7 +790,7 @@ def pack_model(
     qcfg = QuantizeConfig(
         bits=bits,
         group_size=group_size,
-        format=format,
+        kernel=format,
         quant_method=quant_method,
         desc_act=desc_act,
         sym=sym,

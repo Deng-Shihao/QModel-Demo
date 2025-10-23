@@ -2,7 +2,7 @@ import os
 import logging
 from transformers import AutoTokenizer
 from nanomodel import AutoNanoModel, QuantizeConfig, get_best_device
-from nanomodel.quantization import FORMAT, METHOD, QUANT_CONFIG_FILENAME
+from nanomodel.quantization import KERNEL, METHOD, QUANT_CONFIG_FILENAME
 
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
@@ -23,7 +23,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.AWQ,  # switch to METHOD.AWQ or METHOD.GPTQ as needed
-        format=FORMAT.GEMV,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
+        kernel=KERNEL.GEMV,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
     ) 
 
     logger.info("Loading pretrained model for quantization...")
