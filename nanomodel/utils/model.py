@@ -552,8 +552,7 @@ def convert_gptq_v1_to_v2_format(
     # Limit thread usage to avoid auto-parallizataion regression
     # with tctl.threadpool_limits(limits=1):
     time.time()
-    log.info(
-        f"Format: Converting `{FORMAT_FIELD_CHECKPOINT}` from `{FORMAT.GPTQ}` to internal GPTQ_V2.")
+    log.info("Loading")
 
     for _, submodule in model.named_modules():
         # v1 checkpoint format used to do `qzeros = qzeros -= 1` before serialization, thus the
@@ -588,8 +587,6 @@ def convert_gptq_v2_to_v1_format_module(
     quantize_config: QuantizeConfig,
 ):
     assert isinstance(module, BaseQuantLinear)
-
-    log.info.once("Format: Converting GPTQ v2 to v1")
 
     if quantize_config.bits == 2:
         module.qzeros.data -= 0b01010101010101010101010101010101
