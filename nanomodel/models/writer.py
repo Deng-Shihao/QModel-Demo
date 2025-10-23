@@ -27,8 +27,6 @@ from ..quantization.config import (
     META_FIELD_STATIC_GROUPS,
     META_FIELD_TRUE_SEQUENTIAL,
     META_FIELD_URI,
-    META_FIELD_V2_ALPHA,
-    META_FIELD_V2_ENABLED,
     META_QUANTIZER_NANOMODEL,
     META_VALUE_URI,
 )
@@ -171,16 +169,6 @@ def ModelWriter(cls):
             key=META_FIELD_MSE,
             value=self.quantize_config.mse,
         )
-
-        # self.quantize_config.meta_set(
-        #     key=META_FIELD_V2_ENABLED,
-        #     value=self.quantize_config.v2,
-        # )
-
-        # self.quantize_config.meta_set(
-        #     key=META_FIELD_V2_ALPHA,
-        #     value=self.quantize_config.v2_alpha,
-        # )
 
         self.quantize_config.meta_set(
             key=META_FIELD_ACT_GROUP_AWARE,
