@@ -156,8 +156,6 @@ class QuantizeConfig():
 
     quant_method: METHOD = field(default=METHOD.GPTQ)
 
-    # default to gptq v1 format for maximum compat with 3rd party inference libs with minimal loss vs v2
-    # if you inference with nanomodel, save to gptq_v2 format for best result
     format: FORMAT = field(default=FORMAT.GPTQ)
 
     # quantization_order: str = "activate",
@@ -197,10 +195,10 @@ class QuantizeConfig():
     # use mock quantization to quantize module so the gptq process can continue and not fail
     fail_safe: bool = field(default=False)
 
-    # gptq v2* only:
-    v2: bool = field(default=False)
-    v2_alpha: float = field(default=0.25)
-    v2_memory_device: str = field(default="auto")
+    # v2 only:
+    # v2: bool = field(default=False)
+    # v2_alpha: float = field(default=0.25)
+    # v2_memory_device: str = field(default="auto")
 
     # awq only:
     zero_point: bool = field(default=True)

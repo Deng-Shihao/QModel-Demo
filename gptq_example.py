@@ -20,7 +20,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
 
     # Build calibration dataset
-    calibration_dataset = [tokenizer("GPTQ is a method that compresses large language models by converting their weights to lower precision (like 4-bit) after training, making them smaller and faster with minimal accuracy loss.")]
+    calibration_dataset = [tokenizer("gptq is a method that compresses large language models by converting their weights to lower precision (like 4-bit) after training, making them smaller and faster with minimal accuracy loss.")]
 
     quantize_config = QuantizeConfig(
         bits=4,

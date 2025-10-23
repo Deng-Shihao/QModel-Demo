@@ -23,7 +23,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.AWQ,  # switch to METHOD.AWQ or METHOD.QQQ as needed
-        format=FORMAT.GEMM,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
+        format=FORMAT.GEMV,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
     ) 
 
     logger.info("Loading pretrained model for quantization...")
@@ -39,7 +39,7 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=device)
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("gptqmodel is", return_tensors="pt").to(model.device))[0]))
+    print(tokenizer.decode(model.generate(**tokenizer("awq is", return_tensors="pt").to(model.device))[0]))
 
 if __name__ == "__main__":
     logging.basicConfig(
