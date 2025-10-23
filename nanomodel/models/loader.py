@@ -11,12 +11,19 @@ import transformers
 
 from ..utils.structure import print_module_tree
 
-from huggingface_hub import snapshot_download
+# Hugging Face | Model Scopr
+if os.getenv('NANOMODEL_USE_MODELSCOPE', 'False').lower() in ['true', '1']:
+    try:
+        from modelscope import snapshot_download
+    except Exception:
+        raise ModuleNotFoundError("env `NANOMODEL_USE_MODELSCOPE` used but modelscope pkg is not found: please install with `pip install modelscope`.")
+else:
+    from huggingface_hub import snapshot_download
 
 from packaging.version import InvalidVersion, Version
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 from transformers.modeling_utils import no_init_weights
-from transformers.utils import is_flash_attn_2_available
+from transformers.utils import is_flash_attn_2_available # Support flash_attn
 from transformers.utils.generic import ContextManagers
 
 from ..quantization import QuantizeConfig
@@ -26,8 +33,8 @@ from ..utils.importer import auto_select_device, normalize_device_device_map, se
 from ..utils.logger import setup_logger
 from ..utils.marlin import _validate_marlin_device_support
 from ..utils.model import (
-    convert_gptq_v1_to_v2_format,
     auto_dtype,
+    convert_gptq_v1_to_v2_format,
     find_config_seq_len,
     find_modules,
     get_checkpoints,
@@ -94,7 +101,7 @@ def get_model_local_path(pretrained_model_id_or_path, **kwargs):
     else:
         # Clone kwargs before modifying
         download_kwargs = kwargs.copy()
-        download_kwargs.pop("max_memory", None)
+        # download_kwargs.pop("max_memory", None)
         download_kwargs.pop("attn_implementation", None)
         download_kwargs.pop("use_flash_attention_2", None)
         return snapshot_download(pretrained_model_id_or_path, **download_kwargs)
@@ -272,6 +279,7 @@ def ModelLoader(cls):
         torch._dynamo.reset()
 
         # normalized device + device_map into single device
+        normalized_device = device if device_map is None else None  # let device_map dictate placement when present
         device = normalize_device_device_map(device, device_map)
 
         # TODO need to normalize backend and others in a unified api
@@ -351,7 +359,7 @@ def ModelLoader(cls):
             dtype = torch.float16
 
         qcfg.calculate_bits_per_weight()
-
+        tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
         if backend == BACKEND.VLLM or backend == BACKEND.SGLANG:
             if backend == BACKEND.VLLM:
                 if qcfg.format != FORMAT.GPTQ and qcfg.format != FORMAT.GEMM:
@@ -389,7 +397,10 @@ def ModelLoader(cls):
                 model,
                 quantized=True,
                 quantize_config=qcfg,
+                tokenizer=tokenizer,
                 qlinear_kernel=None,
+                load_quantized_model=True,
+                trust_remote_code=trust_remote_code,
                 model_local_path=model_local_path,
             )
 
@@ -477,7 +488,6 @@ def ModelLoader(cls):
             layers, _ = get_module_by_name_prefix(model, cls.extract_layers_node())
 
             layer0 = layers[0]
-            layer_type = layer0.__class__.__name__
 
             modules = find_modules(model)
             ignore_modules = [cls.lm_head] + cls.get_base_modules(model)
@@ -629,8 +639,6 @@ def ModelLoader(cls):
         model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
 
         # model.eval()
-
-        tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
 
         # if backend == BACKEND.MLX:
         #     import tempfile

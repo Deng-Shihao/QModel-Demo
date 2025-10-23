@@ -59,9 +59,9 @@ from ._const import (
     EXPERT_INDEX_PLACEHOLDER,
     META,
 )
+
 from .loader import ModelLoader
 from .writer import ModelWriter
-
 
 if TYPE_CHECKING:
     try:
@@ -245,6 +245,9 @@ class BaseNanoModel(nn.Module):
         if tokenizer is not None:
             if isinstance(tokenizer, PreTrainedTokenizerBase):
                 self.tokenizer = tokenizer
+                if hasattr(self, "model") and self.model is not None:
+                    self.model.tokenizer = self.tokenizer
+                self.model.tokenizer = self.tokenizer
             else:
                 raise ValueError(
                     f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`."
@@ -347,7 +350,7 @@ class BaseNanoModel(nn.Module):
             [name for name in block if NOT_QUANTIZE_FLAG not in name]
             for block in layer_modules
         ]
-        layer_modules = [block for block in layer_modules if block]
+        layer_modules = [block for block in layer_modules if block] # remove empty block
 
         if getattr(quantize_config, "dynamic", None):
             new_layer_modules = []
@@ -837,13 +840,9 @@ class BaseNanoModel(nn.Module):
                 # count where mask == 1 (non-padded tokens)
                 total_non_padded += (mask == 1).sum().item()
 
-            print(f"Calibration: Total padded tokens: {total_padded}")
-            print(f"Calibration: Total non-padded tokens: {total_non_padded}")
-            print(f"Calibration: Total tokens: {total_non_padded + total_padded}")
-
-            # log.info(f"Calibration: Total padded tokens: {total_padded}")
-            # log.info(f"Calibration: Total non-padded tokens: {total_non_padded}")
-            # log.info(f"Calibration: Total tokens: {total_non_padded + total_padded}")
+            log.info(f"Calibration: Total padded tokens: {total_padded}")
+            log.info(f"Calibration: Total non-padded tokens: {total_non_padded}")
+            log.info(f"Calibration: Total tokens: {total_non_padded + total_padded}")
         else:
             new_calibration_dataset_batched = [
                 {
@@ -919,6 +918,7 @@ class BaseNanoModel(nn.Module):
         if preferred_backend in (None, BACKEND.AUTO):
             preferred_backend = BACKEND.TORCH
 
+        # Validate quant linear
         _ = select_quant_linear(
             bits=self.quantize_config.bits,
             dynamic=self.quantize_config.dynamic,
@@ -933,6 +933,15 @@ class BaseNanoModel(nn.Module):
             pack_dtype=self.quantize_config.pack_dtype,
         )
 
+        # Use the provided tokenizer if one is passed to quantize()
+        if tokenizer is not None:
+            if isinstance(tokenizer, PreTrainedTokenizerBase):
+                self.tokenizer = tokenizer
+                self.model.tokenizer = tokenizer
+            else:
+                raise ValueError(
+                    f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`."
+                )
         from ..processors.module_processor import ModuleProcessor
 
         args = {
@@ -1002,9 +1011,8 @@ class BaseNanoModel(nn.Module):
             )
 
         # init processor with default GPTQ processor
-        from ..processors.tensorparallel_weight_processor import (
-            TensorParallelWeightProcessor,
-        )
+        from ..processors.tensorparallel_weight_processor import TensorParallelWeightProcessor
+        
 
         if self.quantize_config.quant_method == METHOD.AWQ:
             from ..processors.awq_processor import AWQProcessor

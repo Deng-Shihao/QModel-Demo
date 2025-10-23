@@ -12,9 +12,17 @@ from .. import DEVICE_THREAD_POOL
 from ..processors.input_cache import InputCache
 from ..processors.named_module import NamedModule
 from ..models import BaseNanoModel
-from ..models.writer import (PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
-                             PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS,
-                             QUANT_LOG_NSAMPLES)
+from ..models.writer import (
+    PROCESS_LOG_FWD_TIME,
+    PROCESS_LOG_LAYER,
+    PROCESS_LOG_MODULE,
+    PROCESS_LOG_NAME,
+    PROCESS_LOG_TIME,
+    PROCESS_USED_MEMORY,
+    QUANT_LOG_DAMP,
+    QUANT_LOG_LOSS,
+    QUANT_LOG_NSAMPLES,
+)
 from ..quantization.config import QuantizeConfig
 from ..utils.device_smi import Device
 from ..utils.logger import setup_logger
@@ -43,19 +51,21 @@ DEFAULT_LOG_COLUMNS: List[str] = [
     "dynamic",
 ]
 
+
 # LoopProcessor is a singleton(), not per module instance
 class BaseProcessor:
     def __init__(
-            self,
-            tokenizer, qcfg: QuantizeConfig,
-            calibration,
-            prepare_dataset_func: Optional[Callable] = None,
-            calibration_concat_size: Optional[int] = None,
-            calibration_sort: Optional[str] = None,
-            batch_size: int = 1,
-            require_fwd: bool = True,
-            fwd_after_process: bool = True,
-            fwd_all_modules_in_single_pass: bool = False,
+        self,
+        tokenizer,
+        qcfg: QuantizeConfig,
+        calibration,
+        prepare_dataset_func: Optional[Callable] = None,
+        calibration_concat_size: Optional[int] = None,
+        calibration_sort: Optional[str] = None,
+        batch_size: int = 1,
+        require_fwd: bool = True,
+        fwd_after_process: bool = True,
+        fwd_all_modules_in_single_pass: bool = False,
     ):
         # process level lock
         self.lock = threading.Lock()
@@ -66,22 +76,24 @@ class BaseProcessor:
 
         self.tokenizer = tokenizer
         self.qcfg = qcfg
-        self.qcfg_dynamic = None # cloned and dynamic filtered
+        self.qcfg_dynamic = None  # cloned and dynamic filtered
 
         # TODO FIX ME: dequantize processor sets this to False but it is nver acted on!
         # if processor require fwd generate and hooks, set this to true
         # processors should bypass generate + hooks if this is false
-        self.require_fwd = require_fwd # default True
+        self.require_fwd = require_fwd  # default True
 
         # after process(), do we need to forward again? paried with require_fwd == True
         # if true, forward output is captured post process() and saved for next loop as input
         # if false, forward output before process() call is saved for next loop as input
-        self.fwd_after_process = fwd_after_process # default True
+        self.fwd_after_process = fwd_after_process  # default True
 
         # native processor does not need to forward N times due to module depend segmentation
         # if true, fwd is repeated based on module dep sub-groups
         # if false, sub-module groups are merged as one and fwd happens in one pass
-        self.fwd_all_modules_in_single_pass = fwd_all_modules_in_single_pass # default False
+        self.fwd_all_modules_in_single_pass = (
+            fwd_all_modules_in_single_pass  # default False
+        )
 
         self.inputs_cache: InputCache = InputCache(None, None, None, None)
         self.tasks = {}
@@ -89,7 +101,6 @@ class BaseProcessor:
         self.pb = None
         self.fwd_time = None
         self.layer_count = None
-
 
         self.gpu_memorys = []
         self.cpu_memorys = []
@@ -108,7 +119,6 @@ class BaseProcessor:
         self._cpu_device_smi = self._init_cpu_device_handle()
         self._device_metric_failures: Set[str] = set()
 
-
         # prepare dataset
         if calibration is not None:
             if len(calibration) == 0:
@@ -117,16 +127,22 @@ class BaseProcessor:
             min_calibration_dataset_size = 256
             min_calibration_dataset_input_ids_avg_length = 256
             if len(calibration) < min_calibration_dataset_size:
-                log.warn(f"Calibration dataset size should be more than {min_calibration_dataset_size}. "
-                               f"Current: {len(calibration)}.")
+                log.warn(
+                    f"Calibration dataset size should be more than {min_calibration_dataset_size}. "
+                    f"Current: {len(calibration)}."
+                )
 
             if prepare_dataset_func is None:
-                raise ValueError("prepare_dataset_func must be provided when calibration data is supplied.")
+                raise ValueError(
+                    "prepare_dataset_func must be provided when calibration data is supplied."
+                )
 
-            calibration = prepare_dataset_func(calibration_dataset=calibration,
-                                               calibration_dataset_concat_size=calibration_concat_size,
-                                               calibration_dataset_sort=calibration_sort,
-                                               batch_size=batch_size)
+            calibration = prepare_dataset_func(
+                calibration_dataset=calibration,
+                calibration_dataset_concat_size=calibration_concat_size,
+                calibration_dataset_sort=calibration_sort,
+                batch_size=batch_size,
+            )
 
             # Calculate the average length of the average input_ids
             total_input_ids_length = 0
@@ -139,7 +155,9 @@ class BaseProcessor:
                     else:
                         raise ValueError(
                             "Expected a 1-dimensional tensor or 2-dimensional tensor for 'input_ids', but got a tensor with {0} dimensions.".format(
-                                input_ids.dim()))
+                                input_ids.dim()
+                            )
+                        )
                 else:
                     input_ids_length = len(input_ids)
 
@@ -149,8 +167,10 @@ class BaseProcessor:
             avg = total_input_ids_length / len(calibration)
 
             if avg < min_calibration_dataset_input_ids_avg_length:
-                log.warn(f"The average length of input_ids of calibration_dataset should be greater than "
-                               f"{min_calibration_dataset_input_ids_avg_length}: actual avg: {avg}.")
+                log.warn(
+                    f"The average length of input_ids of calibration_dataset should be greater than "
+                    f"{min_calibration_dataset_input_ids_avg_length}: actual avg: {avg}."
+                )
 
             self.num_batches = len(calibration)
             self.calibration_dataset = calibration
@@ -174,7 +194,7 @@ class BaseProcessor:
         return getattr(self._batch_tls, "index", None)
 
     def _async_log_writer(self, stat):
-        with open(self.log_tmp_log_file_name, 'a') as f:
+        with open(self.log_tmp_log_file_name, "a") as f:
             json.dump(stat, f, indent=4)
             f.write("\n")
 
@@ -193,7 +213,10 @@ class BaseProcessor:
             if columns_rebuilt or self.log_call_count % self._log_header_interval == 1:
                 self._log_columns.info.header()
 
-            row_values = [self._format_log_value(column, stat.get(column, "")) for column in self._log_column_labels]
+            row_values = [
+                self._format_log_value(column, stat.get(column, ""))
+                for column in self._log_column_labels
+            ]
             self._log_columns.info(*row_values)
 
         self.log_save_async(stat)
@@ -202,7 +225,7 @@ class BaseProcessor:
         if loss_value <= 0.1:
             return "\033[92m"  # Green
         elif loss_value <= 1:
-            return "\033[96m" # Cyan
+            return "\033[96m"  # Cyan
         elif loss_value <= 5:
             return "\033[93m"  # Yellow
         elif loss_value <= 20:
@@ -254,7 +277,11 @@ class BaseProcessor:
             dtype = dtype or getattr(module, "module_dtype", None)
             in_features = module.state.get("in_features")
             out_features = module.state.get("out_features")
-            if dtype is not None and isinstance(in_features, int) and isinstance(out_features, int):
+            if (
+                dtype is not None
+                and isinstance(in_features, int)
+                and isinstance(out_features, int)
+            ):
                 element_size = torch.empty((), dtype=dtype).element_size()
                 total_bytes += in_features * out_features * element_size
 
@@ -295,10 +322,9 @@ class BaseProcessor:
 
         # handle known adapter containers without traversing entire nn.Module graphs
         if hasattr(obj, "lora_A") and hasattr(obj, "lora_B"):
-            return (
-                self._collect_tensor_bytes(obj.lora_A, seen)
-                + self._collect_tensor_bytes(obj.lora_B, seen)
-            )
+            return self._collect_tensor_bytes(
+                obj.lora_A, seen
+            ) + self._collect_tensor_bytes(obj.lora_B, seen)
 
         return 0
 
@@ -342,7 +368,9 @@ class BaseProcessor:
         if hasattr(torch, "cuda"):
             try:
                 if torch.cuda.is_available():
-                    device_type = "rocm" if getattr(torch.version, "hip", None) else "cuda"
+                    device_type = (
+                        "rocm" if getattr(torch.version, "hip", None) else "cuda"
+                    )
                     for idx in range(torch.cuda.device_count()):
                         devices.append(f"{device_type}:{idx}")
             except Exception:  # pragma: no cover - defensive, CUDA runtime differences
@@ -374,7 +402,7 @@ class BaseProcessor:
             metrics = self._safe_query_metric(device_id, handle)
             if metrics is None:
                 continue
-            snapshot[device_id] = metrics.memory_used / (1024 ** 3)
+            snapshot[device_id] = metrics.memory_used / (1024**3)
         return snapshot
 
     def _snapshot_cpu_memory_gib(self) -> Optional[float]:
@@ -383,7 +411,7 @@ class BaseProcessor:
         metrics = self._safe_query_metric("cpu", self._cpu_device_smi)
         if metrics is None:
             return None
-        return metrics.memory_used / (1024 ** 3)
+        return metrics.memory_used / (1024**3)
 
     def device_memory_report(self) -> str:
         snapshot = self._snapshot_device_memory_gib()
@@ -410,7 +438,7 @@ class BaseProcessor:
     # Loop Procssor level scoped state data
     def result_save(self, key: str, value: Any):
         with self._results_lock:
-            #assert self.result_get(key) is None, f"key: {key} already exists in `self.result`"
+            # assert self.result_get(key) is None, f"key: {key} already exists in `self.result`"
             self._results[key] = value
 
     # Loop Procssor level scoped state data
@@ -470,7 +498,9 @@ class BaseProcessor:
         self.tasks = {}
         self.inputs_cache.layer_inputs = []
 
-    def pre_process_fwd_hook(self, name: str) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
+    def pre_process_fwd_hook(
+        self, name: str
+    ) -> Callable[[Module, Tuple[torch.Tensor, ...], torch.Tensor], None]:
         pass
 
     # do work and return processor.self state which will updated/merged
@@ -481,7 +511,7 @@ class BaseProcessor:
     # submodule_finalize is called in reverse after all next sequential processes are called
     def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         pass
-        #self.offload_to_disk(module=module)
+        # self.offload_to_disk(module=module)
 
     # last step, after all loop processor is called
     # finalize is called in reverse after all next sequential processes are called
@@ -507,15 +537,16 @@ class BaseProcessor:
     def name(self) -> str:
         pass
 
+
 def get_max_memory() -> str:
     stats_0 = torch.cuda.memory_stats(DEVICE_0)
-    active_0 = stats_0.get("active_bytes.all.current", 0) / 1024 ** 2
-    peak_active_0 = stats_0.get("active_bytes.all.peak", 0) / 1024 ** 2
+    active_0 = stats_0.get("active_bytes.all.current", 0) / 1024**2
+    peak_active_0 = stats_0.get("active_bytes.all.peak", 0) / 1024**2
 
     if torch.cuda.device_count() > 1:
         stats_1 = torch.cuda.memory_stats(DEVICE_1)
-        active_1 = stats_1.get("active_bytes.all.current", 0) / 1024 ** 2
-        peak_active_1 = stats_1.get("active_bytes.all.peak", 0) / 1024 ** 2
+        active_1 = stats_1.get("active_bytes.all.current", 0) / 1024**2
+        peak_active_1 = stats_1.get("active_bytes.all.peak", 0) / 1024**2
 
         max_memory = f"{active_0:.2f}MB, {active_1:.2f}MB"
     else:

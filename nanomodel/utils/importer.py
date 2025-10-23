@@ -12,7 +12,11 @@ from ..nn_modules.qlinear.awq_gemv_fast import AwqGEMVFastQuantLinear
 from ..nn_modules.qlinear.awq_marlin import AwqMarlinQuantLinear
 from ..nn_modules.qlinear.marlin import MarlinQuantLinear
 from ..nn_modules.qlinear.torch import TorchQuantLinear
-from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT, TritonV2QuantLinear
+from ..nn_modules.qlinear.tritonv2 import (
+    TRITON_AVAILABLE,
+    TRITON_INSTALL_HINT,
+    TritonV2QuantLinear,
+)
 from ..quantization import FORMAT, METHOD
 from ..utils.logger import setup_logger
 from . import BACKEND
@@ -25,23 +29,34 @@ message_logged = False
 log = setup_logger()
 
 AUTO_SELECT_BACKEND_ORDER_MAP = {
-    METHOD.GPTQ: OrderedDict({
-        BACKEND.MARLIN: MarlinQuantLinear, # optimized for bs > 1
-        BACKEND.TRITON: TritonV2QuantLinear, # good all around kernel that JIT compiles
-        # BACKEND.CUDA: DynamicCudaQuantLinear,
-        BACKEND.TORCH: TorchQuantLinear, # slightly slower than Triton but getting close in Torch 2.6.0+
-    }),
-    METHOD.AWQ: OrderedDict({
-        BACKEND.MARLIN: AwqMarlinQuantLinear,
-        BACKEND.GEMM: AwqGEMMQuantLinear,
-        BACKEND.GEMV: AwqGEMVQuantLinear,
-        BACKEND.GEMV_FAST: AwqGEMVFastQuantLinear,
-    }),
+    METHOD.GPTQ: OrderedDict(
+        {
+            BACKEND.MARLIN: MarlinQuantLinear,  # optimized for bs > 1
+            BACKEND.TRITON: TritonV2QuantLinear,  # good all around kernel that JIT compiles
+            # BACKEND.CUDA: DynamicCudaQuantLinear,
+            BACKEND.TORCH: TorchQuantLinear,  # slightly slower than Triton but getting close in Torch 2.6.0+
+        }
+    ),
+    METHOD.AWQ: OrderedDict(
+        {
+            BACKEND.MARLIN: AwqMarlinQuantLinear,
+            BACKEND.GEMM: AwqGEMMQuantLinear,
+            BACKEND.GEMV: AwqGEMVQuantLinear,
+            BACKEND.GEMV_FAST: AwqGEMVFastQuantLinear,
+        }
+    ),
 }
 
 SUPPORTS_BACKEND_MAP = {
     METHOD.GPTQ: {
-        FORMAT.GPTQ: [BACKEND.MARLIN, BACKEND.TORCH_FUSED, BACKEND.TRITON, BACKEND.TORCH_FUSED, BACKEND.TORCH, BACKEND.MARLIN_FP16],
+        FORMAT.GPTQ: [
+            BACKEND.MARLIN,
+            BACKEND.TORCH_FUSED,
+            BACKEND.TRITON,
+            BACKEND.TORCH_FUSED,
+            BACKEND.TORCH,
+            BACKEND.MARLIN_FP16,
+        ],
         FORMAT.MARLIN: [BACKEND.MARLIN, BACKEND.MARLIN_FP16],
     },
     METHOD.AWQ: {
@@ -49,14 +64,21 @@ SUPPORTS_BACKEND_MAP = {
         FORMAT.GEMV: [BACKEND.GEMV],
         FORMAT.GEMV_FAST: [BACKEND.GEMV_FAST],
         FORMAT.MARLIN: [BACKEND.MARLIN],
-    }
+    },
 }
 
-def normalize_device_device_map(device: Optional[Union[str, torch.device]], device_map: Optional[Union[str, Dict]]) -> Optional[DEVICE]:
+
+def normalize_device_device_map(
+    device: Optional[Union[str, torch.device]], device_map: Optional[Union[str, Dict]]
+) -> Optional[DEVICE]:
     normalized_device = None
     if device is None:
         if device_map is not None:
-            devices = {device_map} if isinstance(device_map, str) else set(device_map.values())
+            devices = (
+                {device_map}
+                if isinstance(device_map, str)
+                else set(device_map.values())
+            )
             normalized_devices = set()
             for device in devices:
                 # Returning None means quant linear will be automatically selected.
@@ -76,7 +98,9 @@ def normalize_device_device_map(device: Optional[Union[str, torch.device]], devi
         elif isinstance(device, torch.device):
             normalized_device = DEVICE(device.type)
         else:
-            raise ValueError(f"device must be a string or torch.device, got {type(device)}")
+            raise ValueError(
+                f"device must be a string or torch.device, got {type(device)}"
+            )
 
     # map fake cuda to actual rocm
     if normalized_device == DEVICE.CUDA and IS_ROCM:
@@ -99,17 +123,18 @@ def auto_select_device(device: Optional[DEVICE], backend: Optional[BACKEND]) -> 
             device = DEVICE.CPU
     return device
 
+
 # public/stable api exposed to transformer/optimum
 def hf_select_quant_linear(
-        bits: int,
-        group_size: int,
-        desc_act: bool,
-        sym: bool,
-        checkpoint_format: str,
-        meta: Optional[Dict[str, any]] = None,
-        pack: Optional[bool] = True,
-        device_map: Optional[Union[str, dict]] = None,
-        backend: Optional[Union[str, BACKEND]] = None,
+    bits: int,
+    group_size: int,
+    desc_act: bool,
+    sym: bool,
+    checkpoint_format: str,
+    meta: Optional[Dict[str, any]] = None,
+    pack: Optional[bool] = True,
+    device_map: Optional[Union[str, dict]] = None,
+    backend: Optional[Union[str, BACKEND]] = None,
 ) -> Type[BaseQuantLinear]:
     # convert hf string backend to backend.enum
     if isinstance(backend, str):
@@ -130,7 +155,7 @@ def hf_select_quant_linear(
         format=FORMAT.GPTQ,
         quant_method=METHOD.GPTQ,
         pack=pack,
-        allow_marlin=True, # TODO: remove this after marlin padding is fixed
+        allow_marlin=True,  # TODO: remove this after marlin padding is fixed
         dynamic=None,
         pack_dtype=torch.int32,
     )
@@ -138,19 +163,19 @@ def hf_select_quant_linear(
 
 # auto select the correct/optimal QuantLinear class
 def select_quant_linear(
-        bits: int,
-        group_size: int,
-        desc_act: bool,
-        sym: bool,
-        device: Optional[DEVICE] = None,
-        backend: BACKEND = BACKEND.AUTO,
-        format: FORMAT = FORMAT.GPTQ,
-        quant_method: METHOD = METHOD.GPTQ,
-        pack: bool = False,
-        allow_marlin: bool = True,  # TODO: remove this after marlin padding is fixed
-        dynamic=None,
-        pack_dtype: torch.dtype = None,
-        multi_select: bool = False, # return all valid kernels
+    bits: int,
+    group_size: int,
+    desc_act: bool,
+    sym: bool,
+    device: Optional[DEVICE] = None,
+    backend: BACKEND = BACKEND.AUTO,
+    format: FORMAT = FORMAT.GPTQ,
+    quant_method: METHOD = METHOD.GPTQ,
+    pack: bool = False,
+    allow_marlin: bool = True,  # TODO: remove this after marlin padding is fixed
+    dynamic=None,
+    pack_dtype: torch.dtype = None,
+    multi_select: bool = False,  # return all valid kernels
 ) -> Union[Type[BaseQuantLinear], List[Type[BaseQuantLinear]]]:
     # TODO: this looks wrong
     if device is None:
@@ -163,7 +188,11 @@ def select_quant_linear(
     validated_qlinears = []
     # Handle the case where backend is AUTO.
     if backend in [BACKEND.AUTO, BACKEND.AUTO_TRAINABLE]:
-        allow_quant_linears = [(k, v) for k, v in AUTO_SELECT_BACKEND_ORDER_MAP[quant_method].items() if k in SUPPORTS_BACKEND_MAP[quant_method][format]]
+        allow_quant_linears = [
+            (k, v)
+            for k, v in AUTO_SELECT_BACKEND_ORDER_MAP[quant_method].items()
+            if k in SUPPORTS_BACKEND_MAP[quant_method][format]
+        ]
         err = None
         global message_logged
         # Suppose all quant linears in the model should have the same backend.
@@ -183,21 +212,26 @@ def select_quant_linear(
             if validate:
                 if pack:
                     check_pack_func = issubclass(cls, PackableQuantLinear) or (
-                        hasattr(cls, "pack_block") and callable(getattr(cls, "pack_block"))
+                        hasattr(cls, "pack_block")
+                        and callable(getattr(cls, "pack_block"))
                     )
                     if check_pack_func:
-                        #if not message_logged:
+                        # if not message_logged:
                         #    logger.info(f"Auto pick kernel based on compatibility: {cls}")
                         #    message_logged = True
-                        log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
+                        log.info(
+                            f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`"
+                        )
                         validated_qlinears.append(cls)
                         if not multi_select:
                             return cls
                 else:
-                    #if not message_logged:
+                    # if not message_logged:
                     #    logger.info(f"Auto pick kernel based on compatibility: {cls}")
                     #    message_logged = True
-                    log.info(f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`")
+                    log.info(
+                        f"{'Packing' if pack else ''} Kernel: Auto-selection: adding candidate `{cls.__name__}`"
+                    )
                     validated_qlinears.append(cls)
                     if not multi_select:
                         return cls
@@ -232,7 +266,16 @@ def select_quant_linear(
     else:
         qlinear = TorchQuantLinear
 
-    validate, err = qlinear.validate(bits=bits, group_size=group_size, desc_act=desc_act, sym=sym, pack_dtype=pack_dtype, dynamic=dynamic, device=device, trainable=trainable)
+    validate, err = qlinear.validate(
+        bits=bits,
+        group_size=group_size,
+        desc_act=desc_act,
+        sym=sym,
+        pack_dtype=pack_dtype,
+        dynamic=dynamic,
+        device=device,
+        trainable=trainable,
+    )
 
     log.info(f"{'Packing' if pack else ''} Kernel: selected: `{qlinear.__name__}`")
 

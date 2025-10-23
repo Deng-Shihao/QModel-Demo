@@ -10,11 +10,18 @@ from ..utils.logger import setup_logger
 
 log = setup_logger()
 
+
 class DequantizeProcessor(BaseProcessor):
     def __init__(self, quantized_modules: Dict[str, TorchQuantLinear]):
-        super().__init__(tokenizer=None, qcfg=None, calibration=None, calibration_concat_size=None,
-                         prepare_dataset_func=None, batch_size=1,
-                         require_fwd=False)
+        super().__init__(
+            tokenizer=None,
+            qcfg=None,
+            calibration=None,
+            calibration_concat_size=None,
+            prepare_dataset_func=None,
+            batch_size=1,
+            require_fwd=False,
+        )
 
         self.quantized_modules = quantized_modules
 
@@ -51,14 +58,16 @@ class DequantizeProcessor(BaseProcessor):
         # diff in float32
         w_wq_diff = module_weight.to(dtype=torch.float32) - wq.to(dtype=torch.float32)
 
-        module.state.update({
-            "w_wq_diff": w_wq_diff,
-            "wq": wq,
-        })
+        module.state.update(
+            {
+                "w_wq_diff": w_wq_diff,
+                "wq": wq,
+            }
+        )
 
     def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         module.state.pop("w", None)  # no need for these weights now
-        module.state.pop("wq", None) # no need for these weights now
+        module.state.pop("wq", None)  # no need for these weights now
 
     def verify_calibration_dataset(self, processor_index: int) -> bool:
         return False

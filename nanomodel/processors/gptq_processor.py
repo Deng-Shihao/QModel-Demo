@@ -27,6 +27,7 @@ from ..models.writer import (
     QUANT_LOG_LOSS,
     QUANT_LOG_NSAMPLES,
 )
+
 from ..quantization import GPTQ
 from ..quantization.config import METHOD, QuantizeConfig
 
@@ -88,7 +89,7 @@ class GPTQProcessor(BaseProcessor):
 
         self.calculate_w_wq_diff = calculate_w_wq_diff
         self.avg_losses = []
-        self._host_pool = _PinnedHostPool()
+        # self._host_pool = _PinnedHostPool()
 
     def set_calibration_dataset(self, calibration_dataset):
         raise NotImplementedError(
@@ -167,8 +168,8 @@ class GPTQProcessor(BaseProcessor):
         def tmp(module, inp: Tuple[torch.Tensor, ...], out: torch.Tensor):
             g = self.tasks[name]  # noqa: F821
             batch_idx = self.current_batch_index()
-            with tf32_disable_guard():
-                g.add_batch(inp[0].data, out.data, batch_index=batch_idx)  # noqa: F821
+            # with tf32_disable_guard():
+            g.add_batch(inp[0].data, out.data, batch_index=batch_idx)  # noqa: F821
             del inp, out
 
         return tmp
@@ -248,7 +249,7 @@ class GPTQProcessor(BaseProcessor):
                 "q_zeros": q_zeros,
                 "q_g_idx": q_g_idx,
             },
-            host_pool=self._host_pool,
+            # host_pool=self._host_pool,
         )
         del q_scales, q_zeros, q_g_idx
 
@@ -354,7 +355,6 @@ class GPTQProcessor(BaseProcessor):
 
         layers = find_modules(model.model)
         module_label = getattr(module, "full_name", getattr(module, "name", ""))
-
         # replace module with quantized module
         timer = getattr(model, "quant_region_timer", None)
 
@@ -379,6 +379,7 @@ class GPTQProcessor(BaseProcessor):
                 pack_dtype=self.qcfg.pack_dtype,
                 register_buffers=False,
             )
+
         if timer is not None and create_start is not None:
             timer.record(
                 "submodule_finalize_create",
@@ -422,7 +423,8 @@ class GPTQProcessor(BaseProcessor):
         with self.lock:
             self.result_pop(module.full_name)
 
-        self._release_host_buffers(q_scales, q_zeros, q_g_idx)
+        # self._release_host_buffers(q_scales, q_zeros, q_g_idx)
+        del q_scales, q_zeros, q_g_idx
         module.unregister_parameter("weight")
 
     def finalize(self, model: BaseNanoModel, **kwargs):
@@ -444,7 +446,7 @@ class GPTQProcessor(BaseProcessor):
     def name(self) -> str:
         # TODO fix me..this hacks inherited base class logic, why not override name in gptqv2?
         qcfg = self.qcfg_dynamic if self.qcfg_dynamic is not None else self.qcfg
-        return "gptq v2" if qcfg.v2 else "gptq"
+        return "gptq"
 
     def _release_host_buffers(self, *tensors: torch.Tensor) -> None:
         for tensor in tensors:

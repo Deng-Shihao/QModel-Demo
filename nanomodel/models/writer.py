@@ -3,8 +3,10 @@ from __future__ import annotations
 import copy
 import csv
 import json
+
 import logging
 import os
+
 import re
 from os.path import isfile, join
 from typing import Any, Dict, Optional, Union
@@ -73,7 +75,7 @@ def ModelWriter(cls):
         )
         self.save_quantized(save_dir=save_dir, **kwargs)
 
-    cls.save_pretrained = save_pretrained 
+    cls.save_pretrained = save_pretrained
 
     def save_quantized(
         self,
@@ -89,7 +91,9 @@ def ModelWriter(cls):
         if self.quant_log:
             quant_log_path = os.path.join(save_dir, "quant_log.csv")
             try:
-                with open(quant_log_path, mode="w", newline="", encoding="utf-8") as file:
+                with open(
+                    quant_log_path, mode="w", newline="", encoding="utf-8"
+                ) as file:
                     writer = csv.writer(file)
                     writer.writerow(
                         [
@@ -133,7 +137,8 @@ def ModelWriter(cls):
 
         # write gptqmodel tooling fingerprint to config
         self.quantize_config.meta_set_versionable(
-            key=META_FIELD_QUANTIZER, value=quantizers
+            key=META_FIELD_QUANTIZER,
+            value=quantizers,
         )
 
         self.quantize_config.meta_set(
@@ -143,7 +148,8 @@ def ModelWriter(cls):
 
         # meta: write config fields to meta if they doe not participate in inference
         self.quantize_config.meta_set(
-            key=META_FIELD_DAMP_PERCENT, value=self.quantize_config.damp_percent
+            key=META_FIELD_DAMP_PERCENT,
+            value=self.quantize_config.damp_percent,
         )
 
         self.quantize_config.meta_set(
@@ -152,27 +158,33 @@ def ModelWriter(cls):
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_STATIC_GROUPS, value=self.quantize_config.static_groups
+            key=META_FIELD_STATIC_GROUPS,
+            value=self.quantize_config.static_groups,
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_TRUE_SEQUENTIAL, value=self.quantize_config.true_sequential
+            key=META_FIELD_TRUE_SEQUENTIAL,
+            value=self.quantize_config.true_sequential,
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_MSE, value=self.quantize_config.mse
+            key=META_FIELD_MSE,
+            value=self.quantize_config.mse,
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_V2_ENABLED, value=self.quantize_config.v2
+            key=META_FIELD_V2_ENABLED,
+            value=self.quantize_config.v2,
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_V2_ALPHA, value=self.quantize_config.v2_alpha
+            key=META_FIELD_V2_ALPHA,
+            value=self.quantize_config.v2_alpha,
         )
 
         self.quantize_config.meta_set(
-            key=META_FIELD_ACT_GROUP_AWARE, value=self.quantize_config.act_group_aware
+            key=META_FIELD_ACT_GROUP_AWARE,
+            value=self.quantize_config.act_group_aware,
         )
 
         # The config, quantize_config and model may be edited in place in save_quantized.
@@ -181,7 +193,7 @@ def ModelWriter(cls):
 
         if not self.quantized:
             raise ValueError(
-                "Save aborted as model is not quantized. Please call `quantize()` first."
+                "Save aborted as model is not quantized. Please call `quantize()` first.",
             )
 
         if self.load_quantized_model:
@@ -215,7 +227,9 @@ def ModelWriter(cls):
                 log.debug("Unable to inspect save directory %s: %s", path, exc)
                 return
 
-            log.debug("Packaged artifacts in %s: %s", path, ", ".join(files) or "<empty>")
+            log.debug(
+                "Packaged artifacts in %s: %s", path, ", ".join(files) or "<empty>"
+            )
 
             for file_name in ("generation_config.json", "config.json"):
                 full_path = os.path.join(path, file_name)
@@ -381,7 +395,9 @@ def ModelWriter(cls):
             is_fast_tokenizer = bool(getattr(self.tokenizer, "is_fast", False))
             if not is_fast_tokenizer:
                 backend_tokenizer = getattr(self.tokenizer, "tokenizer", None)
-                is_fast_tokenizer = isinstance(backend_tokenizer, PreTrainedTokenizerFast)
+                is_fast_tokenizer = isinstance(
+                    backend_tokenizer, PreTrainedTokenizerFast
+                )
             # if the tokenizer is fast, but the tokenizer_config.json does not have Fast suffix, add "Fast" suffix
             if (
                 config_tokenizer_class

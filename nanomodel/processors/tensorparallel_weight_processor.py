@@ -63,20 +63,20 @@ class TensorParallelWeightProcessor(BaseProcessor):
 
         module.state["tp_pad_info"] = pad_info
 
-        # log.debug(
-        #     "Pre-padding module %s: original_cols=%d target_multiple=%d pad_cols=%d",
-        #     getattr(module, "full_name", repr(module)),
-        #     pad_info["original_columns"],
-        #     pad_info["target_multiple"],
-        #     pad_info["pad_cols"],
-        # )
-        print(
+        log.debug(
             "Pre-padding module %s: original_cols=%d target_multiple=%d pad_cols=%d",
             getattr(module, "full_name", repr(module)),
             pad_info["original_columns"],
             pad_info["target_multiple"],
             pad_info["pad_cols"],
         )
+        # print(
+        #     "Pre-padding module %s: original_cols=%d target_multiple=%d pad_cols=%d",
+        #     getattr(module, "full_name", repr(module)),
+        #     pad_info["original_columns"],
+        #     pad_info["target_multiple"],
+        #     pad_info["pad_cols"],
+        # )
 
     def verify_calibration_dataset(self, processor_index: int) -> bool:
         # Reuse the shared calibration cache; no bespoke dataset handling needed.

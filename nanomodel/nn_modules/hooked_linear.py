@@ -6,7 +6,7 @@ import transformers
 from torch import nn
 
 from ..utils.logger import setup_logger
-from ..utils.torch import tf32_enable_guard
+# from ..utils.torch import tf32_enable_guard
 
 
 log = setup_logger()
@@ -38,8 +38,8 @@ class HookedConv1D(transformers.Conv1D):
     @torch.inference_mode()
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(device=self.weight.data.device)
-        with tf32_enable_guard():
-            output = super().forward(input)
+        # with tf32_enable_guard():
+        output = super().forward(input)
 
         if self.forward_hook:
             self.forward_hook(self, (input,), output)
@@ -97,8 +97,8 @@ class HookedConv1d(torch.nn.Conv1d):
     @torch.inference_mode()
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(device=self.weight.data.device)
-        with tf32_enable_guard():
-            output = super().forward(input)
+        # with tf32_enable_guard():
+        output = super().forward(input)
         if self.forward_hook:
             self.forward_hook(self, (input,), output)
             if self.forward_hook_last:
@@ -156,8 +156,8 @@ class HookedConv2d(torch.nn.Conv2d):
     @torch.inference_mode()
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(device=self.weight.data.device)
-        with tf32_enable_guard():
-            output = super().forward(input)
+        # with tf32_enable_guard():
+        output = super().forward(input)
         if self.forward_hook:
             self.forward_hook(self, (input,), output)
             if self.forward_hook_last:
@@ -183,8 +183,8 @@ class HookedTransformerConv1D(transformers.Conv1D):
     @torch.inference_mode()
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(device=self.weight.data.device)
-        with tf32_enable_guard():
-            output = super().forward(input)
+        # with tf32_enable_guard():
+        output = super().forward(input)
         if self.forward_hook:
             self.forward_hook(self, (input,), output)
             if self.forward_hook_last:
@@ -211,8 +211,8 @@ class HookedLinear(torch.nn.Linear):
     @torch.inference_mode()
     def forward(self, input: torch.Tensor) -> torch.Tensor:
         input = input.to(device=self.weight.data.device)
-        with tf32_enable_guard():
-            output = super().forward(input)
+        # with tf32_enable_guard():
+        output = super().forward(input)
         if self.forward_hook:
             self.forward_hook(self, (input,), output)
             if self.forward_hook_last:
@@ -243,8 +243,8 @@ def _replace_module(module, child, name, level: int = 0, debug: bool = False) ->
 
 
 def replace_module_with_hooked_legacy(module, level: int = 0, quant_lm_head: bool = False):
-    if level == 0:
-        log.info("Hooked Modules: Using legacy based config for targeting of modules")
+    # if level == 0:
+    #     log.info("Hooked Modules: Using legacy based config for targeting of modules")
 
     for name, child in module.named_children():
         if not quant_lm_head and hasattr(module, "get_output_embeddings") and child == module.get_output_embeddings():
