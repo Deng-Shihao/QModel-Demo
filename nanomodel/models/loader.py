@@ -26,6 +26,7 @@ from ..utils.importer import auto_select_device, normalize_device_device_map, se
 from ..utils.logger import setup_logger
 from ..utils.marlin import _validate_marlin_device_support
 from ..utils.model import (
+    convert_gptq_v1_to_v2_format,
     auto_dtype,
     find_config_seq_len,
     find_modules,
@@ -562,12 +563,12 @@ def ModelLoader(cls):
                         f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by nanomodel version >= {MIN_VERSION_WITH_V2}"
                     )
 
-                # if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
-                #     model = convert_gptq_v1_to_v2_format(
-                #         model,
-                #         cfg=qcfg,
-                #         qlinear_kernel=preload_qlinear_kernel,
-                #     )
+                if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
+                    model = convert_gptq_v1_to_v2_format(
+                        model,
+                        cfg=qcfg,
+                        qlinear_kernel=preload_qlinear_kernel,
+                    )
 
 
         if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.format == FORMAT.MARLIN):
