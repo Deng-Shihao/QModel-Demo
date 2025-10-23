@@ -11,14 +11,12 @@ from typing import Any, Dict, Optional, Union
 
 import torch
 import transformers
-from safetensors.torch import save_file
 from transformers import AutoConfig, PreTrainedTokenizerFast, ProcessorMixin
 from transformers.modeling_utils import no_init_weights
 from transformers.models.auto.tokenization_auto import get_tokenizer_config
 from transformers.utils.generic import ContextManagers
 
 from ..quantization.config import (
-    FORMAT,
     META_FIELD_ACT_GROUP_AWARE,
     META_FIELD_DAMP_AUTO_INCREMENT,
     META_FIELD_DAMP_PERCENT,
@@ -31,8 +29,6 @@ from ..quantization.config import (
     META_FIELD_V2_ENABLED,
     META_QUANTIZER_NANOMODEL,
     META_VALUE_URI,
-    METHOD,
-    MIN_VERSION_WITH_V2,
 )
 from ..utils.backend import BACKEND
 from ..utils.hf import sanitize_generation_config_file

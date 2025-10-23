@@ -27,7 +27,6 @@ from ..utils.logger import setup_logger
 from ..utils.marlin import _validate_marlin_device_support
 from ..utils.model import (
     auto_dtype,
-    convert_gptq_v1_to_v2_format,
     find_config_seq_len,
     find_modules,
     get_checkpoints,

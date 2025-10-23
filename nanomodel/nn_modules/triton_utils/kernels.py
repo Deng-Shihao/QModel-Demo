@@ -1,3 +1,5 @@
+# code based https://github.com/fpgaminer/GPTQ-triton
+
 import torch
 import triton
 import triton.language as tl
@@ -10,7 +12,6 @@ from . import custom_autotune
 
 log = setup_logger()
 
-# code based https://github.com/fpgaminer/GPTQ-triton
 @custom_autotune.autotune(
     configs=[
         triton.Config(
