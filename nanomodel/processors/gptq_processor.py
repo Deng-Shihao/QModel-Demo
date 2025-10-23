@@ -89,7 +89,7 @@ class GPTQProcessor(BaseProcessor):
 
         self.calculate_w_wq_diff = calculate_w_wq_diff
         self.avg_losses = []
-        # self._host_pool = _PinnedHostPool()
+        self._host_pool = _PinnedHostPool()
 
     def set_calibration_dataset(self, calibration_dataset):
         raise NotImplementedError(
@@ -249,7 +249,7 @@ class GPTQProcessor(BaseProcessor):
                 "q_zeros": q_zeros,
                 "q_g_idx": q_g_idx,
             },
-            # host_pool=self._host_pool,
+            host_pool=self._host_pool,
         )
         del q_scales, q_zeros, q_g_idx
 
