@@ -2,21 +2,7 @@
 
 ## Available NOW !!!
 
-NanoModel is an opinionated quantization toolkit for large language models. It wraps the research-grade GPTQ/AWQ/QQQ kernels behind a lightweight Python API so you can quantize, package, and serve transformer models without juggling device placement, calibration loops, or backend-specific details.
-
-- Works directly with Hugging Face `transformers` configs and checkpoints.
-- Autodetects whether a checkpoint is already quantized and switches between `from_pretrained` and `from_quantized`.
-- Ships optimized CUDA, CPU, and MLX kernels (built on demand) with unified abstractions for GPTQ, AWQ, and Marlin.
-- Provides fit-for-purpose utilities such as perplexity evaluation, background device thread pools, and Hugging Face Hub helpers.
-- Supports LLaMA, Qwen2, and Qwen3 families out of the box with a modular registry for adding new architectures.
-
 ## Installation
-
-### 1. Install PyTorch
-
-Install a PyTorch build that matches your accelerator and Python version. Follow the official instructions at <https://pytorch.org/get-started/locally/>. NanoModel targets PyTorch 2.1+ and benefits from 2.2+ for the latest quant kernels.
-
-### 2. Install NanoModel
 
 ```bash
 git clone <repository-url>
