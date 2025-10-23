@@ -124,12 +124,35 @@ class AWQProcessor(BaseProcessor):
         modules, _ = get_module_by_name_prefix(
             self.gptq_model.model, self.gptq_model.extract_layers_node()
         )
-        # make sure samples tensor's shape is [1, max_calib_seq_len]
-        samples = [
-            data["input_ids"][:, : self.max_calib_seq_len]
-            for data in self.calibration_dataset
-            if data["input_ids"].shape[1] >= self.max_calib_seq_len
-        ]
+        # make sure samples tensor's shape is [*, max_calib_seq_len]
+        pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
+        if pad_token_id is None:
+            pad_token_id = getattr(self.tokenizer, "eos_token_id", 0)
+
+        samples: List[torch.Tensor] = []
+        for data in self.calibration_dataset:
+            input_ids = data["input_ids"]
+            if input_ids.dim() == 1:
+                input_ids = input_ids.unsqueeze(0)
+
+            seq_len = input_ids.shape[1]
+            if seq_len >= self.max_calib_seq_len:
+                samples.append(input_ids[:, : self.max_calib_seq_len])
+            else:
+                pad_length = self.max_calib_seq_len - seq_len
+                if pad_length <= 0:
+                    samples.append(input_ids)
+                    continue
+
+                pad_shape = list(input_ids.shape)
+                pad_shape[1] = pad_length
+                pad_tensor = input_ids.new_full(tuple(pad_shape), pad_token_id)
+                samples.append(torch.cat((input_ids, pad_tensor), dim=1))
+
+        if not samples:
+            raise ValueError(
+                "Calibration dataset does not contain any usable samples for AWQ quantization."
+            )
 
         samples = torch.cat(samples, dim=0)
 
