@@ -3,11 +3,12 @@ from __future__ import annotations
 import copy
 import csv
 import json
+import logging
 import os
+import re
 from os.path import isfile, join
 from typing import Any, Dict, Optional, Union
 
-import re
 import torch
 import transformers
 from safetensors.torch import save_file
@@ -51,7 +52,6 @@ from ..utils.torch import torch_empty_cache
 from ..version import __version__
 from ._const import DEFAULT_MAX_SHARD_SIZE
 
-
 log = setup_logger()
 
 PROCESS_LOG_NAME = "process"
@@ -92,31 +92,36 @@ def ModelWriter(cls):
         os.makedirs(save_dir, exist_ok=True)
 
         if self.quant_log:
-            with open(
-                os.path.join(save_dir, "quant_log.csv"), mode="w", newline=""
-            ) as file:
-                w = csv.writer(file)
-                w.writerow(
-                    [
-                        PROCESS_LOG_LAYER,
-                        PROCESS_LOG_MODULE,
-                        QUANT_LOG_LOSS,
-                        QUANT_LOG_NSAMPLES,
-                        QUANT_LOG_DAMP,
-                        PROCESS_LOG_TIME,
-                    ]
-                )
-                w.writerows(
-                    [
+            quant_log_path = os.path.join(save_dir, "quant_log.csv")
+            try:
+                with open(quant_log_path, mode="w", newline="", encoding="utf-8") as file:
+                    writer = csv.writer(file)
+                    writer.writerow(
                         [
-                            entry.get(PROCESS_LOG_LAYER),
-                            entry.get(PROCESS_LOG_MODULE),
-                            entry.get(QUANT_LOG_LOSS),
-                            entry.get(QUANT_LOG_DAMP),
-                            entry.get(PROCESS_LOG_TIME),
+                            PROCESS_LOG_LAYER,
+                            PROCESS_LOG_MODULE,
+                            QUANT_LOG_LOSS,
+                            QUANT_LOG_NSAMPLES,
+                            QUANT_LOG_DAMP,
+                            PROCESS_LOG_TIME,
                         ]
-                        for entry in self.quant_log
-                    ]
+                    )
+                    writer.writerows(
+                        [
+                            [
+                                entry.get(PROCESS_LOG_LAYER),
+                                entry.get(PROCESS_LOG_MODULE),
+                                entry.get(QUANT_LOG_LOSS),
+                                entry.get(QUANT_LOG_NSAMPLES),
+                                entry.get(QUANT_LOG_DAMP),
+                                entry.get(PROCESS_LOG_TIME),
+                            ]
+                            for entry in self.quant_log
+                        ]
+                    )
+            except OSError as exc:
+                log.warning(
+                    "Unable to persist quantization log to %s: %s", quant_log_path, exc
                 )
 
         pre_quantized_size_mb = get_model_files_size(self.model_local_path)
@@ -206,25 +211,35 @@ def ModelWriter(cls):
         # Save `quantize_config.json`
         quantize_config.save_pretrained(save_dir)
 
-        def debug_saved_config(path):
-            # List all files in the directory
-            files = os.listdir(path)
-            print("Files in directory:")
-            for file in files:
-                print(file)
+        def _log_saved_config_snapshot(path: str) -> None:
+            if not log.isEnabledFor(logging.DEBUG):
+                return
+            try:
+                files = sorted(os.listdir(path))
+            except OSError as exc:
+                log.debug("Unable to inspect save directory %s: %s", path, exc)
+                return
 
-            config_file_paths = ["generation_config.json", "config.json"]
-            for file_name in config_file_paths:
+            log.debug("Packaged artifacts in %s: %s", path, ", ".join(files) or "<empty>")
+
+            for file_name in ("generation_config.json", "config.json"):
                 full_path = os.path.join(path, file_name)
-                if os.path.isfile(full_path):
-                    print(f"Content of saved `{file_name}`:")
-                    with open(full_path, "r") as config_file:
+                if not os.path.isfile(full_path):
+                    log.debug("Expected file `%s` not found under %s", file_name, path)
+                    continue
+                try:
+                    with open(full_path, "r", encoding="utf-8") as config_file:
                         config_data = json.load(config_file)
-                        print(json.dumps(config_data, indent=4))
-                else:
-                    print(f"`{file_name}` does not exist in the directory.")
+                except (OSError, json.JSONDecodeError) as exc:
+                    log.debug("Unable to parse `%s`: %s", full_path, exc)
+                    continue
+                log.debug(
+                    "Snapshot of `%s`: %s",
+                    file_name,
+                    json.dumps(config_data, indent=2, ensure_ascii=False),
+                )
 
-        debug_saved_config(save_dir)
+        _log_saved_config_snapshot(save_dir)
 
         # Save processor related config files. For example: preprocessor_config.json, chat_template.json
         if hasattr(self, "processor") and isinstance(self.processor, ProcessorMixin):

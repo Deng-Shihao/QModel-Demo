@@ -12,7 +12,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "qwen3-1.7B-GPTQ-4bit"
+quantized_model_id = "qwen3-1.7B-gptq-4bit"
 
 def main():
     global quantized_model_id

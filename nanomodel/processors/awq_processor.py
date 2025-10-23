@@ -9,12 +9,12 @@ import torch
 from torch import nn
 from torch.nn import Module
 
-from ..looper.loop_processor import (
+from ..processors.base_processor import (
     DTYPE_SIZE_COLUMN,
     MODULE_FEATURE_COLUMN,
-    LoopProcessor,
+    BaseProcessor,
 )
-from ..looper.named_module import NamedModule
+from ..processors.named_module import NamedModule
 
 from ..models import BaseNanoModel
 from ..models.writer import (
@@ -56,7 +56,7 @@ from ..utils.torch import CPU, tf32_disable_guard, tf32_enable_guard, torch_sync
 # log = setup_logger()
 
 
-class AWQProcessor(LoopProcessor):
+class AWQProcessor(BaseProcessor):
     def __init__(
         self,
         tokenizer,
@@ -106,7 +106,6 @@ class AWQProcessor(LoopProcessor):
 
         self.version = qcfg.format
 
-        # TODO Can it be configured?
         # The maximum sequence length of the calibration dataset. Discard samples greater than max_calib_seq_len.
         self.max_calib_seq_len = 512
 

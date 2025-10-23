@@ -163,7 +163,6 @@ class BaseNanoModel(nn.Module):
     # some models require Processor? For example, Qwen2VLImageProcessor.
     require_load_processor = False
 
-    # TODO: use a better name and what if the value is not at the config root?
     # allow dynamic expert n-count layer extraction
     # so moe model defs do not need to write out 64 layers if expert size is 64 (Qwen2Moe)
     # usage: set to property in model.config that holds this int value: total number of experts
@@ -252,8 +251,8 @@ class BaseNanoModel(nn.Module):
                 )
             self.model.tokenizer = self.tokenizer  # helpful for CI tests
         else:
-            self.tokenizer = tokenizer  # TODO none?
-            self.model.tokenizer = tokenizer  # helpful for CI tests # TODO none?
+            self.tokenizer = tokenizer
+            self.model.tokenizer = tokenizer
 
         # auto-fix model config erors
         if isinstance(self.model, PreTrainedModel):
@@ -934,7 +933,7 @@ class BaseNanoModel(nn.Module):
             pack_dtype=self.quantize_config.pack_dtype,
         )
 
-        from ..looper.module_looper import ModuleLooper
+        from ..processors.module_processor import ModuleProcessor
 
         args = {
             "tokenizer": self.tokenizer,
@@ -1003,12 +1002,12 @@ class BaseNanoModel(nn.Module):
             )
 
         # init processor with default GPTQ processor
-        from ..looper.tensorparallel_weight_processor import (
+        from ..processors.tensorparallel_weight_processor import (
             TensorParallelWeightProcessor,
         )
 
         if self.quantize_config.quant_method == METHOD.AWQ:
-            from ..looper.awq_processor import AWQProcessor
+            from ..processors.awq_processor import AWQProcessor
 
             os.environ["AWQ_BATCH_SIZE"] = str(batch_size)
 
@@ -1025,7 +1024,7 @@ class BaseNanoModel(nn.Module):
                 AWQProcessor(**awq_args),
             ]
         else:
-            from ..looper.gptq_processor import GPTQProcessor
+            from ..processors.gptq_processor import GPTQProcessor
 
             quantize_processor = [
                 TensorParallelWeightProcessor(**args),
@@ -1034,10 +1033,10 @@ class BaseNanoModel(nn.Module):
 
         processors = quantize_processor
 
-        # prepare processor worker (looper)
-        module_looper = ModuleLooper(self, processors=processors)
+        # prepare processor worker (processors)
+        module_processor = ModuleProcessor(self, processors=processors)
 
-        result = module_looper.loop(
+        result = module_processor.loop(
             backend=backend,
             fail_safe=self.quantize_config.fail_safe,
         )

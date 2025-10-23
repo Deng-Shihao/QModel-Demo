@@ -61,7 +61,7 @@ from typing import TYPE_CHECKING
 
 
 if TYPE_CHECKING:
-    from ..looper.loop_processor import LoopProcessor
+    from ..processors.base_processor import BaseProcessor
     from ..models._const import DEVICE
 
 
@@ -241,9 +241,9 @@ def clone_module_for_devices(
         total_duration = (time.perf_counter() - overall_start) * 1000.0
         if clone_timings:
             timing_str = ", ".join(f"{step}={duration * 1000:.2f}ms" for step, duration in clone_timings)
-            log.info(f"ModuleLooper: clone {module_label} via {method} in {total_duration:.2f}ms [{timing_str}]")
+            log.info(f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms [{timing_str}]")
         else:
-            log.info(f"ModuleLooper: clone {module_label} via {method} in {total_duration:.2f}ms")
+            log.info(f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms")
 
     base_device = devices[0]
     device_type = base_device.type
@@ -326,7 +326,7 @@ def clone_module_for_devices(
 @torch.inference_mode()
 def forward_batch_worker(
     module: torch.nn.Module,
-    processor: "LoopProcessor",
+    processor: "BaseProcessor",
     batch_index: int,
     layer_input: List[torch.Tensor],
     layer_input_kwargs: Dict[str, torch.Tensor],

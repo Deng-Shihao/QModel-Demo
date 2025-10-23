@@ -9,8 +9,8 @@ from torch import Tensor
 from torch.nn import Module
 
 from .. import DEVICE_THREAD_POOL
-from ..looper.input_cache import InputCache
-from ..looper.named_module import NamedModule
+from ..processors.input_cache import InputCache
+from ..processors.named_module import NamedModule
 from ..models import BaseNanoModel
 from ..models.writer import (PROCESS_LOG_FWD_TIME, PROCESS_LOG_LAYER, PROCESS_LOG_MODULE, PROCESS_LOG_NAME,
                              PROCESS_LOG_TIME, PROCESS_USED_MEMORY, QUANT_LOG_DAMP, QUANT_LOG_LOSS,
@@ -44,7 +44,7 @@ DEFAULT_LOG_COLUMNS: List[str] = [
 ]
 
 # LoopProcessor is a singleton(), not per module instance
-class LoopProcessor:
+class BaseProcessor:
     def __init__(
             self,
             tokenizer, qcfg: QuantizeConfig,
@@ -70,7 +70,7 @@ class LoopProcessor:
 
         # TODO FIX ME: dequantize processor sets this to False but it is nver acted on!
         # if processor require fwd generate and hooks, set this to true
-        # looper should bypass generate + hooks if this is false
+        # processors should bypass generate + hooks if this is false
         self.require_fwd = require_fwd # default True
 
         # after process(), do we need to forward again? paried with require_fwd == True

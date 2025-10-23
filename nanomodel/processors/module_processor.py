@@ -21,11 +21,11 @@ from tqdm import tqdm
 
 import torch
 
-from ..looper.dequantize_processor import DequantizeProcessor
-from ..looper.gptq_processor import GPTQProcessor
-from ..looper.input_cache import InputCache
-from ..looper.loop_processor import LoopProcessor
-from ..looper.named_module import NamedModule
+from ..processors.dequantize_processor import DequantizeProcessor
+from ..processors.gptq_processor import GPTQProcessor
+from ..processors.input_cache import InputCache
+from ..processors.base_processor import BaseProcessor
+from ..processors.named_module import NamedModule
 from ..models import BaseNanoModel
 from ..models._const import SUPPORTS_MODULE_TYPES
 from ..nn_modules.hooked_linear import (STOP_FORWARD_EXCEPTION, HookedLinear,
@@ -34,7 +34,7 @@ from ..utils.attn_mask import apply_keep_mask_bt, normalize_seq_mask
 from ..utils.ctx import ctx
 from ..utils.device import get_device, get_device_new
 from ..utils.disk import estimate_disk_io_speed
-from ..utils.looper_helpers import (
+from ..utils.processor_helpers import (
     clone_module_for_devices,
     device_ctx,
     forward_batch_worker,
@@ -48,7 +48,7 @@ from ..utils.torch import (CPU, META, timed_gc_collect, torch_sync)
 from .. import DEVICE_THREAD_POOL
 from .awq_processor import AWQProcessor
 
-logger = logging.getLogger("ModuleLooper")
+logger = logging.getLogger("ModuleProcessor")
 if not logger.handlers:
     handler = logging.StreamHandler()
     formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
@@ -184,14 +184,14 @@ class StopMainLoop(Exception):
     """Signal that the module loop should abort immediately."""
 
 
-class ModuleLooper():
+class ModuleProcessor():
     """Drive the per-layer quantisation workflow over one or more devices.
 
-    The looper executes work on the shared global :class:`DeviceThreadPool`
+    The processors executes work on the shared global :class:`DeviceThreadPool`
     instance so tasks such as module reloading, forward passes, and finalisation
     reuse the same worker threads.
     """
-    def __init__(self, model: BaseNanoModel, processors: List[LoopProcessor]):
+    def __init__(self, model: BaseNanoModel, processors: List[BaseProcessor]):
         self.processors = processors
         self.gptq_model = model
         self.support_batch_quantize = model.support_batch_quantize
@@ -305,18 +305,18 @@ class ModuleLooper():
 
     # Processors capture activations through hooks that need thread-local state
     # so masks survive the roundtrip to worker threads.
-    def _processor_mask_tls(self, processor: LoopProcessor) -> threading.local:
+    def _processor_mask_tls(self, processor: BaseProcessor) -> threading.local:
         tls = getattr(processor, "_mask_tls", None)
         if tls is None:
             tls = threading.local()
             setattr(processor, "_mask_tls", tls)
         return tls
 
-    def _set_processor_mask(self, processor: LoopProcessor, mask):
+    def _set_processor_mask(self, processor: BaseProcessor, mask):
         tls = self._processor_mask_tls(processor)
         tls.value = mask
 
-    def _get_processor_mask(self, processor: LoopProcessor):
+    def _get_processor_mask(self, processor: BaseProcessor):
         tls = getattr(processor, "_mask_tls", None)
         return getattr(tls, "value", None) if tls else None
 
@@ -424,7 +424,7 @@ class ModuleLooper():
 
     def _rehome_processor_task(
         self,
-        processor: LoopProcessor,
+        processor: BaseProcessor,
         named_module: NamedModule,
         target_device: torch.device,
     ) -> None:
@@ -471,7 +471,7 @@ class ModuleLooper():
 
     def _prepare_named_module_for_quantization(
         self,
-        processor: LoopProcessor,
+        processor: BaseProcessor,
         named_module: NamedModule,
         fallback_device: torch.device,
     ) -> torch.device:
@@ -491,7 +491,7 @@ class ModuleLooper():
         self,
         *,
         module: torch.nn.Module,
-        processor: LoopProcessor,
+        processor: BaseProcessor,
         layer_inputs: List[List[torch.Tensor]],
         layer_input_kwargs: List[Dict[str, torch.Tensor]],
         position_ids: List[torch.Tensor],
@@ -563,7 +563,7 @@ class ModuleLooper():
         self,
         *,
         module: torch.nn.Module,
-        processor: LoopProcessor,
+        processor: BaseProcessor,
         layer_inputs: List[List[torch.Tensor]],
         layer_input_kwargs: List[Dict[str, torch.Tensor]],
         position_ids: List[torch.Tensor],
@@ -675,7 +675,7 @@ class ModuleLooper():
         self,
         *,
         module: torch.nn.Module,
-        processor: LoopProcessor,
+        processor: BaseProcessor,
         layer_inputs: List[List[torch.Tensor]],
         layer_input_kwargs: List[Dict[str, torch.Tensor]],
         position_ids: List[torch.Tensor],
@@ -816,7 +816,7 @@ class ModuleLooper():
 
         return ordered_outputs
 
-    def _masked_hook_wrapper(self, processor: LoopProcessor, inner_hook, hook_source: str):
+    def _masked_hook_wrapper(self, processor: BaseProcessor, inner_hook, hook_source: str):
         def hook(module, inputs, output):
             keep = self._get_processor_mask(processor)
 
@@ -1339,7 +1339,7 @@ class ModuleLooper():
 
                     @torch.inference_mode()
                     def _process_on_worker(
-                        proc: LoopProcessor,
+                        proc: BaseProcessor,
                         nm: NamedModule,
                         expected_device: torch.device,
                     ):
@@ -1686,7 +1686,7 @@ class ModuleLooper():
 
         # LifeCycle: All sub-modules have finalized meaning quantization work is complete
         self._check_loop_stop()
-        # Ensure ANY remaining tasks the looper submitted have drained
+        # Ensure ANY remaining tasks the processors submitted have drained
         DEVICE_THREAD_POOL.wait()  # same as wait('all')
         self._check_loop_stop()
 

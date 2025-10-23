@@ -14,7 +14,7 @@ import torch.nn as nn
 import transformers
 from torch.nn.modules.conv import _ConvNd
 
-from ..looper.named_module import NamedModule
+from ..processors.named_module import NamedModule
 from ..quantization import QuantizeConfig
 from ..utils.device import get_device
 from ..utils.logger import setup_logger
@@ -560,7 +560,6 @@ class GPTQ:
             try:
                 H2 = H.clone()
                 H2[diag, diag] += damp * mean
-                # TODO call to torch.linalg is not threadsafe? Porque no? Esta muy mal.
                 H2 = torch.linalg.cholesky(H2)
                 Hinv = torch.linalg.cholesky(torch.cholesky_inverse(H2), upper=True)
                 del H, H2

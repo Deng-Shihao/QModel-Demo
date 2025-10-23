@@ -8,14 +8,14 @@ from typing import Dict
 import torch
 
 from ..quantization.gptq import get_number_of_rows_and_cols
-# from ..utils.logger import setup_logger
-from .loop_processor import LoopProcessor
+from ..utils.logger import setup_logger
+from .base_processor import BaseProcessor
 from .named_module import NamedModule
 
-# log = setup_logger()
+log = setup_logger()
 
 
-class TensorParallelWeightProcessor(LoopProcessor):
+class TensorParallelWeightProcessor(BaseProcessor):
     """Annotate modules with tensor-parallel padding metadata before quantisation.
 
     Quantisation backends that shard weights across tensor-parallel ranks expect

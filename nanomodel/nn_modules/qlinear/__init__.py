@@ -879,7 +879,6 @@ class PackableQuantLinear(BaseQuantLinear):
             if isinstance(linear, transformers.pytorch_utils.Conv1D):
                 W = W.T
 
-            # TODO why clone?
             # self.g_idx = g_idx.clone() if g_idx is not None else self.g_idx
             self.register_buffer("g_idx", g_idx if g_idx is not None else self.g_idx )
 
@@ -887,12 +886,10 @@ class PackableQuantLinear(BaseQuantLinear):
             zeros = zeros.T.contiguous()
             scale_zeros = zeros * scales
 
-            # TODO why clone?
             # self.scales = scales.clone().to(dtype=t.float16)
             self.register_buffer("scales", scales.to(dtype=t.float16))
 
             if linear.bias is not None:
-                # TODO why clone?
                 # self.bias = linear.bias.clone().to(dtype=t.float16)
                 self.register_buffer("bias", linear.bias.to(dtype=t.float16))
 

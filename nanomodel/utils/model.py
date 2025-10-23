@@ -30,7 +30,7 @@ from transformers.utils.hub import cached_file
 
 from nanomodel.nn_modules.qlinear.marlin import MarlinQuantLinear
 
-from ..looper.named_module import NamedModule
+from ..processors.named_module import NamedModule
 from ..models._const import (
     CPU,
     DEVICE,
@@ -693,7 +693,6 @@ def pack_module(
         layers[name] = layer
         qModules[name] = module
 
-    # TODO FIX ME..remove hard coded qqq pack
     if quant_linear_cls.QUANT_TYPE == "qqq":
         if q_scales_extra is not None:
             q_scales_extra = q_scales_extra.to(CPU)

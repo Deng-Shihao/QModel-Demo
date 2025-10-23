@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-# from ..utils.logger import setup_logger
+from ..utils.logger import setup_logger
 
 if not os.environ.get("PYTORCH_ALLOC_CONF", None):
     os.environ["PYTORCH_ALLOC_CONF"] = 'expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.7'
@@ -23,17 +23,11 @@ import numpy  # noqa: E402
 import torch  # noqa: E402
 
 from huggingface_hub import list_repo_files  # noqa: E402
-# TODO: from tokenicer import Tokenicer  # noqa: E402
-# from tokenicer import Tokenicer  # noqa: E402
 
-from transformers import AutoConfig, GenerationConfig, PreTrainedModel, PreTrainedTokenizerBase  # noqa: E402
+from transformers import AutoConfig  # noqa: E402
 
-from ..nn_modules.qlinear.torch import TorchQuantLinear  # noqa: E402
 from ..quantization import METHOD, QUANT_CONFIG_FILENAME  # noqa: E402
 from ..utils import BACKEND  # noqa: E402
-from ..utils.eval import EVAL  # noqa: E402
-from ..utils.model import find_modules  # noqa: E402
-from ..utils.torch import CPU, torch_empty_cache  # noqa: E402
 from .base import BaseNanoModel, QuantizeConfig  # noqa: E402
 
 import sys  # noqa: E402
@@ -51,9 +45,9 @@ from .definitions.qwen2 import Qwen2NanoModel  # noqa: E402
 from .definitions.qwen3 import Qwen3NanoModel  # noqa: E402
 
 # make quants and inference more determinisitc
-torch.manual_seed(787)
-random.seed(787)
-numpy.random.seed(787)
+torch.manual_seed(233)
+random.seed(233)
+numpy.random.seed(233)
 
 MODEL_MAP = {
     "llama": LlamaNanoModel,
@@ -107,7 +101,6 @@ class AutoNanoModel:
             if model_cfg.quantization_config["quant_format"].lower() in (METHOD.GPTQ, METHOD.AWQ):
                 is_model_quantized = True
         else:
-            # TODO FIX ME...not decoded to check if quant method is compatible or quantized by nanomodel
             for name in [QUANT_CONFIG_FILENAME, "quant_config.json"]:
                 if isdir(model_id_or_path):  # Local
                     if os.path.exists(join(model_id_or_path, name)):

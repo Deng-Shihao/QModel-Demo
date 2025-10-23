@@ -16,7 +16,7 @@ from accelerate.utils import align_module_device, has_offloaded_params
 from safetensors.torch import save_file as safetensors_save_file
 from torch import nn
 
-from ..looper.named_module import NamedModule
+from ..processors.named_module import NamedModule
 from .device import get_device
 from .torch import CPU, META
 

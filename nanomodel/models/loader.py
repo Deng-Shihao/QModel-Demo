@@ -11,14 +11,7 @@ import transformers
 
 from ..utils.structure import print_module_tree
 
-
-if os.getenv('NANOMODEL_USE_MODELSCOPE', 'False').lower() in ['true', '1']:
-    try:
-        from modelscope import snapshot_download
-    except Exception:
-        raise ModuleNotFoundError("env `NANOMODEL_USE_MODELSCOPE` used but modelscope pkg is not found: please install with `pip install modelscope`.")
-else:
-    from huggingface_hub import snapshot_download
+from huggingface_hub import snapshot_download
 
 from packaging.version import InvalidVersion, Version
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
@@ -570,12 +563,12 @@ def ModelLoader(cls):
                         f"Format: Loading of a sym=False model with format={FORMAT.GPTQ} is only supported if produced by nanomodel version >= {MIN_VERSION_WITH_V2}"
                     )
 
-                if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
-                    model = convert_gptq_v1_to_v2_format(
-                        model,
-                        cfg=qcfg,
-                        qlinear_kernel=preload_qlinear_kernel,
-                    )
+                # if preload_qlinear_kernel.REQUIRES_FORMAT_V2:
+                #     model = convert_gptq_v1_to_v2_format(
+                #         model,
+                #         cfg=qcfg,
+                #         qlinear_kernel=preload_qlinear_kernel,
+                #     )
 
 
         if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.format == FORMAT.MARLIN):

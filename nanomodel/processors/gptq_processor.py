@@ -7,13 +7,13 @@ from typing import Callable, Optional, Tuple
 import torch
 from torch.nn import Module
 
-from ..looper.loop_processor import (
+from ..processors.base_processor import (
     DTYPE_SIZE_COLUMN,
     MODULE_FEATURE_COLUMN,
-    LoopProcessor,
+    BaseProcessor,
 )
 
-from ..looper.named_module import NamedModule
+from ..processors.named_module import NamedModule
 from ..models import BaseNanoModel
 from ..models._const import CPU
 from ..models.writer import (
@@ -62,7 +62,7 @@ class _PinnedHostPool:
         return None
 
 
-class GPTQProcessor(LoopProcessor):
+class GPTQProcessor(BaseProcessor):
     def __init__(
         self,
         tokenizer,
