@@ -241,7 +241,7 @@ def make_quant(
         desc_act=desc_act,
         sym=sym,
         backend=backend,
-        format=format,
+        kernel=format,
         quant_method=qcfg.quant_method,
         pack=pack,
         dynamic=dynamic,

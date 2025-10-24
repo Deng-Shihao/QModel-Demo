@@ -152,7 +152,7 @@ def hf_select_quant_linear(
         sym=sym,
         backend=backend,
         device=device,
-        format=KERNEL.GPTQ,
+        kernel=KERNEL.GPTQ,
         quant_method=METHOD.GPTQ,
         pack=pack,
         allow_marlin=True,  # TODO: remove this after marlin padding is fixed
@@ -169,7 +169,7 @@ def select_quant_linear(
     sym: bool,
     device: Optional[DEVICE] = None,
     backend: BACKEND = BACKEND.AUTO,
-    format: KERNEL = KERNEL.GPTQ,
+    kernel: KERNEL = KERNEL.GPTQ,
     quant_method: METHOD = METHOD.GPTQ,
     pack: bool = False,
     allow_marlin: bool = True,  # TODO: remove this after marlin padding is fixed
@@ -191,7 +191,7 @@ def select_quant_linear(
         allow_quant_linears = [
             (k, v)
             for k, v in AUTO_SELECT_BACKEND_ORDER_MAP[quant_method].items()
-            if k in SUPPORTS_BACKEND_MAP[quant_method][format]
+            if k in SUPPORTS_BACKEND_MAP[quant_method][kernel]
         ]
         err = None
         global message_logged

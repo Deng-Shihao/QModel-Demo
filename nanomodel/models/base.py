@@ -926,7 +926,7 @@ class BaseNanoModel(nn.Module):
             desc_act=self.quantize_config.desc_act,
             sym=self.quantize_config.sym,
             backend=preferred_backend,
-            format=self.quantize_config.kernel,
+            kernel=self.quantize_config.kernel,
             quant_method=self.quantize_config.quant_method,
             device=DEVICE(self.quantize_config.device),
             pack=True,
@@ -965,7 +965,7 @@ class BaseNanoModel(nn.Module):
             pack_dtype=self.quantize_config.pack_dtype,
             multi_select=False,
             backend=preferred_backend,
-            format=self.quantize_config.kernel,
+            kernel=self.quantize_config.kernel,
             quant_method=self.quantize_config.quant_method,
         )
 
