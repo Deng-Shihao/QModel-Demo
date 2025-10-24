@@ -17,7 +17,7 @@ log = setup_logger()
 
 BITS_FIELD_CODE = "bits"
 GROUP_SIZE_FIELD_CODE = "group_size"
-FORMAT_FIELD_CODE = "format"
+FORMAT_FIELD_CODE = "kernel"
 FORMAT_FIELD_CHECKPOINT = "checkpoint_format"
 FORMAT_FIELD_COMPAT_MARLIN = "is_marlin_format"
 QUANT_METHOD_FIELD = "quant_method"
@@ -50,7 +50,7 @@ META_FIELD_V2_ALPHA = "v2_alpha"
 META_FIELD_V2_MEMORY_DEVICE = "v2_memory_device"
 
 
-# saved formats
+# saved kernels
 class KERNEL(str, Enum):
     # GPTQ
     GPTQ = "gptq"
