@@ -6,7 +6,7 @@ from nanomodel import AutoNanoModel, QuantizeConfig
 
 
 pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "qwen3-1.7b-gptq-4bit"
+quantized_model_id = "./quantized_models/qwen3-1.7b-gptq-4bit"
 
 
 # os.makedirs(quantized_model_dir, exist_ok=True)

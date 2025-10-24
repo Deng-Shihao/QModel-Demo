@@ -8,7 +8,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "qwen3-1.7b-awq-4bit"
+quantized_model_id = "./quantized_models/qwen3-1.7b-awq-4bit"
 
 # Main pipeline
 def main():

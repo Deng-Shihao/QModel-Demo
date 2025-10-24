@@ -1,5 +1,7 @@
 .DS_Store
 
+quantized_models/*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -170,8 +172,8 @@ debug
 # .vscode
 .vscode/
 
-example.py
-
+# Compiled Kernel
+/nanomodel_offload/
 /nanomodel_ext/marlin/kernel_bf16_kfe2m1f.cu
 /nanomodel_ext/marlin/kernel_bf16_kfe4m3fn.cu
 /nanomodel_ext/marlin/kernel_bf16_ku4.cu
@@ -182,4 +184,3 @@ example.py
 /nanomodel_ext/marlin/kernel_fp16_ku4.cu
 /nanomodel_ext/marlin/kernel_fp16_ku4b8.cu
 /nanomodel_ext/marlin/kernel_fp16_ku8b128.cu
-/nanomodel_offload/
