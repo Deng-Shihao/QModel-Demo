@@ -408,13 +408,13 @@ class QuantizeConfig():
 
     @classmethod
     # normalize quant config for compat and also performs validation
-    def from_quant_config(cls, quantize_cfg, format: str = None):
+    def from_quant_config(cls, quantize_cfg, kernel: str = None):
         valid_formats = {KERNEL.GPTQ, KERNEL.MARLIN}
         format_auto_inferred = False
         # compat: format can be passed in via from_quantized() if field missing from json
-        if format:
-            if format not in valid_formats:
-                raise ValueError(f"QuantizeConfig: Unknown quantization checkpoint format: {format}.")
+        if kernel:
+            if kernel not in valid_formats:
+                raise ValueError(f"QuantizeConfig: Unknown quantization checkpoint format: {kernel}.")
             if quantize_cfg.get(FORMAT_FIELD_CHECKPOINT):
                 raise ValueError("QuantizeConfig: Conflicting quantization format passed in manually and also exists in model config.")
         # compat: warn if checkpoint_format is missing
@@ -427,7 +427,7 @@ class QuantizeConfig():
         normalized = {
             QUANT_METHOD_FIELD: METHOD.GPTQ,
             # compat: default to gptq(v1) when loading models
-            FORMAT_FIELD_CODE: format if format else KERNEL.GPTQ,
+            FORMAT_FIELD_CODE: kernel if kernel else KERNEL.GPTQ,
         }
         for key, val in quantize_cfg.items():
             key = key.lower()
@@ -467,7 +467,7 @@ class QuantizeConfig():
 
     @classmethod
     def from_pretrained(cls, save_dir: str, **kwargs):
-        format = kwargs.pop("format", None)
+        kernel = kwargs.pop("kernel", None)
 
         transformers_config = False
         resolved_config_file = None
@@ -489,7 +489,7 @@ class QuantizeConfig():
             if transformers_config:
                 args_from_json = args_from_json["quantization_config"]
 
-            return cls.from_quant_config(args_from_json, format)
+            return cls.from_quant_config(args_from_json, kernel)
 
     def to_dict(self):
         out = {
