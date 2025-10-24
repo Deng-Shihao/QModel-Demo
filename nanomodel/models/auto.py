@@ -27,6 +27,11 @@ from typing import Any, Dict, List, Optional, Type, Union  # noqa: E402
 import numpy  # noqa: E402
 import torch  # noqa: E402
 
+# make quants and inference more QueDing
+torch.manual_seed(233)
+random.seed(233)
+numpy.random.seed(233)
+
 from huggingface_hub import list_repo_files  # noqa: E402
 
 from transformers import AutoConfig  # noqa: E402
@@ -52,18 +57,13 @@ from .definitions.llama import LlamaNanoModel  # noqa: E402
 from .definitions.qwen2 import Qwen2NanoModel  # noqa: E402
 from .definitions.qwen3 import Qwen3NanoModel  # noqa: E402
 
-# make quants and inference more determinisitc
-torch.manual_seed(233)
-random.seed(233)
-numpy.random.seed(233)
-
-MODEL_MAP = {
+MODEL_DICT = {
     "llama": LlamaNanoModel,
     "qwen2": Qwen2NanoModel,  # Base on Llama
     "qwen3": Qwen3NanoModel,  # Base on Llama
 }
 
-SUPPORTED_MODELS = list(MODEL_MAP.keys())
+SUPPORTED_MODELS = list(MODEL_DICT.keys())
 
 
 def check_and_get_model_type(model_dir, trust_remote_code=False):
@@ -151,7 +151,7 @@ class AutoNanoModel:
                 **kwargs,
             )
 
-        # debug for model structure
+        # print model tree structure
         # if debug:
         #     print_module_tree(m.model)
 
@@ -172,22 +172,18 @@ class AutoNanoModel:
             "quantization_config",
         ):
             log.warn(
-                "Model is already quantized, will use `from_quantized` to load quantized model.\n"
-                "If you want to quantize the model, please pass un_quantized model path or id, and use "
-                "`from_pretrained` with `quantize_config`."
+                "As the model is already quantized, loading will be done via from_quantized.\n"
+                "To apply quantization yourself, provide an unquantized model path or ID, and load it using from_pretrained with quantize_config."
             )
             return cls.from_quantized(
                 model_id_or_path, trust_remote_code=trust_remote_code
             )
 
         if quantize_config and quantize_config.dynamic:
-            # print("NanoModel's per-module `dynamic` quantization feature is fully supported in latest vLLM and SGLang but not yet available in hf transformers.")
-            log.warn(
-                "NanoModel's per-module `dynamic` quantization feature is fully supported in latest vLLM and SGLang but not yet available in hf transformers."
-            )
+            log.warn("Full support for NanoModel’s per-module dynamic quantization is now included in the latest vLLM and SGLang, but hf transformers have not yet added this capability.")
 
         model_type = check_and_get_model_type(model_id_or_path, trust_remote_code)
-        return MODEL_MAP[model_type].from_pretrained(
+        return MODEL_DICT[model_type].from_pretrained(
             pretrained_model_id_or_path=model_id_or_path,
             quantize_config=quantize_config,
             trust_remote_code=trust_remote_code,
@@ -209,7 +205,7 @@ class AutoNanoModel:
         if isinstance(backend, str):
             backend = BACKEND(backend)
 
-        return MODEL_MAP[model_type].from_quantized(
+        return MODEL_DICT[model_type].from_quantized(
             model_id_or_path=model_id_or_path,
             device_map=device_map,
             device=device,

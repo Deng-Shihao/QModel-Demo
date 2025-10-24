@@ -1,11 +1,33 @@
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+from typing import Dict
 
-import re
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # pragma: no cover - legacy fallback
+    import tomli as tomllib  # type: ignore
+
 from setuptools import find_packages, setup
 from setuptools.command.bdist_wheel import bdist_wheel as _bdist_wheel
+
+
+ROOT = Path(__file__).resolve().parent
+
+DEFAULT_OPTIONAL_DEPS: Dict[str, list[str]] = {
+    "test": ["pytest>=8.3.5", "pytest-timeout>=2.3.1", "parameterized"],
+    "quality": ["ruff==0.13.0"],
+    "vllm": ["vllm>=0.10.2", "flashinfer-python>=0.3.1"],
+    "sglang": ["sglang[srt]>=0.4.6", "flashinfer-python>=0.3.1"],
+    "bitblas": ["bitblas==0.1.0.post1"],
+    "hf": ["optimum>=1.21.2"],
+    "eval": ["lm_eval>=0.4.7", "evalplus>=0.3.1"],
+    "triton": ["triton>=3.4.0"],
+    "openai": ["uvicorn", "fastapi", "pydantic"],
+    "mlx": ["mlx_lm>=0.24.0"],
+}
 
 
 # Helpers (no torch required)
@@ -27,6 +49,41 @@ def _bool_env(name, default=False):
     if v is None:
         return default
     return str(v).lower() in ("1", "true", "yes", "y", "on")
+
+
+def _load_optional_deps() -> Dict[str, list[str]]:
+    """Read optional dependency groups from pyproject.toml when available."""
+    pyproject_path = ROOT / "pyproject.toml"
+    if not pyproject_path.exists():
+        return DEFAULT_OPTIONAL_DEPS
+
+    try:
+        with pyproject_path.open("rb") as fh:
+            data = tomllib.load(fh)
+    except Exception as exc:  # pragma: no cover - defensive
+        print(f"Warning: failed to parse {pyproject_path}: {exc}")
+        return DEFAULT_OPTIONAL_DEPS
+
+    project_section = data.get("project", {})
+    optional_deps = project_section.get("optional-dependencies") or {}
+
+    if not optional_deps:
+        return DEFAULT_OPTIONAL_DEPS
+
+    normalized: Dict[str, list[str]] = {}
+    for group, packages in optional_deps.items():
+        normalized[group] = list(packages)
+    return normalized
+
+
+def _load_version() -> str:
+    version_file = ROOT / "nanomodel" / "version.py"
+    version_ns: Dict[str, str] = {}
+    exec(version_file.read_text(encoding="utf-8"), {}, version_ns)
+    version = version_ns.get("__version__")
+    if not version:
+        raise RuntimeError(f"Unable to determine package version from {version_file}")
+    return version
 
 
 def _detect_rocm_version():
@@ -168,12 +225,8 @@ def _detect_cuda_version() -> str | None:
     return _nvcc_release_version()
 
 
-def _detect_nvcc_version() -> str | None:
-    return _nvcc_release_version()
-
-
 def get_version_tag() -> str:
-    if BUILD_CUDA_EXT != "1":
+    if not BUILD_CUDA_EXT_ENABLED:
         return "cpu"
     if ROCM_VERSION:
         return f"rocm{ROCM_VERSION}"
@@ -186,28 +239,17 @@ def get_version_tag() -> str:
 
 
 # Env and versioning
-TORCH_VERSION = _read_env("TORCH_VERSION")
-RELEASE_MODE = _read_env("RELEASE_MODE")
-CUDA_VERSION = _read_env("CUDA_VERSION")
-ROCM_VERSION = _read_env("ROCM_VERSION")
+TORCH_VERSION = _read_env("TORCH_VERSION") or _detect_torch_version()
+CUDA_VERSION = _read_env("CUDA_VERSION") or _detect_cuda_version()
+ROCM_VERSION = _read_env("ROCM_VERSION") or _detect_rocm_version()
 TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST")
-NVCC_VERSION = _read_env("NVCC_VERSION")
 
-if not TORCH_VERSION:
-    TORCH_VERSION = _detect_torch_version()
-if not CUDA_VERSION:
-    CUDA_VERSION = _detect_cuda_version()
-if not ROCM_VERSION:
-    ROCM_VERSION = _detect_rocm_version()
-if not NVCC_VERSION:
-    NVCC_VERSION = _detect_nvcc_version()
-
-SKIP_ROCM_VERSION_CHECK = _read_env("SKIP_ROCM_VERSION_CHECK")
+RELEASE_MODE = _bool_env("RELEASE_MODE", False)
 FORCE_BUILD = _bool_env("NANOMODEL_FORCE_BUILD", False)
+SKIP_ROCM_VERSION_CHECK = _bool_env("SKIP_ROCM_VERSION_CHECK", False)
 
-BUILD_CUDA_EXT = _read_env("BUILD_CUDA_EXT")
-if BUILD_CUDA_EXT is None:
-    BUILD_CUDA_EXT = "1" if (CUDA_VERSION or ROCM_VERSION) else "0"
+build_cuda_default = bool(CUDA_VERSION or ROCM_VERSION)
+BUILD_CUDA_EXT_ENABLED = _bool_env("BUILD_CUDA_EXT", default=build_cuda_default)
 
 if ROCM_VERSION and not SKIP_ROCM_VERSION_CHECK:
     try:
@@ -219,7 +261,7 @@ if ROCM_VERSION and not SKIP_ROCM_VERSION_CHECK:
     except Exception:
         pass
 
-CUDA_ARCH_LIST = _detect_cuda_arch_list() if (BUILD_CUDA_EXT == "1" and not ROCM_VERSION) else None
+CUDA_ARCH_LIST = _detect_cuda_arch_list() if (BUILD_CUDA_EXT_ENABLED and not ROCM_VERSION) else None
 
 if not TORCH_CUDA_ARCH_LIST and CUDA_ARCH_LIST:
     archs = _parse_arch_list(CUDA_ARCH_LIST)
@@ -240,28 +282,10 @@ if not TORCH_CUDA_ARCH_LIST and CUDA_ARCH_LIST:
     print(f"CUDA_ARCH_LIST: {CUDA_ARCH_LIST}")
     print(f"TORCH_CUDA_ARCH_LIST: {TORCH_CUDA_ARCH_LIST}")
 
-version_vars = {}
-exec("exec(open('nanomodel/version.py').read()); version=__version__", {}, version_vars)
-nanomodel_version = version_vars["version"]
+nanomodel_version = _load_version()
+optional_deps = _load_optional_deps()
 
-# Prebuilt wheel download config
-DEFAULT_WHEEL_URL_TEMPLATE = "https://github.com/ModelCloud/NanoModel/releases/download/{tag_name}/{wheel_name}"
-WHEEL_URL_TEMPLATE = os.environ.get("NANOMODEL_WHEEL_URL_TEMPLATE")
-WHEEL_BASE_URL = os.environ.get("NANOMODEL_WHEEL_BASE_URL") 
-WHEEL_TAG = os.environ.get("NANOMODEL_WHEEL_TAG")          
-
-def _resolve_wheel_url(tag_name: str, wheel_name: str) -> str | None:
-    if WHEEL_URL_TEMPLATE:
-        tmpl = WHEEL_URL_TEMPLATE
-        if ("{wheel_name}" in tmpl) or ("{tag_name}" in tmpl):
-            return tmpl.format(tag_name=tag_name, wheel_name=wheel_name)
-        return (tmpl + wheel_name) if tmpl.endswith("/") else (tmpl + "/" + wheel_name)
-
-    if WHEEL_BASE_URL:
-        base = WHEEL_BASE_URL
-        return (base + wheel_name) if base.endswith("/") else (base + "/" + wheel_name)
-
-    return DEFAULT_WHEEL_URL_TEMPLATE.format(tag_name=tag_name, wheel_name=wheel_name)
+# No prebuilt wheel download: always build from source
 
 # Decide HAS_CUDA_V8 without torch
 HAS_CUDA_V8 = False
@@ -276,32 +300,20 @@ else:
         except Exception:
             HAS_CUDA_V8 = False
 
-if RELEASE_MODE == "1":
-    nanomodel_version = f"{nanomodel_version}+{get_version_tag()}"
+VERSION_TAG = get_version_tag()
+
+if RELEASE_MODE:
+    nanomodel_version = f"{nanomodel_version}+{VERSION_TAG}"
 
 include_dirs = ["nanomodel_ext"]
 
-extensions = []
-additional_setup_kwargs = {}
+extensions: list = []
+build_ext_cls = None
 
-# Build CUDA/ROCm extensions (only when enabled)
-def _env_enabled(val: str) -> bool:
-    if val is None:
-        return True
-    return str(val).strip().lower() not in ("0", "false", "off", "no")
+BUILD_MARLIN = _bool_env("NANOMODEL_BUILD_MARLIN", True)
+BUILD_AWQ = _bool_env("NANOMODEL_BUILD_AWQ", True)
 
-
-def _env_enabled_any(names, default="1") -> bool:
-    for n in names:
-        if n in os.environ:
-            return _env_enabled(os.environ.get(n))
-    return _env_enabled(default)
-
-
-BUILD_MARLIN = _env_enabled_any(os.environ.get("NANOMODEL_BUILD_MARLIN", "1"))
-BUILD_AWQ = _env_enabled(os.environ.get("NANOMODEL_BUILD_AWQ", "1"))
-
-if BUILD_CUDA_EXT == "1":
+if BUILD_CUDA_EXT_ENABLED:
     try:
         from torch.utils import cpp_extension as cpp_ext  # type: ignore
     except Exception:
@@ -313,6 +325,7 @@ if BUILD_CUDA_EXT == "1":
         cpp_ext = None
 
     if cpp_ext is not None:
+        build_ext_cls = cpp_ext.BuildExtension
         extra_link_args = []
         extra_compile_args = {
             "cxx": ["-O3", "-std=c++17", "-DENABLE_BF16"],
@@ -364,37 +377,36 @@ if BUILD_CUDA_EXT == "1":
             extra_compile_args["nvcc"] = _hipify_compile_flags(extra_compile_args["nvcc"])
 
         if sys.platform != "win32":
-            if not ROCM_VERSION and HAS_CUDA_V8:
-                if BUILD_MARLIN:
-                    marlin_kernel_dir = Path("nanomodel_ext/marlin")
-                    marlin_kernel_files = sorted(marlin_kernel_dir.glob("kernel_*.cu"))
+            if not ROCM_VERSION and HAS_CUDA_V8 and BUILD_MARLIN:
+                marlin_kernel_dir = Path("nanomodel_ext/marlin")
+                marlin_kernel_files = sorted(marlin_kernel_dir.glob("kernel_*.cu"))
 
-                    if not marlin_kernel_files:
-                        generator_script = marlin_kernel_dir / "generate_kernels.py"
-                        if generator_script.exists():
-                            print("Regenerating marlin template instantiations for parallel compilation...")
-                            subprocess.check_call([sys.executable, str(generator_script)])
-                            marlin_kernel_files = sorted(marlin_kernel_dir.glob("kernel_*.cu"))
+                if not marlin_kernel_files:
+                    generator_script = marlin_kernel_dir / "generate_kernels.py"
+                    if generator_script.exists():
+                        print("Regenerating marlin template instantiations for parallel compilation...")
+                        subprocess.check_call([sys.executable, str(generator_script)])
+                        marlin_kernel_files = sorted(marlin_kernel_dir.glob("kernel_*.cu"))
 
-                    if not marlin_kernel_files:
-                        raise RuntimeError(
-                            "No generated marlin kernel templates detected. Run generate_kernels.py before building."
-                        )
+                if not marlin_kernel_files:
+                    raise RuntimeError(
+                        "No generated marlin kernel templates detected. Run generate_kernels.py before building."
+                    )
 
-                    marlin_template_kernel_srcs = [str(path) for path in marlin_kernel_files]
-                    extensions += [
-                        cpp_ext.CUDAExtension(
-                            "nanomodel_marlin_kernels",
-                            [
-                                "nanomodel_ext/marlin/marlin_cuda.cpp",
-                                "nanomodel_ext/marlin/gptq_marlin.cu",
-                                "nanomodel_ext/marlin/gptq_marlin_repack.cu",
-                                "nanomodel_ext/marlin/awq_marlin_repack.cu",
-                            ] + marlin_template_kernel_srcs,
-                            extra_link_args=extra_link_args,
-                            extra_compile_args=extra_compile_args,
-                        )
-                    ]
+                marlin_template_kernel_srcs = [str(path) for path in marlin_kernel_files]
+                extensions += [
+                    cpp_ext.CUDAExtension(
+                        "nanomodel_marlin_kernels",
+                        [
+                            "nanomodel_ext/marlin/marlin_cuda.cpp",
+                            "nanomodel_ext/marlin/gptq_marlin.cu",
+                            "nanomodel_ext/marlin/gptq_marlin_repack.cu",
+                            "nanomodel_ext/marlin/awq_marlin_repack.cu",
+                        ] + marlin_template_kernel_srcs,
+                        extra_link_args=extra_link_args,
+                        extra_compile_args=extra_compile_args,
+                    )
+                ]
 
             if BUILD_AWQ:
                 extensions += [
@@ -420,49 +432,24 @@ if BUILD_CUDA_EXT == "1":
                     )
                 ]
 
-        additional_setup_kwargs = {
-            "ext_modules": extensions,
-            "cmdclass": {"build_ext": cpp_ext.BuildExtension},
-        }
-
 # Cached wheel fetcher
 class CachedWheelsCommand(_bdist_wheel):
     def run(self):
-        xpu_avail = _bool_env("XPU_AVAILABLE", False)
-        if FORCE_BUILD or xpu_avail:
+        if FORCE_BUILD or _bool_env("XPU_AVAILABLE", False):
             return super().run()
 
-        python_version = f"cp{sys.version_info.major}{sys.version_info.minor}"
-        wheel_filename = f"nanomodel-{nanomodel_version}+{get_version_tag()}-{python_version}-{python_version}-linux_x86_64.whl"
-
-        tag_name = WHEEL_TAG if WHEEL_TAG else f"v{nanomodel_version}"
-        wheel_url = _resolve_wheel_url(tag_name=tag_name, wheel_name=wheel_filename)
-
-        print(f"Resolved wheel URL: {wheel_url}\nwheel name={wheel_filename}")
-
-        try:
-            import urllib.request as req
-            req.urlretrieve(wheel_url, wheel_filename)
-
-            if not os.path.exists(self.dist_dir):
-                os.makedirs(self.dist_dir)
-
-            impl_tag, abi_tag, plat_tag = self.get_tag()
-            archive_basename = (f"nanomodel-{nanomodel_version}-{impl_tag}-{abi_tag}-{plat_tag}")
-            wheel_path = os.path.join(self.dist_dir, archive_basename + ".whl")
-            print("Raw wheel path", wheel_path)
-            os.rename(wheel_filename, wheel_path)
-        except BaseException:
-            print(f"Precompiled wheel not found at: {wheel_url}. Building from source...")
-            super().run()
+        print("Prebuilt wheels are disabled; building nanomodel from source.")
+        return super().run()
 
 
-# ---------------------------
 # setup()
-# ---------------------------
-print(f"CUDA {CUDA_ARCH_LIST}")
-print(f"HAS_CUDA_V8 {HAS_CUDA_V8}")
-print(f"SETUP_KWARGS {additional_setup_kwargs}")
+cmdclass = {"bdist_wheel": CachedWheelsCommand}
+if build_ext_cls is not None:
+    cmdclass["build_ext"] = build_ext_cls
+
+print(f"CUDA_ARCH_LIST={CUDA_ARCH_LIST}")
+print(f"HAS_CUDA_V8={HAS_CUDA_V8}")
+print(f"building_extensions={bool(extensions)}")
 print(f"nanomodel_version={nanomodel_version}")
 
 setup(
@@ -470,22 +457,8 @@ setup(
     version=nanomodel_version,
     packages=find_packages(),
     include_package_data=True,
-    extras_require={
-        "test": ["pytest>=8.2.2", "parameterized"],
-        "quality": ["ruff==0.13.0", "isort==6.0.1"],
-        "vllm": ["vllm>=0.8.5", "flashinfer-python>=0.2.1"],
-        "sglang": ["sglang[srt]>=0.4.6", "flashinfer-python>=0.2.1"],
-        "hf": ["optimum>=1.21.2"],
-        "eval": ["lm_eval>=0.4.7", "evalplus>=0.3.1"],
-        "triton": ["triton>=3.4.0"],
-        "openai": ["uvicorn", "fastapi", "pydantic"],
-        "mlx": ["mlx_lm>=0.28.2"],
-    },
+    extras_require=optional_deps,
     include_dirs=include_dirs,
-    cmdclass=(
-        {"bdist_wheel": CachedWheelsCommand, "build_ext": additional_setup_kwargs.get("cmdclass", {}).get("build_ext")}
-        if (BUILD_CUDA_EXT == "1" and additional_setup_kwargs)
-        else {"bdist_wheel": CachedWheelsCommand}
-    ),
-    ext_modules=additional_setup_kwargs.get("ext_modules", []),
+    cmdclass=cmdclass,
+    ext_modules=extensions,
 )

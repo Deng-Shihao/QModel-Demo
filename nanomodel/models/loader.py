@@ -11,19 +11,13 @@ import transformers
 
 from ..utils.structure import print_module_tree
 
-# Hugging Face | Model Scopr
-if os.getenv('NANOMODEL_USE_MODELSCOPE', 'False').lower() in ['true', '1']:
-    try:
-        from modelscope import snapshot_download
-    except Exception:
-        raise ModuleNotFoundError("env `NANOMODEL_USE_MODELSCOPE` used but modelscope pkg is not found: please install with `pip install modelscope`.")
-else:
-    from huggingface_hub import snapshot_download
+# TODO: Hugging Face or Modelscope
+from huggingface_hub import snapshot_download
 
 from packaging.version import InvalidVersion, Version
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 from transformers.modeling_utils import no_init_weights
-from transformers.utils import is_flash_attn_2_available # Support flash_attn
+from transformers.utils import is_flash_attn_2_available # Support flash_attn ?
 from transformers.utils.generic import ContextManagers
 
 from ..quantization import QuantizeConfig
@@ -101,9 +95,9 @@ def get_model_local_path(pretrained_model_id_or_path, **kwargs):
     else:
         # Clone kwargs before modifying
         download_kwargs = kwargs.copy()
-        # download_kwargs.pop("max_memory", None)
         download_kwargs.pop("attn_implementation", None)
         download_kwargs.pop("use_flash_attention_2", None)
+        # download_kwargs.pop("max_memory", None)
         return snapshot_download(pretrained_model_id_or_path, **download_kwargs)
 
 
@@ -201,7 +195,7 @@ def ModelLoader(cls):
         if quantize_config.offload_to_disk:
             model = build_shell_model(cls.loader, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            print_module_tree(model=model)
+            # print_module_tree(model=model)
 
             # enable mmap with low_cpu_mem_usage
             turtle_spinner = log.spinner(title="Turtle model loading...", interval=0.1)
@@ -223,7 +217,7 @@ def ModelLoader(cls):
             print("loading model directly to CPU (not using meta device or turtle_model)-----------")
             model = cls.loader.from_pretrained(model_local_path, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            print_module_tree(model=model)
+            # print_module_tree(model=model)
 
             turtle_model = None
 
@@ -287,6 +281,7 @@ def ModelLoader(cls):
             backend =  (backend)
         device = auto_select_device(device, backend)
 
+        # TODO: VLLM
         if backend == BACKEND.VLLM:
             import os
             # to optimize vllm inference, set an environment variable 'VLLM_ATTENTION_BACKEND' to 'FLASHINFER'.
@@ -472,16 +467,15 @@ def ModelLoader(cls):
                 supports_flash_attn = None
 
             args = {}
-            if supports_flash_attn and device in [DEVICE.CUDA, DEVICE.ROCM]:
+            if supports_flash_attn and device in [DEVICE.CUDA]:
                 if ATTN_IMPLEMENTATION in kwargs:
                     args[ATTN_IMPLEMENTATION] = kwargs.pop(ATTN_IMPLEMENTATION, None)
                 elif is_flash_attn_2_available():
                     args = {ATTN_IMPLEMENTATION: "flash_attention_2"}
                     log.info("Loader: Auto enabling flash attention2")
 
-            model = cls.loader.from_config(
-                config, trust_remote_code=trust_remote_code, dtype=dtype, **args
-            )
+            model = cls.loader.from_config(config, trust_remote_code=trust_remote_code, dtype=dtype, **args)
+
             model.checkpoint_file_name = model_save_name
 
             # Get the first layer to determine layer type
@@ -638,32 +632,10 @@ def ModelLoader(cls):
         # Any post-initialization that require device information, for example buffers initialization on device.
         model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
 
+        # TODO: eval()
         # model.eval()
 
-        # if backend == BACKEND.MLX:
-        #     import tempfile
-        #     try:
-        #         from mlx_lm import load
-        #         from mlx_lm.utils import save_config, save_model
-
-        #         from ..utils.mlx import convert_gptq_to_mlx_weights, mlx_generate
-        #     except ModuleNotFoundError as exception:
-        #         raise type(exception)(
-        #             "NanoModel load mlx model required dependencies are not installed.",
-        #             "Please install via `pip install nanomodel[mlx] --no-build-isolation`.",
-        #         )
-
-        #     with tempfile.TemporaryDirectory() as temp_dir:
-        #         mlx_weights, mlx_config = convert_gptq_to_mlx_weights(model_id_or_path, model, qcfg.to_dict(), cls.lm_head)
-
-        #         save_model(temp_dir, mlx_weights, donate_model=True)
-        #         save_config(mlx_config, config_path=temp_dir + "/config.json")
-        #         tokenizer.save_pretrained(temp_dir)
-
-        #         model, _ = load(temp_dir)
-
-        #         cls.generate = lambda _, **kwargs: mlx_generate(model=model, tokenizer=tokenizer, **kwargs)
-
+        # TODO: MLX
 
         return cls(
             model,

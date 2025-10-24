@@ -1,11 +1,24 @@
 """Utilities for orchestrating the quantisation loop across multiple devices.
 
-ModuleLooper is the high-level coordinator that fans calibration batches across
+ModuleProcessor is the high-level coordinator that fans calibration batches across
 the available accelerators, runs each processing stage, and keeps the shell and
 turtle model state coherent. The implementation mixes synchronous orchestration
 with asynchronous workers, so the helpers below focus on keeping device context
 consistent and ensuring data dependencies survive the roundtrips through the
 thread pool.
+
+┌────────────────────────────────────────────┐
+│ ModuleProcessor.loop()                     │
+│                                            │
+│ 1. 捕获 calibration inputs                 │
+│ 2. 对每层依次：                            │
+│    ├─ (a) 前向传播收集激活值               │
+│    ├─ (b) Processor.process() 量化权重     │
+│    ├─ (c) 再前向 (可选) 验证精度           │
+│    ├─ (d) submodule_finalize() 收尾        │
+│ 3. 所有 Processor.finalize() 汇总日志      │
+└────────────────────────────────────────────┘
+
 """
 
 from __future__ import annotations
@@ -26,10 +39,12 @@ from ..processors.gptq_processor import GPTQProcessor
 from ..processors.input_cache import InputCache
 from ..processors.base_processor import BaseProcessor
 from ..processors.named_module import NamedModule
+
 from ..models import BaseNanoModel
 from ..models._const import SUPPORTS_MODULE_TYPES
-from ..nn_modules.hooked_linear import (STOP_FORWARD_EXCEPTION, HookedLinear,
-                                        StopForward, replace_module_with_hooked_legacy)
+
+from ..nn_modules.hooked_linear import STOP_FORWARD_EXCEPTION, HookedLinear, StopForward, replace_module_with_hooked_legacy
+
 from ..utils.attn_mask import apply_keep_mask_bt, normalize_seq_mask
 from ..utils.ctx import ctx
 from ..utils.device import get_device, get_device_new
@@ -59,8 +74,7 @@ logger.propagate = False
 
 
 class TqdmProgress:
-    """Minimal tqdm-backed progress interface compatible with legacy logbar usage."""
-
+    """Minimal tqdm-backed progress interface."""
     def __init__(
         self,
         sequence,
@@ -170,9 +184,8 @@ def log_time_block(block_name: str, *, module_name: str | None = None, logger: l
         yield
     finally:
         elapsed = time.perf_counter() - start
-        active_logger = logger or logging.getLogger("ModuleLooper")
+        active_logger = logger or logging.getLogger("ModuleProcessor")
         active_logger.info("[%s] (%s) took %.3fs", block_name, module_name or "-", elapsed)
-
 
 class FinalizeProgressInfo(NamedTuple):
     module_label: Optional[str]

@@ -28,9 +28,7 @@ from torch import nn
 from ..utils.logger import setup_logger
 
 
-# =========================
 #   ANSI color helpers
-# =========================
 RESET = "\033[0m"
 DIM = "\033[2m"
 FG_GRAY = "\033[90m"
@@ -42,9 +40,7 @@ log = setup_logger()
 def _maybe(s: str, code: str, *, color: bool) -> str:
     return f"{code}{s}{RESET}" if color else s
 
-# =========================
 #   Dtype size registry
-# =========================
 _DTYPE_BYTES: Dict[object, float] = {
     torch.float32: 4, torch.float: 4,
     torch.bfloat16: 2,
@@ -73,9 +69,7 @@ _DTYPE_BYTES[NVFP4] = 0.5
 def _elem_size(d) -> float:
     return _DTYPE_BYTES.get(d, 0.0)
 
-# =========================
 #   Formatting helpers
-# =========================
 def human_count(n: int) -> str:
     if n < 0: return str(n)
     if n < 1_000: return str(n)
@@ -95,9 +89,7 @@ def _human_bytes(n: float) -> str:
         n /= 1024.0
     return f"{n:.2f}PB"
 
-# =========================
 #   Counting & summaries
-# =========================
 def _param_summary(mod: nn.Module, *, recurse: bool = True) -> Tuple[int, int]:
     if recurse:
         p = sum(p.numel() for p in mod.parameters())
@@ -161,9 +153,7 @@ def _annotate(mod: nn.Module, *, color: bool = True) -> str:
         base = base[:-1] + f" (est~{_human_bytes(est_b)})]"
     return _maybe(base, DIM, color=color)
 
-# =========================
 #   Printing functions
-# =========================
 def _format_line(prefix: str, trunk: str, qual_name: str, mod: nn.Module, show_counts: bool, color: bool) -> str:
     cls = mod.__class__.__name__
     left = _maybe(prefix + trunk, FG_GRAY, color=color)
@@ -191,9 +181,7 @@ def _print_params(indent: str, mod: nn.Module, *, include_buffers: bool, color: 
     if include_buffers:
         for n, b in mod.named_buffers(recurse=False): print(_line("buffer", n, b))
 
-# =========================
 #   Main tree printer
-# =========================
 def print_module_tree(
     model: nn.Module,
     *,
@@ -216,9 +204,7 @@ def print_module_tree(
       • Params/Buffers are indented one level deeper under each module for clarity
     """
 
-    # ------------------------------------------------------------------
     # Depth color palette (portable 16-color ANSI for consistent display)
-    # ------------------------------------------------------------------
     DEPTH_COLORS = [
         "\033[36m",  # cyan
         "\033[33m",  # yellow
@@ -230,9 +216,7 @@ def print_module_tree(
     def depth_color(depth: int) -> str:
         return DEPTH_COLORS[depth % len(DEPTH_COLORS)]
 
-    # ------------------------------------------------------------------
     # Token color maps (dtype/device) — 16-color ANSI with clear labels
-    # ------------------------------------------------------------------
     DTYPE_COLOR = {
         "float32": "\033[36m",        # cyan
         "float":   "\033[36m",        # cyan (alias)
@@ -274,9 +258,7 @@ def print_module_tree(
         code = DEVICE_COLOR.get(key, "")
         return f"{code}{device_str}{RESET}" if (color and code) else device_str
 
-    # ------------------------------------------------------------------
     # Local helpers (annotation + param printing with colored tokens)
-    # ------------------------------------------------------------------
     def colorize_annotation(annot: str) -> str:
         """
         _annotate(mod) returns strings like:
@@ -349,9 +331,7 @@ def print_module_tree(
             for n, b in mod.named_buffers(recurse=False):
                 print(_line("buffer", n, b))
 
-    # ------------------------------------------------------------------
     # Setup + utilities
-    # ------------------------------------------------------------------
     _ = re.compile(filter_regex) if filter_regex else None  # reserved for future
     experts_name_re = re.compile(experts_regex) if collapse_experts else None
     seen: Set[int] = set()
@@ -384,9 +364,7 @@ def print_module_tree(
         else:
             return f"{left}{name}: {klass}"
 
-    # ------------------------------------------------------------------
     # Recursive printer
-    # ------------------------------------------------------------------
     def rec(mod: nn.Module, name: str, depth: int, prefix: str, is_last: bool):
         if max_depth is not None and depth > max_depth:
             return
