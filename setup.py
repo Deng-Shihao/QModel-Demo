@@ -135,6 +135,7 @@ def _detect_cuda_arch_list():
     raise Exception("Could not get compute capability from nvidia-smi. Please check nvidia-utils package is installed.")
 
 
+
 def _parse_arch_list(s: str):
     return [tok for tok in re.split(r"[;\s,]+", s) if tok.strip()]
 
@@ -224,6 +225,9 @@ def _detect_cuda_version() -> str | None:
         return v.strip()
     return _nvcc_release_version()
 
+def _detect_nvcc_version() -> str | None:
+    return _nvcc_release_version()
+
 
 def get_version_tag() -> str:
     if not BUILD_CUDA_EXT_ENABLED:
@@ -242,7 +246,8 @@ def get_version_tag() -> str:
 TORCH_VERSION = _read_env("TORCH_VERSION") or _detect_torch_version()
 CUDA_VERSION = _read_env("CUDA_VERSION") or _detect_cuda_version()
 ROCM_VERSION = _read_env("ROCM_VERSION") or _detect_rocm_version()
-TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST")
+TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST") # get cuda_arch_list
+NVCC_VERSION = _read_env("NVCC_VERSION") or _detect_nvcc_version()
 
 RELEASE_MODE = _bool_env("RELEASE_MODE", False)
 FORCE_BUILD = _bool_env("NANOMODEL_FORCE_BUILD", False)
@@ -339,6 +344,7 @@ if BUILD_CUDA_EXT_ENABLED:
                 "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
                 "-U__CUDA_NO_BFLOAT162_OPERATORS__",
                 "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
+                # "-gencode=arch=compute_86,code=sm_86",
             ],
         }
 
@@ -351,7 +357,6 @@ if BUILD_CUDA_EXT_ENABLED:
 
         if not ROCM_VERSION:
             extra_compile_args["nvcc"] += [
-                "-static-global-template-stub=false",
                 "--threads", "8",
                 "--optimize=3",
                 "-Xptxas", "-v,-O3,-dlcm=ca",
@@ -359,6 +364,9 @@ if BUILD_CUDA_EXT_ENABLED:
                 "-Xfatbin", "-compress-all",
                 "-diag-suppress=179,39,177",
             ]
+            if _version_geq(NVCC_VERSION, 12, 8):
+                # Allow instantiations of __global__ templates to live in different TUs; only supported in newer NVCC.
+                extra_compile_args.insert(0, "-static-global-template-stub=false")
         else:
             def _hipify_compile_flags(flags):
                 modified_flags = []
