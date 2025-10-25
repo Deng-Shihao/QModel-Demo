@@ -242,11 +242,11 @@ def get_version_tag() -> str:
     return f"{base}{torch_suffix}"
 
 
-# Env and versioning
+# Env var
 TORCH_VERSION = _read_env("TORCH_VERSION") or _detect_torch_version()
 CUDA_VERSION = _read_env("CUDA_VERSION") or _detect_cuda_version()
 ROCM_VERSION = _read_env("ROCM_VERSION") or _detect_rocm_version()
-TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST") # get cuda_arch_list
+TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST") # get config
 NVCC_VERSION = _read_env("NVCC_VERSION") or _detect_nvcc_version()
 
 RELEASE_MODE = _bool_env("RELEASE_MODE", False)
@@ -344,12 +344,8 @@ if BUILD_CUDA_EXT_ENABLED:
                 "-U__CUDA_NO_BFLOAT16_CONVERSIONS__",
                 "-U__CUDA_NO_BFLOAT162_OPERATORS__",
                 "-U__CUDA_NO_BFLOAT162_CONVERSIONS__",
-                # "-gencode=arch=compute_86,code=sm_86",
             ],
         }
-
-        if sys.platform == "win32":
-            extra_compile_args["cxx"] = ["/O2", "/std:c++17", "/openmp", "/DNDEBUG", "/DENABLE_BF16"]
 
         CXX11_ABI = _detect_cxx11_abi()
         extra_compile_args["cxx"] += [f"-D_GLIBCXX_USE_CXX11_ABI={CXX11_ABI}"]

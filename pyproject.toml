@@ -4,6 +4,7 @@ requires = [
     "ninja>=1.13.0",
     "wheel",
 ]
+
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -13,34 +14,34 @@ readme = "README.md"
 requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
-    "accelerate>=1.10.1",
-    "datasets>=3.6.0",
-    "dill>=0.3.8",
-    "hf_transfer>=0.1.9",
-    "huggingface_hub>=0.34.4",
-    "maturin>=1.9.4",
     "numpy==2.2.6",
-    "packaging>=24.2",
-    "pillow>=11.3.0",
-    "protobuf>=6.32.0",
-    "pyarrow>=21.0",
-    "safetensors>=0.6.2",
-    "threadpoolctl>=3.6.0",
     "torch>=2.8.0",
+    "torchao>=0.14.1",
+    "accelerate>=1.10.1",
     "transformers>=4.57.1",
+    "threadpoolctl>=3.6.0",
+    "packaging>=24.2", # handling version numbers and dependency management
+    "maturin>=1.9.4", # for rust extension (safetensors and hf_transfer)
+    "safetensors>=0.6.2", # fast and secure file format for model weights
+    "dill>=0.3.8", # advanced object serialization
+    "pyarrow>=21.0", # high-performance data handling
+    "datasets>=3.6.0",
+    "hf_transfer>=0.1.9", # speed up download from hf
+    "huggingface_hub>=0.34.4", # download model from hf
+    "pillow>=11.3.0", # image processing library
+    "protobuf>=6.32.0", # efficient structured data serialization
 ]
 
 [project.optional-dependencies]
-bitblas = ["bitblas==0.1.0.post1"]
-eval = ["evalplus>=0.3.1", "lm_eval>=0.4.7"]
 hf = ["optimum>=1.21.2"]
-mlx = ["mlx_lm>=0.24.0"]
-openai = ["fastapi", "pydantic", "uvicorn"]
 quality = ["ruff==0.13.0"]
-sglang = ["flashinfer-python>=0.3.1", "sglang[srt]>=0.4.6"]
-test = ["parameterized", "pytest>=8.3.5", "pytest-timeout>=2.3.1"]
+eval = ["evalplus>=0.3.1", "lm_eval>=0.4.7"]
 triton = ["triton>=3.4.0"]
+openai = ["fastapi", "pydantic", "uvicorn"]
+test = ["parameterized", "pytest>=8.3.5", "pytest-timeout>=2.3.1"]
 vllm = ["flashinfer-python>=0.3.1", "vllm>=0.10.2"]
+mlx = ["mlx_lm>=0.24.0"]
+sglang = ["flashinfer-python>=0.3.1", "sglang[srt]>=0.4.6"]
 
 [tool.setuptools.dynamic]
 version = {attr = "nanomodel.version.__version__"}

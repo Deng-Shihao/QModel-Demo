@@ -26,7 +26,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.GPTQ as needed
-        kernel=KERNEL.GPTQ,        # FORMAT.MARLIN / FORMAT.GEMM / FORMAT.GEMV also available
+        kernel=KERNEL.GPTQ,        # FORMAT.MARLIN
     )
 
     logger.info("Loading pretrained model for quantization...")
