@@ -362,7 +362,7 @@ if BUILD_CUDA_EXT_ENABLED:
             ]
             if _version_geq(NVCC_VERSION, 12, 8):
                 # Allow instantiations of __global__ templates to live in different TUs; only supported in newer NVCC.
-                extra_compile_args.insert(0, "-static-global-template-stub=false")
+                extra_compile_args["nvcc"].insert(0, "-static-global-template-stub=false")
         else:
             def _hipify_compile_flags(flags):
                 modified_flags = []
