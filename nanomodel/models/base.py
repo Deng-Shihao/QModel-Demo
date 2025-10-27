@@ -178,7 +178,7 @@ class BaseNanoModel(nn.Module):
 
     info: Dict[str, str] = {}
 
-    supports_desc_act = [True, False]
+    supports_act_order = [True, False]
 
     modality: List[MODALITY] = [MODALITY.TEXT]
 
@@ -923,7 +923,7 @@ class BaseNanoModel(nn.Module):
             bits=self.quantize_config.bits,
             dynamic=self.quantize_config.dynamic,
             group_size=self.quantize_config.group_size,
-            desc_act=self.quantize_config.desc_act,
+            act_order=self.quantize_config.act_order,
             sym=self.quantize_config.sym,
             backend=preferred_backend,
             kernel=self.quantize_config.kernel,
@@ -957,7 +957,7 @@ class BaseNanoModel(nn.Module):
         self.qlinear_kernel = select_quant_linear(
             bits=self.quantize_config.bits,
             group_size=self.quantize_config.group_size,
-            desc_act=self.quantize_config.desc_act,
+            act_order=self.quantize_config.act_order,
             sym=self.quantize_config.sym,
             pack=True,
             dynamic=self.quantize_config.dynamic,

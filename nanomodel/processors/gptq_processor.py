@@ -122,7 +122,7 @@ class GPTQProcessor(BaseProcessor):
                 module.full_name, "desc_act", None
             )
             if desc_act_override is not None:
-                qcfg_clone.desc_act = desc_act_override
+                qcfg_clone.act_order = desc_act_override
             act_group_aware_override = self.qcfg.dynamic_get(
                 module.full_name, "act_group_aware", None
             )
@@ -368,7 +368,7 @@ class GPTQProcessor(BaseProcessor):
                 name=module.full_name,
                 linear_cls=model.qlinear_kernel,
                 bits=self.qcfg.bits,
-                desc_act=self.qcfg.desc_act,
+                desc_act=self.qcfg.act_order,
                 dynamic=self.qcfg.dynamic,
                 group_size=self.qcfg.group_size,
                 module=model.model,

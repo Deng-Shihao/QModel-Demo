@@ -27,7 +27,7 @@ log = setup_logger()
 class TorchQuantLinear(PackableQuantLinear):
     SUPPORTS_BITS = [2, 3, 4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128, 256, 512, 1024]
-    SUPPORTS_DESC_ACT = [True, False]
+    SUPPORTS_ACT_ORDER = [True, False]
     SUPPORTS_SYM = [True, False]
     SUPPORTS_SHARDS = True
     SUPPORTS_TRAINING = True
@@ -51,7 +51,7 @@ class TorchQuantLinear(PackableQuantLinear):
         bits: int,
         group_size: int,
         sym: bool,
-        desc_act: bool,
+        act_order: bool,
         in_features: int,
         out_features: int,
         bias: bool = False,
@@ -63,7 +63,7 @@ class TorchQuantLinear(PackableQuantLinear):
             bits=bits,
             group_size=group_size,
             sym=sym,
-            desc_act=desc_act,
+            act_order=act_order,
             in_features=in_features,
             out_features=out_features,
             bias=bias,

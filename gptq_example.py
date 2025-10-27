@@ -26,7 +26,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.GPTQ,  # switch to METHOD.AWQ or METHOD.GPTQ as needed
-        kernel=KERNEL.GPTQ,        # FORMAT.MARLIN
+        kernel=KERNEL.GPTQ,
     )
 
     logger.info("Loading pretrained model for quantization...")
@@ -56,7 +56,7 @@ if __name__ == "__main__":
         # bits=4,  # default 4-bit [2, 3, 4, 8]
         # group_size=128,  # default 128
 
-        # desc_act: Optional[bool] = field(default=None)
+        # act_order: Optional[bool] = field(default=None)
         # act_group_aware: Optional[bool] = field(default=None)
         # static_groups: bool = field(default=False)
         # sym: bool = field(default=True)

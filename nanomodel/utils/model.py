@@ -226,7 +226,7 @@ def make_quant(
     bits = qcfg.bits
     group_size =qcfg.group_size
     format = qcfg.kernel
-    desc_act = qcfg.desc_act
+    desc_act = qcfg.act_order
     sym = qcfg.sym
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
@@ -238,7 +238,7 @@ def make_quant(
     quant_linear_candidates = select_quant_linear(
         bits=bits,
         group_size=group_size,
-        desc_act=desc_act,
+        act_order=desc_act,
         sym=sym,
         backend=backend,
         kernel=format,
@@ -382,7 +382,7 @@ def create_quant_module(
     new_layer = linear_cls(
         bits=tmp_bits,
         group_size=tmp_group_size,
-        desc_act=tmp_desc_act,
+        act_order=tmp_desc_act,
         sym=tmp_sym,
         in_features=in_features,
         out_features=out_features,
@@ -792,7 +792,7 @@ def pack_model(
         group_size=group_size,
         kernel=format,
         quant_method=quant_method,
-        desc_act=desc_act,
+        act_order=desc_act,
         sym=sym,
         dynamic=dynamic,
         pack_dtype=pack_dtype,

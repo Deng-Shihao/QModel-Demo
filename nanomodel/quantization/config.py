@@ -148,8 +148,8 @@ class QuantizeConfig():
     damp_percent: float = field(default=None)
     damp_auto_increment: float = field(default=None)
 
-    desc_act: Optional[bool] = field(default=None)
-    act_group_aware: Optional[bool] = field(default=None)
+    act_order: Optional[bool] = field(default=None)
+    act_group_aware: Optional[bool] = field(default=None) # gar
     static_groups: bool = field(default=False)
     sym: bool = field(default=True)
     true_sequential: bool = field(default=True)
@@ -157,7 +157,6 @@ class QuantizeConfig():
     lm_head: bool = field(default=False)
 
     quant_method: METHOD = field(default=METHOD.GPTQ)
-
     kernel: KERNEL = field(default=KERNEL.GPTQ)
 
     # quantization_order: str = "activate",
@@ -292,16 +291,16 @@ class QuantizeConfig():
                 raise ValueError("QuantizeConfig: `hessian_chunk_bytes` must be a positive integer amount of bytes.")
 
         # resolve activation ordering compatibility and defaults
-        desc_act_user_value = self.desc_act
+        desc_act_user_value = self.act_order
         act_group_aware_user_value = self.act_group_aware
 
         if desc_act_user_value is None:
             # GPTQ defaults to higher quality ordering disabled, others retain legacy default
-            self.desc_act = False if self.quant_method == METHOD.GPTQ else True
+            self.act_order = False if self.quant_method == METHOD.GPTQ else True
         elif isinstance(desc_act_user_value, bool):
-            self.desc_act = desc_act_user_value
+            self.act_order = desc_act_user_value
         else:
-            self.desc_act = bool(desc_act_user_value)
+            self.act_order = bool(desc_act_user_value)
 
         if act_group_aware_user_value is None:
             # auto-enable for GPTQ unless user explicitly disables it
@@ -314,7 +313,7 @@ class QuantizeConfig():
         self._resolve_activation_ordering(desc_act_user_value, act_group_aware_user_value)
 
         # validate hybrid act order
-        if self.act_group_aware and self.desc_act:
+        if self.act_group_aware and self.act_order:
             raise ValueError("QuantizeConfig:: `act_group_aware` == `True` requires `desc_act` == `False`.")
 
         # validate meta
@@ -496,7 +495,7 @@ class QuantizeConfig():
             "bits": self.bits,
             "dynamic": self.dynamic,
             "group_size": self.group_size,
-            "desc_act": self.desc_act,
+            "desc_act": self.act_order,
             "sym": self.sym,
             "lm_head": self.lm_head,
             QUANT_METHOD_FIELD:self.quant_method,

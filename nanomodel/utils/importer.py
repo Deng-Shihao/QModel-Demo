@@ -128,7 +128,7 @@ def auto_select_device(device: Optional[DEVICE], backend: Optional[BACKEND]) -> 
 def hf_select_quant_linear(
     bits: int,
     group_size: int,
-    desc_act: bool,
+    act_order: bool,
     sym: bool,
     checkpoint_format: str,
     meta: Optional[Dict[str, any]] = None,
@@ -148,7 +148,7 @@ def hf_select_quant_linear(
     return select_quant_linear(
         bits=bits,
         group_size=group_size,
-        desc_act=desc_act,
+        act_order=act_order,
         sym=sym,
         backend=backend,
         device=device,
@@ -165,7 +165,7 @@ def hf_select_quant_linear(
 def select_quant_linear(
     bits: int,
     group_size: int,
-    desc_act: bool,
+    act_order: bool,
     sym: bool,
     device: Optional[DEVICE] = None,
     backend: BACKEND = BACKEND.AUTO,
@@ -200,7 +200,7 @@ def select_quant_linear(
             validate, err = cls.validate(
                 bits=bits,
                 group_size=group_size,
-                desc_act=desc_act,
+                desc_act=act_order,
                 sym=sym,
                 pack_dtype=pack_dtype,
                 dynamic=dynamic,
@@ -269,7 +269,7 @@ def select_quant_linear(
     validate, err = qlinear.validate(
         bits=bits,
         group_size=group_size,
-        desc_act=desc_act,
+        desc_act=act_order,
         sym=sym,
         pack_dtype=pack_dtype,
         dynamic=dynamic,

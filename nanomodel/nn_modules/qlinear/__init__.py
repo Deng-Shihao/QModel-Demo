@@ -23,7 +23,7 @@ log = setup_logger()
 class BaseQuantLinear(nn.Module):
     SUPPORTS_BITS: List[int] = None
     SUPPORTS_GROUP_SIZE: List[int] = None
-    SUPPORTS_DESC_ACT: List[bool] = None
+    SUPPORTS_ACT_ORDER: List[bool] = None
     SUPPORTS_SYM: List[bool] = None
     SUPPORTS_SHARDS: bool = None
     SUPPORTS_TRAINING: bool = None
@@ -46,7 +46,7 @@ class BaseQuantLinear(nn.Module):
     def __init__(self,
                  bits: int,
                  group_size: int,
-                 desc_act: bool,
+                 act_order: bool,
                  sym: bool,
                  in_features: int,
                  out_features: int,
@@ -66,7 +66,7 @@ class BaseQuantLinear(nn.Module):
         self.out_features = out_features
         self.group_size = group_size if group_size != -1 else in_features
         self.bits = bits
-        self.desc_act = desc_act
+        self.act_order = act_order
         self.pack_dtype = pack_dtype
         self.backend = backend
         self.maxq = 2 ** self.bits - 1
@@ -97,7 +97,7 @@ class BaseQuantLinear(nn.Module):
 
         # pack_factor is only used for bits 2, 4, and 8. bit3 3 does not use this variable.
         self.pack_factor = self.pack_dtype_bits // self.bits
-        _, err = self._validate(bits=bits, group_size=group_size, desc_act=desc_act, sym=sym, in_features=in_features, out_features=out_features, pack_dtype=pack_dtype)
+        _, err = self._validate(bits=bits, group_size=group_size, desc_act=act_order, sym=sym, in_features=in_features, out_features=out_features, pack_dtype=pack_dtype)
         if err:
             raise err
 
@@ -261,8 +261,8 @@ class BaseQuantLinear(nn.Module):
         if sym not in cls.SUPPORTS_SYM:
             err = f"{cls} only supports `{cls.SUPPORTS_SYM}` bits: actual sym = `{sym}`"
             return False, NotImplementedError(err)
-        if desc_act not in cls.SUPPORTS_DESC_ACT:
-            err = f"{cls} only supports `{cls.SUPPORTS_DESC_ACT}` bits: actual desc_act = `{desc_act}`"
+        if desc_act not in cls.SUPPORTS_ACT_ORDER:
+            err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual desc_act = `{desc_act}`"
             return False, NotImplementedError(err)
         if dynamic is not None:
             dynamic_bits = {}
@@ -297,8 +297,8 @@ class BaseQuantLinear(nn.Module):
             for pattern, pattern_dict in dynamic.items():
                 dynamic_desc_act[pattern] = pattern_dict.get("desc_act", desc_act)
             for layer, desc_act in dynamic_desc_act.items():
-                if desc_act not in cls.SUPPORTS_DESC_ACT:
-                    err = f"{cls} only supports `{cls.SUPPORTS_DESC_ACT}` bits: actual desc_act = `{desc_act}` for layer `{layer}`"
+                if desc_act not in cls.SUPPORTS_ACT_ORDER:
+                    err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual desc_act = `{desc_act}` for layer `{layer}`"
                     return False, NotImplementedError(err)
 
         if in_features is not None:

@@ -131,9 +131,9 @@ def ModelLoader(cls):
             if device is not None or device_map is not None:
                 raise AttributeError("Passing device and device_map is not allowed when QuantizeConfig.device is set. Non-quantized model is always loaded as cpu. Please set QuantizeConfig.device for accelerator used in quantization or do not set for auto-selection.")
 
-        if quantize_config.desc_act not in cls.supports_desc_act:
-            raise ValueError(f"{cls} only supports desc_act={cls.supports_desc_act}, "
-                             f"but quantize_config.desc_act is {quantize_config.desc_act}.")
+        if quantize_config.act_order not in cls.supports_act_order:
+            raise ValueError(f"{cls} only supports act_order={cls.supports_act_order}, "
+                             f"but quantize_config.act_order is {quantize_config.act_order}.")
 
         if cls.require_trust_remote_code and not trust_remote_code:
             raise ValueError(
@@ -610,7 +610,7 @@ def ModelLoader(cls):
             bits=qcfg.bits,
             dynamic=qcfg.dynamic,
             group_size=qcfg.group_size,
-            desc_act=qcfg.desc_act,
+            act_order=qcfg.act_order,
             sym=qcfg.sym,
             backend=backend,
             kernel=qcfg.kernel,
@@ -630,12 +630,12 @@ def ModelLoader(cls):
             model.seqlen = 4096
 
         # Any post-initialization that require device information, for example buffers initialization on device.
-        model = gptqmodel_post_init(model, use_act_order=qcfg.desc_act, quantize_config=qcfg)
+        model = gptqmodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
 
         # TODO: eval()
         # model.eval()
 
-        # TODO: MLX
+        # TODO: MLX FOR MAC
 
         return cls(
             model,

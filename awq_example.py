@@ -53,7 +53,7 @@ if __name__ == "__main__":
     #     group_size=128,  # default 128
     #     quant_method=METHOD.AWQ
 
-        # desc_act: Optional[bool] = field(default=None)
+        # act_order: Optional[bool] = field(default=None)
         # act_group_aware: Optional[bool] = field(default=None)
         # static_groups: bool = field(default=False)
         # sym: bool = field(default=True)

@@ -32,7 +32,7 @@ log = setup_logger()
 class MarlinQuantLinear(BaseQuantLinear):
     SUPPORTS_BITS = [4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 32, 64, 128]
-    SUPPORTS_DESC_ACT = [True, False]
+    SUPPORTS_ACT_ORDER = [True, False]
     SUPPORTS_SYM = [True]
     SUPPORTS_SHARDS = True
     SUPPORTS_TRAINING = False
@@ -60,7 +60,7 @@ class MarlinQuantLinear(BaseQuantLinear):
     def __init__(
             self, bits: int,
             group_size: int,
-            desc_act: bool,
+            act_order: bool,
             sym: bool,
             in_features: int,
             out_features: int,
@@ -76,16 +76,16 @@ class MarlinQuantLinear(BaseQuantLinear):
         # self.original_in_features = in_features
         # self.original_out_features = out_features
 
-        if desc_act and group_size == -1:
+        if act_order and group_size == -1:
             # In this case, act_order == True is the same as act_order == False
             # (since we have only one group per output channel)
-            desc_act = False
+            act_order = False
 
         super().__init__(
             bits=bits,
             group_size=group_size,
             sym=sym,
-            desc_act=desc_act,
+            act_order=act_order,
             in_features=in_features,
             out_features=out_features,
             bias=bias,
@@ -102,7 +102,7 @@ class MarlinQuantLinear(BaseQuantLinear):
                 "Kernel: Marlin FP16 mode is activated with reduced accuracy. Use default Marlin model for improved inference quality.")
 
         # Determine sharding
-        if marlin_repeat_scales_on_all_ranks(desc_act,
+        if marlin_repeat_scales_on_all_ranks(act_order,
                                              self.group_size,
                                              is_row_parallel=False):
             # By setting scale_dim == None, weight_loader will
@@ -212,7 +212,7 @@ class MarlinQuantLinear(BaseQuantLinear):
     def post_init(self):
         device = self.qweight.device
 
-        self.is_k_full = marlin_is_k_full(self.desc_act, is_row_parallel=False)
+        self.is_k_full = marlin_is_k_full(self.act_order, is_row_parallel=False)
 
         # Allocate marlin workspace.
         self.workspace = marlin_make_workspace_new(device)
@@ -233,7 +233,7 @@ class MarlinQuantLinear(BaseQuantLinear):
             return x
 
         # Handle sorting for activation reordering if needed.
-        if self.desc_act:
+        if self.act_order:
             g_idx, g_idx_sort_indices = marlin_sort_g_idx(getattr(self, "g_idx"))
             _transform_param(self, "g_idx", lambda _: g_idx)
             self.g_idx_sort_indices = g_idx_sort_indices

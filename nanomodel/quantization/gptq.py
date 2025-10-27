@@ -541,7 +541,7 @@ class GPTQ:
         self.qcfg.group_size = group_size
         self.qcfg.damp_percent = percdamp
         self.qcfg.damp_auto_increment = damp_auto_increment
-        self.qcfg.desc_act = actorder
+        self.qcfg.act_order = actorder
         if act_group_aware is not None:
             self.qcfg.act_group_aware = act_group_aware
         self.qcfg._resolve_activation_ordering(actorder, act_group_aware)
@@ -643,7 +643,7 @@ class GPTQ:
                 zero.append(quantizer.zero)
                 groups.append(quantizer)
 
-        if self.qcfg.desc_act:
+        if self.qcfg.act_order:
             perm = torch.argsort(torch.diag(self.H), descending=True)
             W = W[:, perm]
             self.H = self.H[perm][:, perm]
@@ -694,7 +694,7 @@ class GPTQ:
                         # Static groups - use pre-computed groups
                         for i in range(count):
                             idx = i1 + i
-                            if self.qcfg.desc_act:
+                            if self.qcfg.act_order:
                                 idx = perm[idx]
                             self.quantizer = groups[idx // self.qcfg.group_size]
 
@@ -797,7 +797,7 @@ class GPTQ:
                                 now_idx += 1
                         else:
                             idx = i1 + i
-                            if self.qcfg.desc_act:
+                            if self.qcfg.act_order:
                                 idx = perm[idx]
 
                             self.quantizer = groups[idx // self.qcfg.group_size]
@@ -845,14 +845,14 @@ class GPTQ:
 
         group_size = self.qcfg.group_size if self.qcfg.group_size != -1 else self.columns
 
-        if self.qcfg.static_groups and self.qcfg.desc_act:
+        if self.qcfg.static_groups and self.qcfg.act_order:
             g_idx = [perm[i] // group_size for i in range(self.columns)]
         else:
             g_idx = [i // group_size for i in range(self.columns)]
 
         g_idx = torch.tensor(g_idx, dtype=torch.int32, device=Q.device)
 
-        if self.qcfg.desc_act:
+        if self.qcfg.act_order:
             Q = Q[:, invperm]
             g_idx = g_idx[invperm]
 

@@ -12,7 +12,7 @@ log = setup_logger()
 class AwqGEMMQuantLinear(AWQuantLinear):
     SUPPORTS_BITS = [4]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128]
-    SUPPORTS_DESC_ACT = [True, False]
+    SUPPORTS_ACT_ORDER = [True, False]
     SUPPORTS_SYM = [True, False]
     SUPPORTS_SHARDS = True
     SUPPORTS_TRAINING = True
@@ -36,7 +36,7 @@ class AwqGEMMQuantLinear(AWQuantLinear):
         bits: int,
         group_size: int,
         sym: bool,
-        desc_act: bool,
+        act_order: bool,
         in_features: int,
         out_features: int,
         bias: bool = False,
@@ -48,7 +48,7 @@ class AwqGEMMQuantLinear(AWQuantLinear):
             bits=bits,
             group_size=group_size,
             sym=sym,
-            desc_act=desc_act,
+            desc_act=act_order,
             in_features=in_features,
             out_features=out_features,
             bias=bias,
