@@ -97,7 +97,7 @@ class BaseQuantLinear(nn.Module):
 
         # pack_factor is only used for bits 2, 4, and 8. bit3 3 does not use this variable.
         self.pack_factor = self.pack_dtype_bits // self.bits
-        _, err = self._validate(bits=bits, group_size=group_size, desc_act=act_order, sym=sym, in_features=in_features, out_features=out_features, pack_dtype=pack_dtype)
+        _, err = self._validate(bits=bits, group_size=group_size, act_order=act_order, sym=sym, in_features=in_features, out_features=out_features, pack_dtype=pack_dtype)
         if err:
             raise err
 
@@ -177,7 +177,7 @@ class BaseQuantLinear(nn.Module):
             cls,
             bits: int,
             group_size: int,
-            desc_act: bool,
+            act_order: bool,
             sym: bool,
             in_features:int=None,
             out_features:int=None,
@@ -187,7 +187,7 @@ class BaseQuantLinear(nn.Module):
             trainable:Optional[bool]=None,
     ) -> Tuple[
         bool, Optional[Exception]]:
-        return cls._validate(bits=bits, group_size=group_size, desc_act=desc_act, sym=sym,
+        return cls._validate(bits=bits, group_size=group_size, act_order=act_order, sym=sym,
                              in_features=in_features, out_features=out_features, pack_dtype=pack_dtype,
                              dynamic=dynamic, device=device, trainable=trainable)
 
@@ -228,7 +228,7 @@ class BaseQuantLinear(nn.Module):
             #     raise ValueError(f"{cls.__name__}.{name} cannot be an empty list.")
 
     @classmethod
-    def _validate(cls, bits: int=4, group_size: int=128, desc_act: bool=False, sym: bool=False, pack_dtype:t.dtype=None, dynamic:Optional[dict]=None, in_features:int=None,
+    def _validate(cls, bits: int=4, group_size: int=128, act_order: bool=False, sym: bool=False, pack_dtype:t.dtype=None, dynamic:Optional[dict]=None, in_features:int=None,
                   out_features:int=None, device:Optional[DEVICE]=None, trainable:Optional[bool]=None) -> Tuple[bool, Optional[Exception]]:
         cls.verify_supports_params()
 
@@ -261,8 +261,8 @@ class BaseQuantLinear(nn.Module):
         if sym not in cls.SUPPORTS_SYM:
             err = f"{cls} only supports `{cls.SUPPORTS_SYM}` bits: actual sym = `{sym}`"
             return False, NotImplementedError(err)
-        if desc_act not in cls.SUPPORTS_ACT_ORDER:
-            err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual desc_act = `{desc_act}`"
+        if act_order not in cls.SUPPORTS_ACT_ORDER:
+            err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual actor order = `{act_order}`"
             return False, NotImplementedError(err)
         if dynamic is not None:
             dynamic_bits = {}
@@ -293,12 +293,12 @@ class BaseQuantLinear(nn.Module):
                     err = f"{cls} only supports `{cls.SUPPORTS_SYM}` bits: actual sym = `{sym}` for layer `{layer}`"
                     return False, NotImplementedError(err)
 
-            dynamic_desc_act = {}
+            dynamic_act_order = {}
             for pattern, pattern_dict in dynamic.items():
-                dynamic_desc_act[pattern] = pattern_dict.get("desc_act", desc_act)
-            for layer, desc_act in dynamic_desc_act.items():
-                if desc_act not in cls.SUPPORTS_ACT_ORDER:
-                    err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual desc_act = `{desc_act}` for layer `{layer}`"
+                dynamic_act_order[pattern] = pattern_dict.get("act_order", act_order)
+            for layer, act_order in dynamic_act_order.items():
+                if act_order not in cls.SUPPORTS_ACT_ORDER:
+                    err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual act_order = `{act_order}` for layer `{layer}`"
                     return False, NotImplementedError(err)
 
         if in_features is not None:

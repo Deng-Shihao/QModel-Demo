@@ -226,7 +226,7 @@ def make_quant(
     bits = qcfg.bits
     group_size =qcfg.group_size
     format = qcfg.kernel
-    desc_act = qcfg.act_order
+    act_order = qcfg.act_order
     sym = qcfg.sym
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
@@ -238,7 +238,7 @@ def make_quant(
     quant_linear_candidates = select_quant_linear(
         bits=bits,
         group_size=group_size,
-        act_order=desc_act,
+        act_order=act_order,
         sym=sym,
         backend=backend,
         kernel=format,
@@ -263,7 +263,7 @@ def make_quant(
             linear_cls = create_quant_layer(
                 linear_cls=cls,
                 bits=bits,
-                desc_act=desc_act,
+                act_order=act_order,
                 dynamic=dynamic,
                 group_size=group_size,
                 module=module,
@@ -289,7 +289,7 @@ def create_quant_module(
     name: str,
     linear_cls: Type[BaseQuantLinear],
     bits: int,
-    desc_act: bool,
+    act_order: bool,
     dynamic,
     group_size: int,
     module: nn.Module,
@@ -344,7 +344,7 @@ def create_quant_module(
     # need copies as dynamic config may override these in for loop
     tmp_bits = bits
     tmp_group_size = group_size
-    tmp_desc_act = desc_act
+    act_order = act_order
     tmp_sym = sym
     tmp_pack_dtype = pack_dtype
 
@@ -360,7 +360,7 @@ def create_quant_module(
             # override base QuantizeConfig for every quant config key/value
             tmp_bits = overrides.get("bits", bits)
             tmp_group_size = overrides.get("group_size", group_size)
-            tmp_desc_act = overrides.get("desc_act", desc_act)
+            act_order = overrides.get("act_order", act_order)
             tmp_sym = overrides.get("sym", sym)
             tmp_pack_dtype = overrides.get("pack_dtype", pack_dtype)
 
@@ -369,7 +369,7 @@ def create_quant_module(
     _, err = linear_cls.validate(
         bits=tmp_bits,
         group_size=tmp_group_size,
-        desc_act=tmp_desc_act,
+        act_order=act_order,
         sym=tmp_sym,
         pack_dtype=tmp_pack_dtype,
         in_features=in_features,
@@ -382,7 +382,7 @@ def create_quant_module(
     new_layer = linear_cls(
         bits=tmp_bits,
         group_size=tmp_group_size,
-        act_order=tmp_desc_act,
+        act_order=act_order,
         sym=tmp_sym,
         in_features=in_features,
         out_features=out_features,
@@ -400,7 +400,7 @@ def create_quant_module(
 def create_quant_layer(
         linear_cls: Type[BaseQuantLinear],
         bits: int,
-        desc_act: bool,
+        act_order: bool,
         dynamic,
         group_size: int,
         quant_result: Dict[str, Dict[str, Any]],
@@ -422,7 +422,7 @@ def create_quant_layer(
             name=name,
             linear_cls=linear_cls,
             bits=bits,
-            desc_act=desc_act,
+            act_order=act_order,
             dynamic=dynamic,
             group_size=group_size,
             module=module,
@@ -782,7 +782,7 @@ def pack_model(
     format: str | KERNEL,
     quant_method: str | METHOD,
     lm_head_name: str,
-    desc_act=False,
+    act_order=False,
     sym: bool = True,
     dynamic=None,
     pack_dtype: torch.dtype = None,
@@ -792,7 +792,7 @@ def pack_model(
         group_size=group_size,
         kernel=format,
         quant_method=quant_method,
-        act_order=desc_act,
+        act_order=act_order,
         sym=sym,
         dynamic=dynamic,
         pack_dtype=pack_dtype,

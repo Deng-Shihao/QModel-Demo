@@ -291,16 +291,16 @@ class QuantizeConfig():
                 raise ValueError("QuantizeConfig: `hessian_chunk_bytes` must be a positive integer amount of bytes.")
 
         # resolve activation ordering compatibility and defaults
-        desc_act_user_value = self.act_order
+        act_order_user_value = self.act_order
         act_group_aware_user_value = self.act_group_aware
 
-        if desc_act_user_value is None:
+        if act_order_user_value is None:
             # GPTQ defaults to higher quality ordering disabled, others retain legacy default
             self.act_order = False if self.quant_method == METHOD.GPTQ else True
-        elif isinstance(desc_act_user_value, bool):
-            self.act_order = desc_act_user_value
+        elif isinstance(act_order_user_value, bool):
+            self.act_order = act_order_user_value
         else:
-            self.act_order = bool(desc_act_user_value)
+            self.act_order = bool(act_order_user_value)
 
         if act_group_aware_user_value is None:
             # auto-enable for GPTQ unless user explicitly disables it
@@ -310,11 +310,11 @@ class QuantizeConfig():
         else:
             self.act_group_aware = bool(act_group_aware_user_value)
 
-        self._resolve_activation_ordering(desc_act_user_value, act_group_aware_user_value)
+        self._resolve_activation_ordering(act_order_user_value, act_group_aware_user_value)
 
         # validate hybrid act order
         if self.act_group_aware and self.act_order:
-            raise ValueError("QuantizeConfig:: `act_group_aware` == `True` requires `desc_act` == `False`.")
+            raise ValueError("QuantizeConfig:: `act_group_aware` == `True` requires `act_order` == `False`.")
 
         # validate meta
         if self.meta is not None:
@@ -335,24 +335,24 @@ class QuantizeConfig():
 
     def _resolve_activation_ordering(
         self,
-        desc_act_user_value: Optional[bool],
+        act_order_user_value: Optional[bool],
         act_group_aware_user_value: Optional[bool],
     ) -> None:
-        """Normalize defaults and enforce compatibility between desc_act and act_group_aware."""
+        """Normalize defaults and enforce compatibility between act_order and act_group_aware."""
 
-        desc_act_enabled_by_user = bool(desc_act_user_value) if desc_act_user_value is not None else False
+        act_order_enabled_by_user = bool(act_order_user_value) if act_order_user_value is not None else False
         act_group_aware_enabled_by_user = (
             bool(act_group_aware_user_value) if act_group_aware_user_value is not None else False
         )
 
-        if desc_act_enabled_by_user and act_group_aware_user_value is not None and act_group_aware_enabled_by_user:
+        if act_order_enabled_by_user and act_group_aware_user_value is not None and act_group_aware_enabled_by_user:
             raise ValueError(
-                "QuantizeConfig:: `act_group_aware` == `True` requires `desc_act` == `False` when both are explicitly set."
+                "QuantizeConfig:: `act_group_aware` == `True` requires `act_order` == `False` when both are explicitly set."
             )
 
-        if desc_act_enabled_by_user and act_group_aware_user_value is None and self.act_group_aware:
+        if act_order_enabled_by_user and act_group_aware_user_value is None and self.act_group_aware:
             log.warn(
-                "QuantizeConfig: `desc_act=True` automatically disables `act_group_aware`. "
+                "QuantizeConfig: `act_order=True` automatically disables `act_group_aware`. "
                 "Set `act_group_aware=False` explicitly to silence this warning."
             )
             self.act_group_aware = False
@@ -495,7 +495,7 @@ class QuantizeConfig():
             "bits": self.bits,
             "dynamic": self.dynamic,
             "group_size": self.group_size,
-            "desc_act": self.act_order,
+            "act_order": self.act_order,
             "sym": self.sym,
             "lm_head": self.lm_head,
             QUANT_METHOD_FIELD:self.quant_method,

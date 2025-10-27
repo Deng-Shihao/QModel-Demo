@@ -200,7 +200,7 @@ def select_quant_linear(
             validate, err = cls.validate(
                 bits=bits,
                 group_size=group_size,
-                desc_act=act_order,
+                act_order=act_order,
                 sym=sym,
                 pack_dtype=pack_dtype,
                 dynamic=dynamic,
@@ -269,7 +269,7 @@ def select_quant_linear(
     validate, err = qlinear.validate(
         bits=bits,
         group_size=group_size,
-        desc_act=act_order,
+        act_order=act_order,
         sym=sym,
         pack_dtype=pack_dtype,
         dynamic=dynamic,

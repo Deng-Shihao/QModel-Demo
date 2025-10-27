@@ -118,11 +118,11 @@ class GPTQProcessor(BaseProcessor):
             qcfg_clone.group_size = self.qcfg.dynamic_get(
                 module.full_name, "group_size", qcfg_clone.group_size
             )
-            desc_act_override = self.qcfg.dynamic_get(
-                module.full_name, "desc_act", None
+            act_order_override = self.qcfg.dynamic_get(
+                module.full_name, "act_order", None
             )
-            if desc_act_override is not None:
-                qcfg_clone.act_order = desc_act_override
+            if act_order_override is not None:
+                qcfg_clone.act_order = act_order_override
             act_group_aware_override = self.qcfg.dynamic_get(
                 module.full_name, "act_group_aware", None
             )
@@ -140,7 +140,7 @@ class GPTQProcessor(BaseProcessor):
             )
 
             qcfg_clone._resolve_activation_ordering(
-                desc_act_override, act_group_aware_override
+                act_order_override, act_group_aware_override
             )
 
         # store last used qcfg_dynamic
@@ -368,7 +368,7 @@ class GPTQProcessor(BaseProcessor):
                 name=module.full_name,
                 linear_cls=model.qlinear_kernel,
                 bits=self.qcfg.bits,
-                desc_act=self.qcfg.act_order,
+                act_order=self.qcfg.act_order,
                 dynamic=self.qcfg.dynamic,
                 group_size=self.qcfg.group_size,
                 module=model.model,

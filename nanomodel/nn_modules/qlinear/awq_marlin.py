@@ -81,7 +81,7 @@ class AwqMarlinQuantLinear(AWQuantLinear):
             bits=bits,
             group_size=group_size,
             sym=sym,
-            desc_act=act_order,
+            act_order=act_order,
             in_features=in_features,
             out_features=out_features,
             bias=bias,
