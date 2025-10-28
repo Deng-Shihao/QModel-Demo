@@ -15,7 +15,7 @@ requires-python = ">=3.12"
 dynamic = ["version"]
 dependencies = [
     "numpy==2.2.6",
-    "torch==2.8.0",
+    "torch>=2.8.0",
     "torchao>=0.14.1",
     "accelerate>=1.10.1",
     "transformers>=4.57.1",

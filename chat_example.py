@@ -1,3 +1,4 @@
+"""Interactive chat session powered by a quantized NanoModel checkpoint."""
 import logging
 import os
 import time
@@ -74,6 +75,7 @@ def build_chat_prompt(tokenizer: AutoTokenizer, messages: List[Dict[str, str]]) 
 
 
 def chat():
+    """Run an interactive REPL loop that tracks latency and memory usage."""
     logging.getLogger("NanoModel").info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(PRETRAINED_MODEL_ID, use_fast=True)
 

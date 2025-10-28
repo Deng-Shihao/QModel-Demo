@@ -12,7 +12,7 @@ import transformers
 from ..utils.structure import print_module_tree
 
 # TODO: Hugging Face or Modelscope
-from huggingface_hub import snapshot_download
+from huggingface_hub import snapshot_download # (Auto download model when no local)
 
 from packaging.version import InvalidVersion, Version
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig

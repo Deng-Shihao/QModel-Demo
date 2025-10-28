@@ -1,3 +1,4 @@
+"""Demonstrate backend selection for quantized and runtime-generated models."""
 import os
 import subprocess
 import sys
@@ -7,7 +8,7 @@ from transformers import AutoTokenizer
 
 from nanomodel import BACKEND, AutoNanoModel, QuantizeConfig, get_best_device
 
-# Env config
+# Normalize CUDA device discovery and torch allocator behavior across platforms.
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
@@ -15,6 +16,7 @@ pretrained_model_id = "Qwen/Qwen3-1.7B"
 quantized_model_id = "qwen3-1.7b-gptq-4bit"
 
 def main():
+    """Select a runtime backend, quantize if needed, then run a short generation."""
     global quantized_model_id
 
     parser = ArgumentParser()
@@ -36,6 +38,7 @@ def main():
         quantized_model_id = "qwen3-1.7B-GPTQ-4bit"
 
         if backend == BACKEND.SGLANG:
+            # SGLang piggybacks on vLLM for quantized execution; ensure both are installed.
             subprocess.check_call([sys.executable, "-m", "pip", "install", "vllm>=0.8.5"])
             subprocess.check_call([sys.executable, "-m", "pip", "install", "sglang[srt]>=0.3.2"])
             model = AutoNanoModel.load(
@@ -67,6 +70,7 @@ def main():
             )
         ]
 
+        # Configure GPTQ quantization; MARLIN can disable act_order for faster inference.
         quantize_config = QuantizeConfig(
             bits=4,  # quantize model to 4-bit
             group_size=128,  # it is recommended to set the value to 128

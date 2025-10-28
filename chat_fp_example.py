@@ -1,3 +1,4 @@
+"""Interactive chat loop using unquantized transformers weights."""
 import logging
 import os
 import time
@@ -14,6 +15,7 @@ PRETRAINED_MODEL_ID = "Qwen/Qwen3-1.7B"
 
 
 def get_default_device() -> torch.device:
+    """Pick the best available accelerator, falling back to CPU."""
     if torch.cuda.is_available():
         return torch.device("cuda")
     if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
@@ -77,6 +79,7 @@ def build_chat_prompt(tokenizer: AutoTokenizer, messages: List[Dict[str, str]]) 
 
 
 def chat():
+    """Run an interactive chat session with a full-precision model."""
     logging.getLogger("NanoModel").info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(PRETRAINED_MODEL_ID, use_fast=True)
 

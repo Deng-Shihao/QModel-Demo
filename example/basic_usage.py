@@ -1,3 +1,4 @@
+"""Minimal GPTQ quantization pipeline using NanoModel."""
 import os
 
 from transformers import AutoTokenizer
@@ -11,9 +12,13 @@ quantized_model_id = "qwen3-0.6-4bit"
 
 
 def main():
+    """Quantize a small model and verify the weights with a short generation."""
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
     calibration_dataset = [
-        tokenizer("NanoModel is an easy-to-use model quantization library with user-friendly apis, based on GPTQ algorithm.")
+        tokenizer(
+            "NanoModel is an easy-to-use model quantization library with"
+            " user-friendly APIs, based on the GPTQ algorithm."
+        )
     ]
 
     quantize_config = QuantizeConfig(
@@ -28,10 +33,7 @@ def main():
     # quantize model, the calibration_dataset should be list of dict whose keys can only be "input_ids" and "attention_mask"
     model.quantize(calibration_dataset)
 
-    # save quantized model
-    model.save(quantized_model_id)
-
-    # save quantized model using (safetensors)
+    # Save the quantized weights (NanoModel writes safetensors by default).
     model.save(quantized_model_id)
 
     # load quantized model to the first GPU
@@ -42,7 +44,9 @@ def main():
     # model = AutoNanoModel.from_quantized(repo_id, device="cuda:0",)
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("NanoModel is", return_tensors="pt").to(model.device))[0]))
+    prompt_inputs = tokenizer("NanoModel is", return_tensors="pt").to(model.device)
+    generated = model.generate(**prompt_inputs)[0]
+    print(tokenizer.decode(generated))
 
 
 if __name__ == "__main__":

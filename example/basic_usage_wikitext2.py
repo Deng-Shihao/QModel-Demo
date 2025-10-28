@@ -1,3 +1,4 @@
+"""Basic quantization workflow using WikiText-2 as calibration data."""
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
@@ -9,6 +10,7 @@ quantized_model_id = "qwen3-0.6-4bit"
 
 # os.makedirs(quantized_model_dir, exist_ok=True)
 def get_wikitext2(tokenizer, nsamples, seqlen):
+    """Tokenize a filtered slice of WikiText-2 for calibration."""
     traindata = load_dataset("wikitext", "wikitext-2-raw-v1", split="train").filter(
         lambda x: len(x["text"]) >= seqlen)
 
@@ -17,6 +19,7 @@ def get_wikitext2(tokenizer, nsamples, seqlen):
 
 @torch.inference_mode()
 def calculate_avg_ppl(model, tokenizer):
+    """Compute the model perplexity on WikiText-2 after quantization."""
     from nanomodel.utils.perplexity import Perplexity
 
     ppl = Perplexity(
@@ -36,6 +39,7 @@ def calculate_avg_ppl(model, tokenizer):
     return avg
 
 def main():
+    """Run GPTQ quantization and report generation plus perplexity metrics."""
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
 
     traindataset = get_wikitext2(tokenizer, nsamples=256, seqlen=1024)
@@ -60,7 +64,9 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=device)
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("test is", return_tensors="pt").to(device))[0]))
+    prompt_inputs = tokenizer("test is", return_tensors="pt").to(device)
+    generated = model.generate(**prompt_inputs)[0]
+    print(tokenizer.decode(generated))
 
     print(f"Quantized Model {quantized_model_id} avg PPL is {calculate_avg_ppl(model, tokenizer)}")
 

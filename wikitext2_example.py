@@ -1,16 +1,16 @@
+"""Quantize a model on WikiText-2 and report perplexity plus a sample decode."""
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from nanomodel import AutoNanoModel, QuantizeConfig
 
-
 pretrained_model_id = "Qwen/Qwen3-1.7B"
 quantized_model_id = "./quantized_models/qwen3-1.7b-gptq-4bit"
 
 
-# os.makedirs(quantized_model_dir, exist_ok=True)
 def get_wikitext2(tokenizer, nsamples, seqlen):
+    """Prepare a tokenized subset of WikiText-2 with minimum length filtering."""
     traindata = load_dataset("wikitext", "wikitext-2-raw-v1", split="train").filter(
         lambda x: len(x["text"]) >= seqlen)
 
@@ -19,6 +19,7 @@ def get_wikitext2(tokenizer, nsamples, seqlen):
 
 @torch.inference_mode()
 def calculate_avg_ppl(model, tokenizer):
+    """Compute the average perplexity of the quantized model on WikiText-2."""
     from nanomodel.utils.perplexity import Perplexity
 
     ppl = Perplexity(
@@ -38,6 +39,7 @@ def calculate_avg_ppl(model, tokenizer):
     return avg
 
 def main():
+    """Quantize on WikiText-2 data and print generation plus perplexity metrics."""
     tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
 
     traindataset = get_wikitext2(tokenizer, nsamples=256, seqlen=1024)
@@ -62,7 +64,9 @@ def main():
     model = AutoNanoModel.load(quantized_model_id, device=device)
 
     # inference with model.generate
-    print(tokenizer.decode(model.generate(**tokenizer("LLMs is", return_tensors="pt").to(device))[0]))
+    prompt_inputs = tokenizer("LLMs is", return_tensors="pt").to(device)
+    generated = model.generate(**prompt_inputs)[0]
+    print(tokenizer.decode(generated))
 
     print(f"Quantized Model {quantized_model_id} avg PPL is {calculate_avg_ppl(model, tokenizer)}")
 
