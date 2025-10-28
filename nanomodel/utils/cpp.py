@@ -49,6 +49,7 @@ def load_pack_block_extension(*, verbose: bool = False) -> Optional[object]:
 
     project_root = Path(__file__).resolve().parents[2]
     source_path = project_root / "pack_block_cpu.cpp"
+
     if not source_path.exists():
         source_path = project_root / "nanomodel_ext" / "pack_block_cpu.cpp"
     if not source_path.exists():

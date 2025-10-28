@@ -1,16 +1,15 @@
 #  code based https://github.com/fpgaminer/GPTQ-triton
 
+"""
+Mostly the same as the autotuner in Triton, but with a few changes like using 40 runs instead of 100.
+"""
+
 import builtins
 import math
 import time
 from typing import Dict
 
 import triton
-
-
-"""
-Mostly the same as the autotuner in Triton, but with a few changes like using 40 runs instead of 100.
-"""
 
 
 class CustomizedTritonAutoTuner(triton.KernelInterface):
