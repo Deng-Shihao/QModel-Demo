@@ -59,7 +59,6 @@ PROCESS_LOG_TIME = "time"
 PROCESS_LOG_FWD_TIME = "fwd_time"
 PROCESS_USED_MEMORY = "(v)ram"
 
-# EORA_DEFAULT_FILE = "eora.safetensors"
 
 
 def ModelWriter(cls):
@@ -81,7 +80,6 @@ def ModelWriter(cls):
         safetensors_metadata: Optional[Dict[str, str]] = None,
         max_shard_size: Optional[Union[int, str]] = DEFAULT_MAX_SHARD_SIZE,
         meta_quantizer: Optional[str] = None,
-        eora_path: Optional[str] = None,
     ):
         """save quantized model and configs to local disk"""
         os.makedirs(save_dir, exist_ok=True)

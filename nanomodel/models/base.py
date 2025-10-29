@@ -1109,7 +1109,6 @@ class BaseNanoModel(nn.Module):
         safetensors_metadata: Optional[Dict[str, str]] = None,
         max_shard_size: Optional[Union[int, str]] = DEFAULT_MAX_SHARD_SIZE,
         meta_quantizer: Optional[str] = None,
-        # eora_path: Optional[str] = None,
         **kwargs,
     ):
         timer = getattr(self, "quant_region_timer", None)
@@ -1125,7 +1124,6 @@ class BaseNanoModel(nn.Module):
                     safetensors_metadata=safetensors_metadata,
                     max_shard_size=max_shard_size,
                     meta_quantizer=meta_quantizer,
-                    # eora_path=eora_path,
                 )
 
                 # overwrite quant_override_files
@@ -1204,7 +1202,6 @@ class BaseNanoModel(nn.Module):
             )
             return self
 
-        # needed by eora
         # torch._dynamo.config.capture_scalar_outputs = True
 
         log.info(f"Compiling qlinear modules with backend: `{backend}`, mode: `{mode}`")
