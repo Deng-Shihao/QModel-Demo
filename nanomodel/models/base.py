@@ -8,9 +8,9 @@ import re
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, Union
 
 import torch
 import torch._dynamo
@@ -144,6 +144,8 @@ log = setup_logger()
 
 
 class BaseNanoModel(nn.Module):
+    """Shared helpers for preparing calibration data and managing quantization lifecycle."""
+
     lm_head: str = "lm_head"
 
     module_tree: List[str] = None
@@ -185,8 +187,6 @@ class BaseNanoModel(nn.Module):
     quant_override_files: Dict[str, Union[str | Dict[str, Any]]] = {}
 
     server = None
-
-    support_batch_quantize = True
 
     ATTENTION_MASKS_DTYPE = torch.bool  # default to bool
 
@@ -242,20 +242,7 @@ class BaseNanoModel(nn.Module):
         )
         self.turtle_model = turtle_model
 
-        if tokenizer is not None:
-            if isinstance(tokenizer, PreTrainedTokenizerBase):
-                self.tokenizer = tokenizer
-                if hasattr(self, "model") and self.model is not None:
-                    self.model.tokenizer = self.tokenizer
-                self.model.tokenizer = self.tokenizer
-            else:
-                raise ValueError(
-                    f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`."
-                )
-            self.model.tokenizer = self.tokenizer  # helpful for CI tests
-        else:
-            self.tokenizer = tokenizer
-            self.model.tokenizer = tokenizer
+        self._assign_tokenizer(tokenizer)
 
         # auto-fix model config erors
         if isinstance(self.model, PreTrainedModel):
@@ -275,6 +262,21 @@ class BaseNanoModel(nn.Module):
             self.monkey_patch()
 
         self._auto_configure_lookahead()
+
+    def _assign_tokenizer(
+        self, tokenizer: Optional[PreTrainedTokenizerBase]
+    ) -> None:
+        """Attach the tokenizer to both this wrapper and the HF model."""
+        if tokenizer is not None and not isinstance(
+            tokenizer, PreTrainedTokenizerBase
+        ):
+            raise ValueError(
+                f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`."
+            )
+
+        self.tokenizer = tokenizer
+        # Ensure downstream helpers can rely on `model.tokenizer` consistently.
+        self.model.tokenizer = tokenizer
 
     @classmethod
     def extract_layers_node(cls):
@@ -389,6 +391,84 @@ class BaseNanoModel(nn.Module):
         # print(f"full layer_modules: {full}")
         return full
 
+    def _materialize_calibration_examples(
+        self,
+        calibration_dataset: Union[
+            List[Dict[str, Union[List[int], torch.LongTensor]]],
+            List[str],
+            List[List[int]],
+            "HFDatasetType",
+            "HFIterableDatasetType",
+        ],
+    ) -> List[Any]:
+        """Convert the provided calibration dataset into a concrete list of examples."""
+        hf_dataset_types: Tuple[type, ...] = tuple(
+            dataset_type
+            for dataset_type in (HFDataset, HFIterableDataset)
+            if dataset_type is not None
+        )
+
+        if isinstance(calibration_dataset, str):
+            raise ValueError(
+                "Quantize: calibration dataset must be iterable, not a single string."
+            )
+
+        if hf_dataset_types and isinstance(calibration_dataset, hf_dataset_types):
+            return list(calibration_dataset)
+
+        try:
+            return list(calibration_dataset)
+        except TypeError as exc:
+            raise ValueError(
+                "Quantize: calibration dataset must be iterable and materializable."
+            ) from exc
+
+    def _resolve_sequence_length_limit(self) -> tuple[Optional[int], Optional[str]]:
+        """Inspect the HF config for the smallest declared maximum sequence length."""
+        model_config = getattr(self.model, "config", None)
+        if model_config is None:
+            return None, None
+
+        max_positions: Optional[int] = None
+        max_positions_source: Optional[str] = None
+
+        def _maybe_resolve_length(value, source_name):
+            nonlocal max_positions, max_positions_source
+            try:
+                if value is None:
+                    return False
+                limit = int(value)
+            except Exception:
+                return False
+            if limit <= 0:
+                return False
+            if max_positions is None or limit < max_positions:
+                max_positions = limit
+                max_positions_source = source_name
+            return True
+
+        primary_names = ("max_position_embeddings",)
+        fallback_names = (
+            "max_sequence_length",
+            "max_seq_len",
+            "n_positions",
+            "seq_length",
+        )
+
+        for attr_name in primary_names:
+            if _maybe_resolve_length(
+                getattr(model_config, attr_name, None), attr_name
+            ):
+                break
+        if max_positions is None:
+            for attr_name in fallback_names:
+                if _maybe_resolve_length(
+                    getattr(model_config, attr_name, None), attr_name
+                ):
+                    break
+
+        return max_positions, max_positions_source
+
     def prepare_dataset(
         self,
         calibration_dataset: Union[
@@ -404,27 +484,8 @@ class BaseNanoModel(nn.Module):
         batch_size: int = 1,
         calibration_data_min_length: int = 10,
     ):
-        hf_dataset_types: tuple = ()
-        if HFDataset is not None:
-            hf_dataset_types += (HFDataset,)
-        if HFIterableDataset is not None:
-            hf_dataset_types += (HFIterableDataset,)
-
-        if isinstance(calibration_dataset, str):
-            raise ValueError(
-                "Quantize: calibration dataset must be iterable, not a single string."
-            )
-
-        if hf_dataset_types and isinstance(calibration_dataset, hf_dataset_types):
-            raw_examples = list(calibration_dataset)
-        elif isinstance(calibration_dataset, list):
-            raw_examples = calibration_dataset
-        elif isinstance(calibration_dataset, Sequence) and not isinstance(
-            calibration_dataset, (bytes, bytearray)
-        ):
-            raw_examples = list(calibration_dataset)
-        else:
-            raw_examples = list(calibration_dataset)
+        """Tokenize/normalize calibration samples and collate them into batches."""
+        raw_examples = self._materialize_calibration_examples(calibration_dataset)
 
         if len(raw_examples) == 0:
             raise ValueError("Quantize: calibration dataset is empty.")
@@ -596,7 +657,8 @@ class BaseNanoModel(nn.Module):
                     f"Quantize: unsupported calibration example type {type(example)} at index {idx}."
                 ) from exc
 
-        calibration_dataset = processed_examples
+        tokenized_examples = processed_examples
+        # Subsequent steps expect cpu-backed Python lists for trimming/concatenation.
 
         def _convert_tensor_to_list(tensor):
             if isinstance(tensor, torch.Tensor):
@@ -609,49 +671,10 @@ class BaseNanoModel(nn.Module):
         new_calibration_dataset = []
         too_short_calibration_data_count = 0
 
-        max_positions = None
-        max_positions_source = None
+        max_positions, max_positions_source = self._resolve_sequence_length_limit()
         trimmed_row_count = 0
         longest_trimmed_row = 0
-
-        def _maybe_resolve_length(value, source_name):
-            nonlocal max_positions, max_positions_source
-            try:
-                if value is None:
-                    return False
-                limit = int(value)
-            except Exception:
-                return False
-            if limit <= 0:
-                return False
-            if max_positions is None or limit < max_positions:
-                max_positions = limit
-                max_positions_source = source_name
-            return True
-
-        model_config = getattr(self.model, "config", None)
-        if model_config is not None:
-            primary_names = ("max_position_embeddings",)
-            fallback_names = (
-                "max_sequence_length",
-                "max_seq_len",
-                "n_positions",
-                "seq_length",
-            )
-
-            for attr_name in primary_names:
-                if _maybe_resolve_length(
-                    getattr(model_config, attr_name, None), attr_name
-                ):
-                    break
-            if max_positions is None:
-                for attr_name in fallback_names:
-                    if _maybe_resolve_length(
-                        getattr(model_config, attr_name, None), attr_name
-                    ):
-                        break
-
-        for example in calibration_dataset:
+        for example in tokenized_examples:
             input_ids = _convert_tensor_to_list(example["input_ids"])
             attention_mask = _convert_tensor_to_list(example["attention_mask"])
 
@@ -797,19 +820,18 @@ class BaseNanoModel(nn.Module):
             new_calibration_dataset = concatenated_data
 
         # Sort or shuffle calibration dataset
-        if calibration_dataset_sort == "asc":
-            log.info("Calibration: Sort in ascending order by length")
-            sorted_dataset = sorted(
-                new_calibration_dataset, key=lambda item: len(item["input_ids"][0])
+        sort_mode = (calibration_dataset_sort or "").lower()
+        if sort_mode in {"asc", "desc"}:
+            log.info(
+                "Calibration: Sort in %s order by length",
+                "ascending" if sort_mode == "asc" else "descending",
             )
-        elif calibration_dataset_sort == "desc":
-            log.info("Calibration: Sort in descending order by length")
             sorted_dataset = sorted(
                 new_calibration_dataset,
                 key=lambda item: len(item["input_ids"][0]),
-                reverse=True,
+                reverse=sort_mode == "desc",
             )
-        elif calibration_dataset_sort == "shuffle":
+        elif sort_mode == "shuffle":
             log.info("Calibration: Sort by random shuffle")
             sorted_dataset = new_calibration_dataset[:]  # shallow copy
             random.shuffle(sorted_dataset)
@@ -903,12 +925,6 @@ class BaseNanoModel(nn.Module):
                 # AWQ MARLIN only supports zero_point is false
                 log.info("Quantize Model: Auto fix `zero_point` to `False`")
                 self.quantize_config.zero_point = False
-
-        if self.support_batch_quantize is False:
-            batch_size = 1
-            log.warn(
-                "Batch quantization is not supported for this model. Setting batch_size to 1."
-            )
 
         requested_backend = backend
         if isinstance(requested_backend, str):

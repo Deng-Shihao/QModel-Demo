@@ -143,35 +143,17 @@ def ModelWriter(cls):
         )
 
         # meta: write config fields to meta if they doe not participate in inference
-        self.quantize_config.meta_set(
-            key=META_FIELD_DAMP_PERCENT,
-            value=self.quantize_config.damp_percent,
-        )
-
-        self.quantize_config.meta_set(
-            key=META_FIELD_DAMP_AUTO_INCREMENT,
-            value=self.quantize_config.damp_auto_increment,
-        )
-
-        self.quantize_config.meta_set(
-            key=META_FIELD_STATIC_GROUPS,
-            value=self.quantize_config.static_groups,
-        )
-
-        self.quantize_config.meta_set(
-            key=META_FIELD_TRUE_SEQUENTIAL,
-            value=self.quantize_config.true_sequential,
-        )
-
-        self.quantize_config.meta_set(
-            key=META_FIELD_MSE,
-            value=self.quantize_config.mse,
-        )
-
-        self.quantize_config.meta_set(
-            key=META_FIELD_ACT_GROUP_AWARE,
-            value=self.quantize_config.act_group_aware,
-        )
+        # Keep non-runtime tuning parameters alongside the checkpoint for traceability.
+        meta_fields = {
+            META_FIELD_DAMP_PERCENT: self.quantize_config.damp_percent,
+            META_FIELD_DAMP_AUTO_INCREMENT: self.quantize_config.damp_auto_increment,
+            META_FIELD_STATIC_GROUPS: self.quantize_config.static_groups,
+            META_FIELD_TRUE_SEQUENTIAL: self.quantize_config.true_sequential,
+            META_FIELD_MSE: self.quantize_config.mse,
+            META_FIELD_ACT_GROUP_AWARE: self.quantize_config.act_group_aware,
+        }
+        for field, value in meta_fields.items():
+            self.quantize_config.meta_set(key=field, value=value)
 
         # The config, quantize_config and model may be edited in place in save_quantized.
         config = copy.deepcopy(self.model.config)

@@ -34,13 +34,7 @@ from ..quantization.config import METHOD, QuantizeConfig
 from ..utils.importer import select_quant_linear
 from ..utils.logger import setup_logger, log_time_block
 from ..utils.device import get_device
-from ..utils.model import (
-    create_quant_module,
-    find_modules,
-    move_to,
-    pack_model,
-    pack_module,
-)
+from ..utils.model import create_quant_module, find_modules, pack_module
 from ..utils.torch import tf32_disable_guard
 
 log = setup_logger()
@@ -48,8 +42,7 @@ lock = threading.Lock()
 
 
 class _PinnedHostPool:
-    def __init__(self) -> None:
-        self._lock = threading.Lock()
+    """Lightweight wrapper around pinned CPU buffers used during streaming exports."""
 
     def acquire(
         self, shape: torch.Size, dtype: torch.dtype, layout: torch.layout
@@ -155,12 +148,8 @@ class GPTQProcessor(BaseProcessor):
         self.tasks[module.name] = tmp
 
     def is_skipped(self, module: NamedModule) -> bool:
-        # gptq has no dynamic method of full override (removal)
-        t = self.tasks.get(module.name, False)
-        if t == False:
-            return True
-        else:
-            return False
+        # GPTQ has no dynamic removal; missing tasks mean the module was filtered out.
+        return self.tasks.get(module.name, False) is False
 
     def pre_process_fwd_hook(
         self, name: str
@@ -175,12 +164,8 @@ class GPTQProcessor(BaseProcessor):
         return tmp
 
     def process(self, module: NamedModule):
-        # Reset peak memory stats
-        # torch.cuda.reset_peak_memory_stats()
         self.pb.title(f"Quantizing {module.name} in layer ").draw()
 
-        # logger.info(f"Quantizing module START: {name}, {gptq[name].shape()}")
-        ## Need to return the quantized_weight for offloading
         with self.lock:
             g = self.tasks[module.name]
 
@@ -193,6 +178,7 @@ class GPTQProcessor(BaseProcessor):
         if expected_device is not None:
             expected_device = torch.device(expected_device)
 
+            # Guard against modules or cached tensors drifting to unexpected devices.
             module_weight = getattr(module.module, "weight", None)
             if module_weight is not None:
                 assert module_weight.device == expected_device, (
@@ -243,6 +229,7 @@ class GPTQProcessor(BaseProcessor):
                 nsamples,
             ) = g.quantize()
 
+        # Persist per-module quantization tensors on pinned host memory for later packing.
         module.stream_state_payload_to_cpu(
             {
                 "q_scales": q_scales,
@@ -257,26 +244,6 @@ class GPTQProcessor(BaseProcessor):
             self.durations.append(duration)
             self.avg_losses.append(avg_loss)
             self.module_names.append(f"layer-{module.layer_index}-{module.name}")
-        ## Assign the quantized weight to the weight
-        # gptq[name].layer.weight.data = q_full_weight.to(device=gptq[name].device)
-
-        ## Offload the quantized weight to CPU for EoRA
-        # quantized_weights['model.layers.%d.%s' % (module_index, name)] = q_full_weights.cpu()
-
-        # if task is not None:
-        #     task.get_logger().report_scalar(
-        #         title='Quantization Loss',
-        #         series=f'layer_{module_index}_loss',
-        #         value=avg_loss,
-        #         iteration=name_index,
-        #     )
-        #
-        #     task.get_logger().report_scalar(
-        #         title='Quantization Time',
-        #         series=f'layer_{module_index}_time',
-        #         value=duration,
-        #         iteration=name_index,
-        #     )
 
         stat = {
             PROCESS_LOG_NAME: self.name(),
@@ -318,7 +285,6 @@ class GPTQProcessor(BaseProcessor):
         with self.lock:
             self.tasks[module.name].free()
 
-            # logger.info(f"Quantizing module END: {name}, {gptq[name].shape()}")
             if self.calculate_w_wq_diff:
                 module.state.update(
                     {
@@ -331,17 +297,13 @@ class GPTQProcessor(BaseProcessor):
 
     # submodule_finalized is called in reverse after all next sequential processes are called
     def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
-        # generate complete, safe to move to cpu
-        # module.weight.data = move_to(module.state.pop("wq"), device=CPU) # large weights is slow to init on cpu
-
-        # cleanup all memory or states vars persistently added by this processor
         module.stream_sync()
         with self.lock:
             # if calculate_w_wq_diff is enabled (eora), we need to revert our original wq
             if self.calculate_w_wq_diff:
                 module.weight.data = module.state.pop("wq").to(CPU)
 
-            module.state.pop("w", None)  #
+            module.state.pop("w", None)
             module.state.pop("w_wq_diff", None)
 
             # need to clone to due to steamed pinned memory and access on diff thread
@@ -428,9 +390,6 @@ class GPTQProcessor(BaseProcessor):
         module.unregister_parameter("weight")
 
     def finalize(self, model: BaseNanoModel, **kwargs):
-        # print("finalize")
-        # print_module_tree(model.model)
-
         # set quantized state
         model.quantized = True
         model.quantize_config.quant_method = METHOD.GPTQ
