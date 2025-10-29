@@ -1,8 +1,7 @@
 import contextlib
 import time
 from contextlib import contextmanager
-from enum import Enum
-from typing import Callable, List, Union
+from typing import Callable, List, Optional, Union
 
 import torch
 from packaging import version
@@ -13,30 +12,24 @@ from ..utils.safe import GC
 from . import gte_python_3_13_3, gte_python_3_14, has_gil_disabled, log_gil_requirements_for
 
 
-# pytorch 2.6.0 fixes many compilation errors
-TORCH_HAS_COMPILE = version.parse(torch.__version__).release >= version.Version('2.6').release
-TORCH_GTE_28 = version.parse(torch.__version__).release >= version.Version('2.8').release
-TORCH_GTE_210 = version.parse(torch.__version__).release >= version.Version('2.10').release
+_TORCH_VERSION = version.parse(torch.__version__)
 
-TORCH_HAS_FUSED_OPS = version.parse(torch.__version__).release >= version.Version('2.8').release
+# PyTorch 2.6.0 fixes many compilation errors affecting nano model builds.
+TORCH_HAS_COMPILE = _TORCH_VERSION >= version.Version("2.6")
+TORCH_GTE_28 = _TORCH_VERSION >= version.Version("2.8")
+TORCH_GTE_210 = _TORCH_VERSION >= version.Version("2.10")
 
-HAS_CUDA = False
-HAS_XPU = False
-HAS_MPS = False
+HAS_CUDA = bool(getattr(torch, "cuda", None) and torch.cuda.is_available())
+HAS_XPU = bool(getattr(torch, "xpu", None) and torch.xpu.is_available())
+HAS_MPS = bool(getattr(torch, "mps", None) and torch.mps.is_available())
+HAS_NPU = bool(getattr(torch, "npu", None) and torch.npu.is_available())
 HAS_MLX = False
-HAS_NPU = False
 
 CPU = torch.device("cpu")
 META = torch.device("meta")
 
-class BalanceStrategy(str, Enum):
-    MEMORY = "memory", # make vram more spread out
-    GPU = "gpu" # vram is less balanced (gpu0) but gpu0 is also used for quantization
-
-DEFAULT_BALANCE_STRATEGY = BalanceStrategy.GPU
-
-# TODO FIX ME...this should be removed
-STREAM = None # cache
+# Cache commonly reused stream so helper contexts can share it cheaply.
+_STREAM_CACHE: Optional[Union[torch.cuda.Stream, "torch.xpu.Stream"]] = None
 
 log = setup_logger()
 
@@ -62,25 +55,13 @@ except BaseException:
     # triton built from source maybe incompatible with _dynamo private api
     pass
 
-if hasattr(torch, "cuda") and hasattr(torch.cuda, "is_available") and torch.cuda.is_available():
-    HAS_CUDA = True
-
-if hasattr(torch, "xpu") and hasattr(torch.xpu, "is_available") and torch.xpu.is_available():
-    HAS_XPU = True
-
-if hasattr(torch, "mps") and hasattr(torch.mps, "is_available") and torch.mps.is_available():
-    HAS_MPS = True
-
-if hasattr(torch, "npu") and hasattr(torch.npu, "is_available") and torch.npu.is_available():
-    HAS_NPU = True
-
-
-# mlx check
+# Track MLX support separately because it is decoupled from PyTorch.
+mlx_core = None
 try:
-    import mlx.core.metal
+    import mlx.core as mlx_core
     HAS_MLX = True
 except BaseException:
-    pass
+    mlx_core = None
 
 BACKENDS_HAS_FP32_PRECISION = hasattr(torch.backends, "fp32_precision")
 
@@ -128,8 +109,28 @@ def _restore_tf32_state(state) -> None:
     torch.backends.cudnn.allow_tf32 = state[1]
 
 
-def torch_compile(module: Union[torch.nn.Module, Callable], backend:str ="inductor", mode: str = None, fullgraph=False):
-    # requires torch >2.8 for proper torch.compile + Python 3.13.3t (freethreading)
+@contextmanager
+def _tf32_state_guard(enabled: bool):
+    if not HAS_CUDA:
+        yield
+        return
+
+    previous_state = _snapshot_tf32_state()
+    _set_tf32_state(enabled)
+    try:
+        yield
+    finally:
+        _restore_tf32_state(previous_state)
+
+
+def torch_compile(
+    module: Union[torch.nn.Module, Callable],
+    backend: str = "inductor",
+    mode: str = None,
+    fullgraph: bool = False,
+):
+    """Invoke `torch.compile` when the runtime supports it, otherwise return the original module."""
+    # Requires torch >= 2.8 for Python 3.13.3t (free-threaded) compatibility.
     if has_gil_disabled() and not gte_python_3_13_3():
         log_gil_requirements_for("Torch Compile")
         return module
@@ -152,24 +153,35 @@ def torch_compile(module: Union[torch.nn.Module, Callable], backend:str ="induct
         log.warn.once(f"Failed to compile `{module}`, {e}")
         return module
 
-def torch_new_stream():
-    global STREAM
-    if STREAM is None:
-        return STREAM
+def torch_new_stream(force_new: bool = False):
+    """Return a cached accelerator stream, recreating it when `force_new` is True."""
+    global _STREAM_CACHE
+
+    if not force_new and _STREAM_CACHE is not None:
+        return _STREAM_CACHE
 
     if HAS_CUDA:
-        STREAM = torch.cuda.Stream()
-        return STREAM
-    if HAS_XPU:
-        STREAM = torch.xpu.Stream()
-        return STREAM
-    return None
+        _STREAM_CACHE = torch.cuda.Stream()
+    elif HAS_XPU:
+        _STREAM_CACHE = torch.xpu.Stream()
+    else:
+        _STREAM_CACHE = None
+
+    return _STREAM_CACHE
+
 
 def torch_new_stream_ctx():
+    """Context manager for the shared accelerator stream."""
+    stream = torch_new_stream()
+
+    if stream is None:
+        return contextlib.nullcontext()
+
     if HAS_CUDA:
-        return torch.cuda.stream(torch_new_stream())
+        return torch.cuda.stream(stream)
     if HAS_XPU:
-        return torch.xpu.Stream(torch_new_stream())
+        return torch.xpu.stream(stream)
+
     return contextlib.nullcontext()
 
 def torch_sync(device: torch.device = None):
@@ -183,30 +195,25 @@ def torch_sync(device: torch.device = None):
     if device is None:
         synchronized_any = False
 
-        if HAS_CUDA:
-            dev_count = torch.cuda.device_count()
-            if dev_count:
-                synchronized_any = True
-                for idx in range(dev_count):
-                    torch.cuda.synchronize(idx)
+        for flag, backend in (
+            (HAS_CUDA, getattr(torch, "cuda", None)),
+            (HAS_XPU, getattr(torch, "xpu", None)),
+            (HAS_NPU, getattr(torch, "npu", None)),
+        ):
+            if not flag or backend is None or not hasattr(backend, "device_count"):
+                continue
 
-        if HAS_XPU and hasattr(torch.xpu, "device_count"):
-            dev_count = torch.xpu.device_count()
-            if dev_count:
-                synchronized_any = True
-                for idx in range(dev_count):
-                    torch.xpu.synchronize(idx)
+            dev_count = backend.device_count()
+            if not dev_count:
+                continue
 
-        if HAS_MPS:
             synchronized_any = True
-            torch.mps.synchronize()
+            for idx in range(dev_count):
+                backend.synchronize(idx)
 
-        if HAS_NPU and hasattr(torch.npu, "device_count"):
-            dev_count = torch.npu.device_count()
-            if dev_count:
-                synchronized_any = True
-                for idx in range(dev_count):
-                    torch.npu.synchronize(idx)
+        if HAS_MPS and getattr(torch, "mps", None):
+            torch.mps.synchronize()
+            synchronized_any = True
 
         if not synchronized_any:
             torch.cpu.synchronize()
@@ -224,21 +231,21 @@ def torch_sync(device: torch.device = None):
         torch.cpu.synchronize()
 
 def torch_empty_cache(device: torch.device = None, gc: bool = True):
+    """Clear per-backend allocator caches and optionally trigger Python GC."""
     if gc:
         timed_gc_collect()
 
-    # check all backends
     if device is None:
-        if HAS_CUDA:
-            # torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-        if HAS_XPU:
-            # torch.xpu.synchronize()
-            torch.xpu.empty_cache()
-        if HAS_MPS:
-            torch.mps.empty_cache()
-        if HAS_MLX:
-            mlx.core.clear_cache()
+        for flag, backend, method in (
+            (HAS_CUDA, getattr(torch, "cuda", None), "empty_cache"),
+            (HAS_XPU, getattr(torch, "xpu", None), "empty_cache"),
+            (HAS_MPS, getattr(torch, "mps", None), "empty_cache"),
+        ):
+            if flag and backend and hasattr(backend, method):
+                getattr(backend, method)()
+
+        if HAS_MLX and mlx_core is not None and hasattr(mlx_core, "clear_cache"):
+            mlx_core.clear_cache()
         return
 
     # if device passed, only execute for device backend
@@ -250,28 +257,29 @@ def torch_empty_cache(device: torch.device = None, gc: bool = True):
         torch.mps.empty_cache()
 
         # mlx is detached from pytorch
-        if HAS_MLX:
-            mlx.core.clear_cache()
+        if HAS_MLX and mlx_core is not None and hasattr(mlx_core, "clear_cache"):
+            mlx_core.clear_cache()
 
 def auto_select_torch_device(index: int = 0):
+    """Choose a torch.device for the requested index while handling out-of-range values."""
     assert index >= 0, f"device index should be a positive integer: actual = `{index}`"
 
     if HAS_CUDA:
-        # defensive check
-        if index > 0 and torch.cuda.device_count() <= index :
+        dev_count = torch.cuda.device_count()
+        if index >= dev_count > 0:
             index = 0
-        device = torch.device(f"cuda:{index}")
-    elif HAS_XPU:
-        # defensive check
-        if index > 0 and torch.xpu.device_count() <= index:
-            index = 0
-        device = torch.device(f"xpu:{index}")
-    elif HAS_MPS:
-        device = torch.device("mps") # mps has no index
-    else:
-        device = CPU # cpu has no index
+        return torch.device(f"cuda:{index}")
 
-    return device
+    if HAS_XPU:
+        dev_count = torch.xpu.device_count()
+        if index >= dev_count > 0:
+            index = 0
+        return torch.device(f"xpu:{index}")
+
+    if HAS_MPS:
+        return torch.device("mps")  # MPS has no index concept.
+
+    return CPU  # CPU has no index concept.
 
 # some device types can have multiple gpus cuda/rocm + xpu
 def torch_devices() -> List[torch.device]:
@@ -299,70 +307,35 @@ DEVICE_1 = auto_select_torch_device(index=1)
 
 DEVICE_0_STREAM = ALL_STREAMS[0]
 
-NEXT_DEVICE_INDEX = 0
+def torch_stream_ctx(stream: Union[torch.cuda.Stream, "torch.xpu.Stream"]) -> StreamContext:
+    """Enter the provided stream using the appropriate backend context manager."""
+    if HAS_CUDA:
+        return torch.cuda.stream(stream)
+    if HAS_XPU:
+        return torch.xpu.stream(stream)
+    return contextlib.nullcontext()
 
-# def device_next_reset():
-#     global NEXT_DEVICE_INDEX
-#     NEXT_DEVICE_INDEX = 0
-#
-# def device_next(balance_strategy: BalanceStrategy = DEFAULT_BALANCE_STRATEGY) -> torch.device:
-#     global NEXT_DEVICE_INDEX
-#
-#     if len(ALL_DEVICES) <= 1:
-#         return ALL_DEVICES[0]
-#
-#     device = ALL_DEVICES[NEXT_DEVICE_INDEX]
-#     if NEXT_DEVICE_INDEX < len(ALL_DEVICES) - 1:
-#         NEXT_DEVICE_INDEX += 1
-#     else:
-#         if balance_strategy == BalanceStrategy.MEMORY:
-#             NEXT_DEVICE_INDEX = 1
-#         else:
-#             NEXT_DEVICE_INDEX = 0
-#
-#     return device
 
-def torch_streamCtx(stream: Union[torch.cuda.Stream, torch.xpu.Stream]) -> StreamContext:
-    return torch.cuda.stream(stream) if HAS_CUDA else torch.xpu.stream(stream)
+# Backwards compatibility for older call sites.
+torch_streamCtx = torch_stream_ctx
 
 
 @contextmanager
 def tf32_high_precision_guard():
-    if not HAS_CUDA:
+    """Force IEEE precision by temporarily disabling TF32 kernels."""
+    with _tf32_state_guard(False):
         yield
-        return
-
-    previous_state = _snapshot_tf32_state()
-    _set_tf32_state(False)
-    try:
-        yield
-    finally:
-        _restore_tf32_state(previous_state)
 
 
 @contextmanager
 def tf32_disable_guard():
-    if not HAS_CUDA:
+    """Alias for `tf32_high_precision_guard` for compatibility."""
+    with _tf32_state_guard(False):
         yield
-        return
-
-    previous_state = _snapshot_tf32_state()
-    _set_tf32_state(False)
-    try:
-        yield
-    finally:
-        _restore_tf32_state(previous_state)
 
 
 @contextmanager
 def tf32_enable_guard():
-    if not HAS_CUDA:
+    """Temporarily enable TF32 kernels even if the global state disables them."""
+    with _tf32_state_guard(True):
         yield
-        return
-
-    previous_state = _snapshot_tf32_state()
-    _set_tf32_state(True)
-    try:
-        yield
-    finally:
-        _restore_tf32_state(previous_state)
