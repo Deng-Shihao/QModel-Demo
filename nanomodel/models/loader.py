@@ -584,18 +584,6 @@ def ModelLoader(cls):
             )
 
             load_checkpoint_in_model = False
-
-            if qcfg.kernel == KERNEL.GPTQ and preload_qlinear_kernel.REQUIRES_FORMAT_V2:
-                if not qcfg.is_quantized_by_v2():
-                    if not qcfg.sym:
-                        raise ValueError(
-                            f"Format: Loading of a sym=False model with format={KERNEL.GPTQ} requires a checkpoint saved with GPTQ v2 metadata. Please re-quantize with a v2-capable toolchain."
-                        )
-                    raise ValueError(
-                        f"Format: {preload_qlinear_kernel.__name__} requires GPTQ checkpoints saved with v2 metadata. Please re-quantize the model with v2 support."
-                    )
-
-
         if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.kernel == KERNEL.MARLIN):
             if is_sharded:
                 raise ValueError(
