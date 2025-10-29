@@ -1,15 +1,14 @@
 from __future__ import annotations
 
+import operator
 import os
 import time
 from importlib.metadata import PackageNotFoundError, version
-from typing import Dict, List, Optional, Union
+from typing import Dict, Iterable, Optional, Union
 
 import accelerate
 import torch
 import transformers
-
-from ..utils.structure import print_module_tree
 
 # TODO: Hugging Face or Modelscope
 from huggingface_hub import snapshot_download # (Auto download model when no local)
@@ -43,125 +42,163 @@ from ._const import DEVICE, normalize_device
 log = setup_logger()
 
 ATTN_IMPLEMENTATION = "attn_implementation"
-def parse_version_string(version_str: str):
+
+
+def parse_version_string(version_str: str) -> Version:
+    """Parse a version string into a packaging.Version, raising on invalid inputs."""
     try:
         return Version(version_str)
-    except InvalidVersion:
-        raise ValueError(f"Invalid version format: {version_str}")
+    except InvalidVersion as exc:
+        raise ValueError(f"Invalid version format: {version_str}") from exc
 
 
-def parse_requirement(req):
-    for op in [">=", "<=", ">", "<", "=="]:
+def parse_requirement(req: str) -> tuple[str, str, str]:
+    """Split a version requirement (e.g. 'torch>=2.2') into (package, operator, version)."""
+    for op in (">=", "<=", ">", "<", "=="):
         if op in req:
             pkg, version_required = req.split(op, 1)
             return pkg.strip(), op, version_required.strip()
     raise ValueError(f"Unsupported version constraint in: {req}")
 
 
-def compare_versions(installed_version, required_version, operator):
+_OPERATORS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "==": operator.eq,
+}
+
+
+def compare_versions(installed_version: str, required_version: str, operand: str) -> bool:
+    """Return True when the installed version satisfies the operand constraint."""
     installed = parse_version_string(installed_version)
     required = parse_version_string(required_version)
-    if operator == ">":
-        return installed > required
-    elif operator == ">=":
-        return installed >= required
-    elif operator == "<":
-        return installed < required
-    elif operator == "<=":
-        return installed <= required
-    elif operator == "==":
-        return installed == required
-    else:
-        raise ValueError(f"Unsupported operator: {operator}")
+    try:
+        comparator = _OPERATORS[operand]
+    except KeyError as exc:
+        raise ValueError(f"Unsupported operator: {operand}") from exc
+    return comparator(installed, required)
 
 
-def check_versions(model_class, requirements: List[str]):
-    if requirements is None:
+def check_versions(model_class, requirements: Optional[Iterable[str]]):
+    """Ensure optional package requirements declared by model loaders are satisfied."""
+    if not requirements:
         return
     for req in requirements:
-        pkg, operator, version_required = parse_requirement(req)
+        pkg, operand, version_required = parse_requirement(req)
         try:
             installed_version = version(pkg)
-            if not compare_versions(installed_version, version_required, operator):
-                raise ValueError(f"{model_class} requires version {req}, but current {pkg} version is {installed_version} ")
-        except PackageNotFoundError:
-            raise ValueError(f"{model_class} requires version {req}, but {pkg} not installed.")
+        except PackageNotFoundError as exc:
+            raise ValueError(f"{model_class} requires version {req}, but {pkg} is not installed.") from exc
+
+        if not compare_versions(installed_version, version_required, operand):
+            raise ValueError(
+                f"{model_class} requires version {req}, but installed {pkg} version is {installed_version}."
+            )
 
 
-def get_model_local_path(pretrained_model_id_or_path, **kwargs):
-    is_local = os.path.isdir(pretrained_model_id_or_path)
-    if is_local:
+def get_model_local_path(pretrained_model_id_or_path: str, **kwargs) -> str:
+    """
+    Resolve a pretrained identifier into a local path.
+
+    - Existing directories are returned unchanged (normalized).
+    - Remote references trigger a snapshot download with unsupported kwargs stripped.
+    """
+    if os.path.isdir(pretrained_model_id_or_path):
         return os.path.normpath(pretrained_model_id_or_path)
+
+    filtered_kwargs = {
+        key: value
+        for key, value in kwargs.items()
+        if key not in {"attn_implementation", "use_flash_attention_2"}
+    }
+    return snapshot_download(pretrained_model_id_or_path, **filtered_kwargs)
+
+
+def _disable_default_weight_initializers() -> None:
+    """Skip expensive default torch initializers when loading large checkpoints."""
+
+    def _skip(*_args, **_kwargs):
+        return None
+
+    torch.nn.init.kaiming_uniform_ = _skip
+    torch.nn.init.uniform_ = _skip
+    torch.nn.init.normal_ = _skip
+
+
+def _assign_model_seqlen(model: torch.nn.Module, fallback: int = 4096) -> None:
+    """Attach `model.seqlen` using config metadata or a conservative fallback."""
+    model_config = model.config.to_dict()
+    seq_len_keys = ["max_position_embeddings", "seq_length", "n_positions", "multimodal_max_length"]
+    config_seq_len = find_config_seq_len(model_config, seq_len_keys)
+    if config_seq_len is not None:
+        model.seqlen = config_seq_len
     else:
-        # Clone kwargs before modifying
-        download_kwargs = kwargs.copy()
-        download_kwargs.pop("attn_implementation", None)
-        download_kwargs.pop("use_flash_attention_2", None)
-        # download_kwargs.pop("max_memory", None)
-        return snapshot_download(pretrained_model_id_or_path, **download_kwargs)
+        log.warn("Model: can't determine sequence length from model config; using fallback=%s.", fallback)
+        model.seqlen = fallback
 
 
 def ModelLoader(cls):
+    """Decorator that injects NanoModel-specific loading helpers into transformer loaders."""
     @classmethod
     def from_pretrained(
-            cls,
-            pretrained_model_id_or_path: str,
-            quantize_config: QuantizeConfig,
-            trust_remote_code: bool = False,
-            dtype: [str | torch.dtype] = "auto",
-            device_map: Optional[Union[str, Dict[str, Union[int, str]]]] = None,
-            device: Optional[Union[str, int]] = None,
-            **model_init_kwargs,
+        cls,
+        pretrained_model_id_or_path: str,
+        quantize_config: QuantizeConfig,
+        trust_remote_code: bool = False,
+        dtype: Union[str, torch.dtype] = "auto",
+        device_map: Optional[Union[str, Dict[str, Union[int, str]]]] = None,
+        device: Optional[Union[str, int]] = None,
+        **model_init_kwargs,
     ):
-        # quantization is unsafe with GIL=0 and torch.compile/graphs
+        """Load an unquantized reference model prior to running offline quantization."""
         import torch._dynamo
+
+        # Quantization flow mutates modules; guard against Dynamo capturing graphs.
         torch._dynamo.disable()
 
         load_start = time.perf_counter()
 
-        # non-quantized models are always loaded into cpu
-        cpu_device_map = {"": "cpu"}
-
-        if quantize_config is None or not isinstance(quantize_config, QuantizeConfig):
+        if not isinstance(quantize_config, QuantizeConfig):
             raise AttributeError("`quantize_config` must be passed and be an instance of QuantizeConfig.")
 
         quantize_config.calculate_bits_per_weight()
 
-        if quantize_config.device is not None:
-            if device is not None or device_map is not None:
-                raise AttributeError("Passing device and device_map is not allowed when QuantizeConfig.device is set. Non-quantized model is always loaded as cpu. Please set QuantizeConfig.device for accelerator used in quantization or do not set for auto-selection.")
+        # Non-quantized weights are staged on CPU regardless of caller preference.
+        if quantize_config.device is not None and (device is not None or device_map is not None):
+            raise AttributeError(
+                "Passing device and device_map is not allowed when QuantizeConfig.device is set. "
+                "Set QuantizeConfig.device to control quantization placement."
+            )
 
         if quantize_config.act_order not in cls.supports_act_order:
-            raise ValueError(f"{cls} only supports act_order={cls.supports_act_order}, "
-                             f"but quantize_config.act_order is {quantize_config.act_order}.")
+            raise ValueError(
+                f"{cls} only supports act_order={cls.supports_act_order}, "
+                f"but quantize_config.act_order is {quantize_config.act_order}."
+            )
 
         if cls.require_trust_remote_code and not trust_remote_code:
             raise ValueError(
-                f"{pretrained_model_id_or_path} requires trust_remote_code=True. Please set trust_remote_code=True to load this model."
+                f"{pretrained_model_id_or_path} requires trust_remote_code=True. "
+                "Please set trust_remote_code=True to load this model."
             )
 
         check_versions(cls, cls.require_pkgs_version)
 
         model_local_path = get_model_local_path(pretrained_model_id_or_path, **model_init_kwargs)
 
-        def skip(*args, **kwargs):
-            pass
-
-        torch.nn.init.kaiming_uniform_ = skip
-        torch.nn.init.uniform_ = skip
-        torch.nn.init.normal_ = skip
+        _disable_default_weight_initializers()
 
         model_init_kwargs["trust_remote_code"] = trust_remote_code
-
         config = AutoConfig.from_pretrained(model_local_path, **model_init_kwargs)
 
-        atten_impl = model_init_kwargs.get("attn_implementation", None)
+        requested_attn_impl = model_init_kwargs.get("attn_implementation")
+        if requested_attn_impl and requested_attn_impl != "auto":
+            log.info("Loader: overriding attn_implementation in config to `%s`", requested_attn_impl)
+            config._attn_implementation = requested_attn_impl
 
-        if atten_impl is not None and atten_impl != "auto":
-            log.info(f"Loader: overriding attn_implementation in config to `{atten_impl}`")
-            config._attn_implementation = atten_impl
-
-        # normalize and auto select quantization device is not passed
+        # Ensure quantization runs on an explicit device.
         if quantize_config.device is None:
             quantize_config.device = auto_select_device(None, None)
         else:
@@ -171,33 +208,30 @@ def ModelLoader(cls):
             dtype = cls.require_dtype
 
         if dtype is None or dtype == "auto" or not isinstance(dtype, torch.dtype):
-            # TODO FIX ME for `dynamic`, non-quantized modules should be in native type
+            # Non-quantized modules should retain their native dtype for calibration.
             dtype = auto_dtype(config=config, device=quantize_config.device, quant_inference=False)
 
         if isinstance(dtype, torch.dtype) and getattr(config, "torch_dtype", None) != dtype:
             # Align config metadata with the dtype we will materialize weights in.
             config.torch_dtype = dtype
 
-        # enforce some values despite user specified
-        # non-quantized models are always loaded into cpu
-        model_init_kwargs["device_map"] = cpu_device_map
+        # Non-quantized models are always materialized on CPU.
+        model_init_kwargs["device_map"] = {"": "cpu"}
         model_init_kwargs["dtype"] = dtype
         model_init_kwargs["_fast_init"] = cls.require_fast_init
-        #model_init_kwargs["low_cpu_mem_usage"] = True
 
         cls.before_model_load(cls, load_quantized_model=False)
         from ..utils.hf import build_shell_model
 
-        # XIELUActivation will use some weights when activation init, so can't use init_empty_weights
-        if hasattr(config, "hidden_act") and config.hidden_act == "xielu":
+        # XIELU activation allocates buffers during init; disable offload to avoid missing tensors.
+        if getattr(config, "hidden_act", None) == "xielu":
             quantize_config.offload_to_disk = False
 
         if quantize_config.offload_to_disk:
+            # Build a meta-device shell for quantization-aware recollection.
             model = build_shell_model(cls.loader, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            # print_module_tree(model=model)
 
-            # enable mmap with low_cpu_mem_usage
             turtle_spinner = log.spinner(title="Turtle model loading...", interval=0.1)
             try:
                 turtle_model = cls.loader.from_pretrained(
@@ -209,29 +243,18 @@ def ModelLoader(cls):
             finally:
                 turtle_spinner.close()
 
-            # TODO FIX ME...temp store model_init args
             turtle_model._model_init_kwargs = model_init_kwargs
-            # print("actual turtle model-----------")
-            # print_module_tree(model=turtle_model)
         else:
-            print("loading model directly to CPU (not using meta device or turtle_model)-----------")
+            log.info("Loader: loading model directly to CPU without turtle stage.")
             model = cls.loader.from_pretrained(model_local_path, config=config, **model_init_kwargs)
             model._model_init_kwargs = model_init_kwargs
-            # print_module_tree(model=model)
-
             turtle_model = None
 
-        model_config = model.config.to_dict()
-        seq_len_keys = ["max_position_embeddings", "seq_length", "n_positions", "multimodal_max_length"]
-        config_seq_len = find_config_seq_len(model_config, seq_len_keys)
-        if config_seq_len is not None:
-            model.seqlen = config_seq_len
-        else:
-            log.warn("Model: can't get model's sequence length from model config, will set to 4096.")
-            model.seqlen = 4096
+        _assign_model_seqlen(model)
 
         model.eval()
-        turtle_model.eval() if turtle_model is not None else None
+        if turtle_model is not None:
+            turtle_model.eval()
 
         tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id_or_path, trust_remote_code=trust_remote_code)
 
@@ -247,7 +270,7 @@ def ModelLoader(cls):
 
         timer = getattr(instance, "quant_region_timer", None)
         if timer is not None:
-            source_label = getattr(instance, "model_local_path", None) or str(pretrained_model_id_or_path)
+            source_label = instance.model_local_path or str(pretrained_model_id_or_path)
             timer.record("model_load", time.perf_counter() - load_start, source=source_label)
 
         return instance
@@ -256,43 +279,43 @@ def ModelLoader(cls):
 
     @classmethod
     def from_quantized(
-            cls,
-            model_id_or_path: Optional[str],
-            device_map: Optional[Union[str, Dict[str, Union[int, str]]]] = None,
-            device: Optional[Union[str, int]] = None,
-            backend: Union[str, BACKEND] = BACKEND.AUTO,
-            dtype: [str | torch.dtype] = "auto",
-            trust_remote_code: bool = False,
-            max_memory: Optional[dict] = None,
-            **kwargs,
+        cls,
+        model_id_or_path: Optional[str],
+        device_map: Optional[Union[str, Dict[str, Union[int, str]]]] = None,
+        device: Optional[Union[str, int]] = None,
+        backend: Union[str, BACKEND] = BACKEND.AUTO,
+        dtype: Union[str, torch.dtype] = "auto",
+        trust_remote_code: bool = False,
+        max_memory: Optional[dict] = None,
+        **kwargs,
     ):
-
-        # post-quant is safe with GIL=0 and torch.compile/graphs
-
+        """Load a quantized checkpoint produced by NanoModel for inference."""
         import torch._dynamo
+
+        # Post-quantization models can safely re-enable Dynamo graph capture.
         torch._dynamo.reset()
 
-        # normalized device + device_map into single device
-        normalized_device = device if device_map is None else None  # let device_map dictate placement when present
         device = normalize_device_device_map(device, device_map)
 
-        # TODO need to normalize backend and others in a unified api
         if isinstance(backend, str):
-            backend =  (backend)
+            try:
+                backend = BACKEND(backend)
+            except ValueError as exc:
+                raise ValueError(f"Unknown backend {backend!r}.") from exc
         device = auto_select_device(device, backend)
 
-        # TODO: VLLM
         if backend == BACKEND.VLLM:
             import os
-            # to optimize vllm inference, set an environment variable 'VLLM_ATTENTION_BACKEND' to 'FLASHINFER'.
-            os.environ['VLLM_ATTENTION_BACKEND'] = 'FLASHINFER'
+
+            # Hint VLLM to use the faster FlashInfer backend when available.
+            os.environ["VLLM_ATTENTION_BACKEND"] = "FLASHINFER"
 
         if backend == BACKEND.TRITON:
             from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT
             if not TRITON_AVAILABLE:
                 raise ValueError(TRITON_INSTALL_HINT)
 
-        """load quantized model from local disk"""
+        # Load quantized model from local disk or remote hub snapshot.
         if cls.require_trust_remote_code and not trust_remote_code:
             raise ValueError(
                 f"{model_id_or_path} requires trust_remote_code=True. Please set trust_remote_code=True to load this model."
@@ -346,6 +369,7 @@ def ModelLoader(cls):
             # Ensure flash attention kernels see an explicit dtype instead of relying on defaults.
             config.torch_dtype = dtype
 
+        # Load quantization metadata stored alongside the checkpoint.
         qcfg = QuantizeConfig.from_pretrained(model_local_path, **cached_file_kwargs, **kwargs)
 
         if qcfg.quant_method == METHOD.AWQ and qcfg.kernel in [KERNEL.GEMV_FAST]:
@@ -356,6 +380,7 @@ def ModelLoader(cls):
         qcfg.calculate_bits_per_weight()
         tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
         if backend == BACKEND.VLLM or backend == BACKEND.SGLANG:
+            # Delegate inference to external runtimes; NanoModel wrapper keeps tokenizer/qcfg consistent.
             if backend == BACKEND.VLLM:
                 if qcfg.kernel != KERNEL.GPTQ and qcfg.kernel != KERNEL.GEMM:
                     raise ValueError(f"{backend} backend only supports FORMAT.GPTQ or FORMAT.GEMM: actual = {qcfg.kernel}")
@@ -442,13 +467,7 @@ def ModelLoader(cls):
         model_save_name = resolved_archive_file  # In case a model is sharded, this would be `model.safetensors.index.json` which may later break.
 
         # == step2: convert model to gptq-model (replace Linear with QuantLinear) == #
-        def skip(*args, **kwargs):
-            pass
-
-        torch.nn.init.kaiming_uniform_ = skip
-        torch.nn.init.uniform_ = skip
-        torch.nn.init.normal_ = skip
-
+        _disable_default_weight_initializers()
         transformers.modeling_utils._init_weights = False
 
         init_contexts = [no_init_weights()]
@@ -481,22 +500,28 @@ def ModelLoader(cls):
             # Get the first layer to determine layer type
             layers, _ = get_module_by_name_prefix(model, cls.extract_layers_node())
 
-            layer0 = layers[0]
+            if layers:
+                layer_type = type(layers[0]).__name__
 
             modules = find_modules(model)
             ignore_modules = [cls.lm_head] + cls.get_base_modules(model)
+            layer_prefixes = tuple(cls.extract_layers_node())
+            simple_layer_suffixes = tuple(
+                suffix for group in cls.simple_layer_modules(config, qcfg) for suffix in group
+            )
 
             for name in list(modules.keys()):
-                # allow loading of quantized lm_head
                 if qcfg.lm_head and name == cls.lm_head:
+                    # Allow loading of quantized lm_head.
                     continue
 
-                if not any(name.startswith(prefix) for prefix in cls.extract_layers_node()) or any(name.startswith(ignore_module) for ignore_module in ignore_modules) or all(
-                        not name.endswith(ignore_module) for sublist in cls.simple_layer_modules(config, qcfg) for ignore_module in sublist
-                ):
-                    # log non-lm-head quantized modules only
-                    if name is not cls.lm_head:
-                        log.info(f"The layer {name} is not quantized.")
+                eligible_prefix = any(name.startswith(prefix) for prefix in layer_prefixes)
+                excluded_module = any(name.startswith(ignore_module) for ignore_module in ignore_modules)
+                eligible_suffix = any(name.endswith(suffix) for suffix in simple_layer_suffixes)
+
+                if not eligible_prefix or excluded_module or not eligible_suffix:
+                    if name != cls.lm_head:
+                        log.info("Loader: layer %s is skipped from quantization.", name)
                     del modules[name]
 
             preload_qlinear_kernel = make_quant(
@@ -508,43 +533,44 @@ def ModelLoader(cls):
                 device=device,
             )
 
-        if isinstance(device_map, str) and device_map not in [
-                "auto",
-                "balanced",
-                "balanced_low_0",
-                "sequential",
-            ]:
-                raise ValueError(
-                    "If passing a string for `device_map`, please choose 'auto', 'balanced', 'balanced_low_0' or "
-                    "'sequential'."
-                )
+        if isinstance(device_map, str) and device_map not in {"auto", "balanced", "balanced_low_0", "sequential"}:
+            raise ValueError(
+                "If passing a string for `device_map`, please choose 'auto', 'balanced', 'balanced_low_0' or "
+                "'sequential'."
+            )
 
-        if isinstance(device_map, dict):
+        computed_device_map = device_map
+        no_split_modules = [layer_type] if layer_type else []
+
+        if isinstance(computed_device_map, dict):
             max_memory = None
         else:
-            if device is None and not device_map and not max_memory:
-                device_map = "auto"
-            if device is not None:
-                if not max_memory and not device_map:
-                    torch_device = torch.device(device)
-                    if torch_device.type in ["cuda", "xpu"] and torch_device.index is not None:
-                        device_map = {"": torch_device.index}
-                    else:
-                        device_map = {"": torch_device.type}
-            if not isinstance(device_map, dict) and device_map != "sequential":
+            if device is None and not computed_device_map and not max_memory:
+                computed_device_map = "auto"
+
+            if device is not None and not max_memory and not computed_device_map:
+                torch_device = torch.device(device)
+                if torch_device.type in {"cuda", "xpu"} and torch_device.index is not None:
+                    computed_device_map = {"": torch_device.index}
+                else:
+                    computed_device_map = {"": torch_device.type}
+
+            if not isinstance(computed_device_map, dict) and computed_device_map != "sequential":
                 max_memory = accelerate.utils.get_balanced_memory(
                     model=model,
                     max_memory=max_memory,
-                    no_split_module_classes=[layer_type],
-                    low_zero=(device_map == "balanced_low_0"),
+                    no_split_module_classes=no_split_modules,
+                    low_zero=(computed_device_map == "balanced_low_0"),
                 )
 
-        if not isinstance(device_map, dict):
-            device_map = accelerate.infer_auto_device_map(
+        if not isinstance(computed_device_map, dict):
+            computed_device_map = accelerate.infer_auto_device_map(
                 model,
                 max_memory=max_memory,
-                no_split_module_classes=[layer_type],
+                no_split_module_classes=no_split_modules,
             )
+
+        device_map = computed_device_map
 
         load_checkpoint_in_model = True
         if qcfg.kernel in [KERNEL.GPTQ, KERNEL.GEMM]:
@@ -620,14 +646,7 @@ def ModelLoader(cls):
         )
 
         # == step4: set seqlen == #
-        model_config = model.config.to_dict()
-        seq_len_keys = ["max_position_embeddings", "seq_length", "n_positions", "multimodal_max_length"]
-        config_seq_len = find_config_seq_len(model_config, seq_len_keys)
-        if config_seq_len is not None:
-            model.seqlen = config_seq_len
-        else:
-            log.warn("can't get model's sequence length from model config, will set to 4096.")
-            model.seqlen = 4096
+        _assign_model_seqlen(model)
 
         # Any post-initialization that require device information, for example buffers initialization on device.
         model = gptqmodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
