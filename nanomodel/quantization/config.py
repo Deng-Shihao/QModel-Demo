@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 import re
 import torch
-from packaging import version
 
 from ..utils.logger import setup_logger
 
@@ -24,8 +23,6 @@ QUANT_METHOD_FIELD = "quant_method"
 PACK_DTYPE_FIELD = "pack_dtype"
 QUANT_CONFIG_FILENAME = "quantize_config.json"
 QUANT_CONFIG_FILENAME_COMPAT = [QUANT_CONFIG_FILENAME, "quant_config.json", "config.json"]
-
-MIN_VERSION_WITH_V2 = "0.9.0"
 
 META_FIELD = "meta"
 # quantizer is the tool that did the quantization
@@ -387,16 +384,21 @@ class QuantizeConfig():
                 result.append((parts[0].lower(), parts[1].lower()))
         return result
 
-    # is quantized model quantized or packed by nanomodel version with v2 format code
+    # is quantized model quantized or packed with v2 format metadata
     def is_quantized_by_v2(self) -> bool:
-        # check meta.quantizer
-        result = self.meta_get_versionable(META_FIELD_QUANTIZER)
-        if len(result) > 0:
-            for producer, _version in result:
-                if producer == META_QUANTIZER_NANOMODEL:
-                    return version.parse(_version) >= version.parse(MIN_VERSION_WITH_V2)
+        flag = self.meta_get(META_FIELD_V2_ENABLED)
+        if isinstance(flag, bool):
+            return flag
+        if isinstance(flag, str):
+            lowered = flag.strip().lower()
+            if lowered in {"true", "1", "yes", "y"}:
+                return True
+            if lowered in {"false", "0", "no", "n"}:
+                return False
+        if isinstance(flag, (int, float)):
+            return bool(flag)
 
-        return False
+        return bool(self.v2)
 
     def save_pretrained(self, save_dir: str, **kwargs):
         with open(join(save_dir, QUANT_CONFIG_FILENAME), "w", encoding="utf-8") as f:
