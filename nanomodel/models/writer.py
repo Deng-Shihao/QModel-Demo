@@ -59,7 +59,7 @@ PROCESS_LOG_TIME = "time"
 PROCESS_LOG_FWD_TIME = "fwd_time"
 PROCESS_USED_MEMORY = "(v)ram"
 
-EORA_DEFAULT_FILE = "eora.safetensors"
+# EORA_DEFAULT_FILE = "eora.safetensors"
 
 
 def ModelWriter(cls):
