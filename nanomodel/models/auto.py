@@ -1,80 +1,137 @@
 from __future__ import annotations
 
 import os
+import random
+import sys
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, Optional, Union
 
+import numpy
+import torch
+from huggingface_hub import list_repo_files
+from transformers import AutoConfig
+
+from ..quantization import METHOD, QUANT_CONFIG_FILENAME
+from ..utils import BACKEND
 from ..utils.logger import setup_logger
+from .base import BaseNanoModel, QuantizeConfig
+from .definitions.llama import LlamaNanoModel
+from .definitions.qwen2 import Qwen2NanoModel
+from .definitions.qwen3 import Qwen3NanoModel
+
+__all__ = ["AutoNanoModel"]
 
 log = setup_logger()
 
-
-if not os.environ.get("PYTORCH_ALLOC_CONF", None):
-    os.environ["PYTORCH_ALLOC_CONF"] = (
-        "expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.7"
-    )
-
-if not os.environ.get("CUDA_DEVICE_ORDER", None):
-    os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-
-if "CUDA_VISIBLE_DEVICES" in os.environ and "ROCR_VISIBLE_DEVICES" in os.environ:
-    del os.environ["ROCR_VISIBLE_DEVICES"]
+_DEFAULT_SEED = 233
+_QUANT_CONFIG_CANDIDATES = (QUANT_CONFIG_FILENAME, "quant_config.json")
 
 
-import os.path  # noqa: E402
-import random  # noqa: E402
-from os.path import isdir, join  # noqa: E402
-from typing import Any, Dict, List, Optional, Type, Union  # noqa: E402
-
-import numpy  # noqa: E402
-import torch  # noqa: E402
-
-# make quants and inference more QueDing
-torch.manual_seed(233)
-random.seed(233)
-numpy.random.seed(233)
-
-from huggingface_hub import list_repo_files  # noqa: E402
-
-from transformers import AutoConfig  # noqa: E402
-
-from ..quantization import METHOD, QUANT_CONFIG_FILENAME  # noqa: E402
-from ..utils import BACKEND  # noqa: E402
-from .base import BaseNanoModel, QuantizeConfig  # noqa: E402
-
-import sys  # noqa: E402
-
-if sys.platform == "darwin":
-    fallback_env = os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK")
-    if fallback_env is None or fallback_env.lower() not in {"1", "true", "yes", "on"}:
-        os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
-        # log.info("ENV: Auto enabling PYTORCH_ENABLE_MPS_FALLBACK=1 to cover missing MPS aten ops.")
-        print(
-            "ENV: Auto enabling PYTORCH_ENABLE_MPS_FALLBACK=1 to cover missing MPS aten ops."
+def _ensure_runtime_env() -> None:
+    """Populate environment defaults required for consistent runtime behavior."""
+    if os.environ.get("PYTORCH_ALLOC_CONF") is None:
+        os.environ["PYTORCH_ALLOC_CONF"] = (
+            "expandable_segments:True,max_split_size_mb:256,garbage_collection_threshold:0.7"
         )
 
+    if os.environ.get("CUDA_DEVICE_ORDER") is None:
+        os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 
-# Support Models
-from .definitions.llama import LlamaNanoModel  # noqa: E402
-from .definitions.qwen2 import Qwen2NanoModel  # noqa: E402
-from .definitions.qwen3 import Qwen3NanoModel  # noqa: E402
+    if "CUDA_VISIBLE_DEVICES" in os.environ and "ROCR_VISIBLE_DEVICES" in os.environ:
+        os.environ.pop("ROCR_VISIBLE_DEVICES", None)
+
+
+def _enable_mps_fallback_if_needed() -> None:
+    """Enable MPS fallback on macOS to cover missing aten ops."""
+    if sys.platform != "darwin":
+        return
+
+    fallback_env = os.environ.get("PYTORCH_ENABLE_MPS_FALLBACK")
+    if fallback_env and fallback_env.lower() in {"1", "true", "yes", "on"}:
+        return
+
+    os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
+    log.info(
+        "ENV: Auto enabling PYTORCH_ENABLE_MPS_FALLBACK=1 to cover missing MPS aten ops."
+    )
+
+
+def _seed_rng(seed: int = _DEFAULT_SEED) -> None:
+    """Seed RNGs to keep quantization and inference deterministic."""
+    torch.manual_seed(seed)
+    random.seed(seed)
+    numpy.random.seed(seed)
+
+
+def _resolve_backend(backend: Union[str, BACKEND]) -> BACKEND:
+    """Normalize backend values to the enum."""
+    return backend if isinstance(backend, BACKEND) else BACKEND(backend)
+
+
+@lru_cache(maxsize=None)
+def _list_remote_files(repo_id: str) -> set[str]:
+    """Cache huggingface repo file listings to limit API calls."""
+    return set(list_repo_files(repo_id=repo_id))
+
+
+def _has_local_quant_config(model_path: Path) -> bool:
+    return any((model_path / name).exists() for name in _QUANT_CONFIG_CANDIDATES)
+
+
+def _has_remote_quant_config(model_id: str) -> bool:
+    files = _list_remote_files(repo_id=model_id)
+    return any(name in files for name in _QUANT_CONFIG_CANDIDATES)
+
+
+def _is_model_quantized(model_id_or_path: str, *, config: AutoConfig) -> bool:
+    """Determine whether the model has been quantized by NanoModel-compatible tooling."""
+    quant_cfg = getattr(config, "quantization_config", None)
+    if quant_cfg and isinstance(quant_cfg, dict):
+        quant_format = quant_cfg.get("quant_format", "").lower()
+        return quant_format in {METHOD.GPTQ, METHOD.AWQ}
+
+    model_path = Path(model_id_or_path)
+    if model_path.is_dir():
+        return _has_local_quant_config(model_path)
+
+    try:
+        return _has_remote_quant_config(model_id_or_path)
+    except Exception:  # pragma: no cover - networking edge cases
+        log.debug(
+            "Falling back to AutoConfig quantization detection for %s build; "
+            "list_repo_files lookup failed.",
+            model_id_or_path,
+        )
+        return False
+
+
+def check_and_get_model_type(
+    model_dir: str, trust_remote_code: bool = False, *, config: Optional[AutoConfig] = None
+) -> str:
+    """Validate model type support and return a normalized key."""
+    cfg = config or AutoConfig.from_pretrained(
+        model_dir, trust_remote_code=trust_remote_code
+    )
+    model_type = cfg.model_type.lower()
+    if model_type not in MODEL_DICT:
+        raise TypeError(f"{cfg.model_type} isn't supported yet.")
+    return model_type
+
+
+_ensure_runtime_env()
+_enable_mps_fallback_if_needed()
+_seed_rng()
 
 MODEL_DICT = {
     "llama": LlamaNanoModel,
-    "qwen2": Qwen2NanoModel,  # Base on Llama
-    "qwen3": Qwen3NanoModel,  # Base on Llama
+    "qwen2": Qwen2NanoModel,
+    "qwen3": Qwen3NanoModel,
 }
-
-SUPPORTED_MODELS = list(MODEL_DICT.keys())
-
-
-def check_and_get_model_type(model_dir, trust_remote_code=False):
-    config = AutoConfig.from_pretrained(model_dir, trust_remote_code=trust_remote_code)
-    if config.model_type.lower() not in SUPPORTED_MODELS:
-        raise TypeError(f"{config.model_type} isn't supported yet.")
-    model_type = config.model_type
-    return model_type.lower()
 
 
 class AutoNanoModel:
+    """Factory helpers that pick the correct NanoModel implementation for a given checkpoint."""
     def __init__(self):
         raise EnvironmentError(
             "NanoModel is not designed to be instantiated\n"
@@ -93,96 +150,95 @@ class AutoNanoModel:
         trust_remote_code: bool = False,
         **kwargs,
     ):
+        """Automatically choose between quantized and pre-quantized loading."""
+        if not model_id_or_path:
+            raise ValueError("`model_id_or_path` is required to load a model.")
+
         if isinstance(model_id_or_path, str):
             model_id_or_path = model_id_or_path.strip()
+            if not model_id_or_path:
+                raise ValueError("`model_id_or_path` cannot be an empty string.")
 
         # normalize config to cfg instance
         if isinstance(quantize_config, Dict):
             quantize_config = QuantizeConfig(**quantize_config)
 
-        if isinstance(backend, str):
-            backend = BACKEND(backend)
+        backend_enum = _resolve_backend(backend)
 
-        is_model_quantized = False
         model_cfg = AutoConfig.from_pretrained(
             model_id_or_path, trust_remote_code=trust_remote_code
         )
-        if (
-            hasattr(model_cfg, "quantization_config")
-            and "quant_format" in model_cfg.quantization_config
-        ):
-            # only if the model is quantized or compatible with model should we set is_quantized to true
-            if model_cfg.quantization_config["quant_format"].lower() in (
-                METHOD.GPTQ,
-                METHOD.AWQ,
-            ):
-                is_model_quantized = True
-        else:
-            # TODO FIX ME...not decoded to check if quant method is compatible or quantized by nanomodel
-            for name in [QUANT_CONFIG_FILENAME, "quant_config.json"]:
-                if isdir(model_id_or_path):  # Local
-                    if os.path.exists(join(model_id_or_path, name)):
-                        is_model_quantized = True
-                        break
-
-                else:  # Get from remote
-                    files = list_repo_files(repo_id=model_id_or_path)
-                    for f in files:
-                        if f == name:
-                            is_model_quantized = True
-                            break
+        is_model_quantized = _is_model_quantized(
+            model_id_or_path=model_id_or_path,
+            config=model_cfg,
+        )
 
         if is_model_quantized:
-            m = cls.from_quantized(
+            model = cls.from_quantized(
                 model_id_or_path=model_id_or_path,
                 device_map=device_map,
                 device=device,
-                backend=backend,
+                backend=backend_enum,
                 trust_remote_code=trust_remote_code,
                 **kwargs,
             )
         else:
-            m = cls.from_pretrained(
+            model = cls.from_pretrained(
                 model_id_or_path=model_id_or_path,
                 quantize_config=quantize_config,
                 device_map=device_map,
                 device=device,
                 trust_remote_code=trust_remote_code,
+                backend=backend_enum,
                 **kwargs,
             )
 
-        # print model tree structure
-        # if debug:
-        #     print_module_tree(m.model)
-
-        return m
+        return model
 
     @classmethod
     def from_pretrained(
         cls,
         model_id_or_path: str,
-        quantize_config: QuantizeConfig,
+        quantize_config: Optional[QuantizeConfig] = None,
         trust_remote_code: bool = False,
         **model_init_kwargs,
     ) -> BaseNanoModel:
-        if hasattr(
-            AutoConfig.from_pretrained(
-                model_id_or_path, trust_remote_code=trust_remote_code
-            ),
-            "quantization_config",
-        ):
-            log.warn(
+        """Load a pretrained model and prepare it for quantization."""
+        backend_enum = _resolve_backend(model_init_kwargs.pop("backend", BACKEND.AUTO))
+
+        cfg = AutoConfig.from_pretrained(
+            model_id_or_path, trust_remote_code=trust_remote_code
+        )
+
+        if getattr(cfg, "quantization_config", None):
+            log.warning(
                 "As the model is already quantized, loading will be done via from_quantized.\n"
                 "To apply quantization yourself, provide an unquantized model path or ID, and load it using from_pretrained with quantize_config."
             )
+            fallback_kwargs = dict(model_init_kwargs)
+            device_map = fallback_kwargs.pop("device_map", None)
+            device = fallback_kwargs.pop("device", None)
             return cls.from_quantized(
-                model_id_or_path, trust_remote_code=trust_remote_code
+                model_id_or_path=model_id_or_path,
+                device_map=device_map,
+                device=device,
+                backend=backend_enum,
+                trust_remote_code=trust_remote_code,
+                **fallback_kwargs,
             )
 
-        if quantize_config and quantize_config.dynamic:
-            log.warn("Full support for NanoModel’s per-module dynamic quantization is now included in the latest vLLM and SGLang, but hf transformers have not yet added this capability.")
+        if quantize_config is None:
+            raise ValueError("QuantizeConfig must be provided when loading from pretrained weights.")
 
-        model_type = check_and_get_model_type(model_id_or_path, trust_remote_code)
+        if quantize_config and quantize_config.dynamic:
+            log.warning(
+                "Full support for NanoModel’s per-module dynamic quantization is now included "
+                "in the latest vLLM and SGLang, but hf transformers have not yet added this capability."
+            )
+
+        model_type = check_and_get_model_type(
+            model_id_or_path, trust_remote_code, config=cfg
+        )
         return MODEL_DICT[model_type].from_pretrained(
             pretrained_model_id_or_path=model_id_or_path,
             quantize_config=quantize_config,
@@ -200,16 +256,19 @@ class AutoNanoModel:
         trust_remote_code: bool = False,
         **kwargs,
     ) -> BaseNanoModel:
-        model_type = check_and_get_model_type(model_id_or_path, trust_remote_code)
-
-        if isinstance(backend, str):
-            backend = BACKEND(backend)
+        """Load a quantized NanoModel checkpoint."""
+        cfg = AutoConfig.from_pretrained(
+            model_id_or_path, trust_remote_code=trust_remote_code
+        )
+        model_type = check_and_get_model_type(
+            model_id_or_path, trust_remote_code, config=cfg
+        )
 
         return MODEL_DICT[model_type].from_quantized(
             model_id_or_path=model_id_or_path,
             device_map=device_map,
             device=device,
-            backend=backend,
+            backend=_resolve_backend(backend),
             trust_remote_code=trust_remote_code,
             **kwargs,
         )

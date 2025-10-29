@@ -299,7 +299,6 @@ class GPTQProcessor(BaseProcessor):
     def submodule_finalize(self, module: NamedModule, model: BaseNanoModel, **kwargs):
         module.stream_sync()
         with self.lock:
-            # if calculate_w_wq_diff is enabled (eora), we need to revert our original wq
             if self.calculate_w_wq_diff:
                 module.weight.data = module.state.pop("wq").to(CPU)
 
