@@ -24,7 +24,7 @@ from ..models.writer import (
     QUANT_LOG_NSAMPLES,
 )
 from ..quantization.config import QuantizeConfig
-from ..utils.device_smi import Device
+from ..utils.monitor import Device
 from ..utils.logger import setup_logger
 from ..utils.torch import CPU, DEVICE_0, DEVICE_1
 
