@@ -81,7 +81,7 @@ def chat():
 
     device = get_best_device()
     logging.getLogger("NanoModel").info("Loading quantized model...")
-    model = AutoNanoModel.load(QUANTIZED_MODEL_ID, device=device)
+    model = AutoNanoModel.load(QUANTIZED_MODEL_ID, device=device, attn_implementation="flash_attention_2")
     model_device = model.device if isinstance(model.device, torch.device) else torch.device(model.device)
 
     if model_device.type == "cuda":
