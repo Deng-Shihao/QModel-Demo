@@ -41,45 +41,79 @@ class BaseQuantLinear(nn.Module):
 
     SUPPORTS_DTYPES: List[t.dtype] = None
 
-    REQUIRES_FORMAT_V2: bool = False
-
-    def __init__(self,
-                 bits: int,
-                 group_size: int,
-                 act_order: bool,
-                 sym: bool,
-                 in_features: int,
-                 out_features: int,
-                 bias: bool,
-                 pack_dtype: t.dtype,
-                 backend: BACKEND,
-                 name: str = None,
-                 register_buffers: bool = False,
-                 register_buffers_in_features: int = None,
-                 register_buffers_out_features: int = None,
-                 **kwargs):
+    def __init__(
+        self,
+        bits: int,
+        group_size: int,
+        act_order: bool,
+        sym: bool,
+        in_features: int,
+        out_features: int,
+        bias: bool,
+        pack_dtype: t.dtype,
+        backend: BACKEND,
+        name: str = None,
+        register_buffers: bool = False,
+        register_buffers_in_features: int = None,
+        register_buffers_out_features: int = None,
+        **kwargs,
+    ):
         super().__init__()
         if name is None:
             name = f"{self.__class__.__module__}.{self.__class__.__qualname__}"
-        self.name = name # full path module name in model weights
+        self.name = name  # full path module name in model weights
         self.in_features = in_features
         self.out_features = out_features
         self.group_size = group_size if group_size != -1 else in_features
         self.bits = bits
         self.act_order = act_order
-        self.pack_dtype = pack_dtype
         self.backend = backend
         self.maxq = 2 ** self.bits - 1
-        self.pack_dtype = pack_dtype
+        self._configure_pack_dtype(pack_dtype)
         # we need to clone the adapter since passed in adapter may be shared
         # adapter tensors are lodaed inside adapter so they must be unique per module
 
         self.optimized = False
 
+        # pack_factor is only used for bits 2, 4, and 8. bit3 3 does not use this variable.
+        self.pack_factor = self.pack_dtype_bits // self.bits
+        _, err = self._validate(
+            bits=bits,
+            group_size=group_size,
+            act_order=act_order,
+            sym=sym,
+            in_features=in_features,
+            out_features=out_features,
+            pack_dtype=pack_dtype,
+        )
+        if err:
+            raise err
+
+        # store qzero format
+        self._qzeros_format = 1  # only valid values are 1 and 2 for GPTQ v1 GPTQ v2
+
+        # most kernels share same buffers so they can share same register buffer code
+        if register_buffers:
+            # some kernels auto-pads in/out features
+            in_features = self.in_features if not register_buffers_in_features else register_buffers_in_features
+            out_features = self.out_features if not register_buffers_out_features else register_buffers_out_features
+
+            self._register_quant_buffers(
+                in_features=in_features,
+                out_features=out_features,
+                with_bias=bias,
+            )
+
+    def _configure_pack_dtype(self, pack_dtype: t.dtype) -> None:
+        """
+        Configure tensor dtypes/numpy counterparts used for packing logic.
+        Raises if an unsupported dtype is provided.
+        """
+        self.pack_dtype = pack_dtype
         if self.pack_dtype == t.int8:
             self.pack_dtype_bits = 8
-            self.pack_np_dtype = np.int8 # qweight saved dtype
-            self.pack_np_math_dtype = np.uint8 # pre-save math dtype
+            self.pack_np_dtype = np.int8  # qweight saved dtype
+            self.pack_np_math_dtype = np.uint8  # pre-save math dtype
         elif self.pack_dtype == t.int16:
             self.pack_dtype_bits = 16
             self.pack_np_dtype = np.int16
@@ -93,70 +127,60 @@ class BaseQuantLinear(nn.Module):
             self.pack_np_dtype = np.int64
             self.pack_np_math_dtype = np.uint64
         else:
-            raise ValueError("Unsupported weight_dtype. Only int16 and int32 are supported.")
+            raise ValueError("Unsupported weight_dtype. Only int16, int32, and int64 are supported.")
 
-        # pack_factor is only used for bits 2, 4, and 8. bit3 3 does not use this variable.
-        self.pack_factor = self.pack_dtype_bits // self.bits
-        _, err = self._validate(bits=bits, group_size=group_size, act_order=act_order, sym=sym, in_features=in_features, out_features=out_features, pack_dtype=pack_dtype)
-        if err:
-            raise err
-
-        # store qzero format
-        self._qzeros_format = 1 # only valid values are 1 and 2 for GPTQ v1 GPTQ v2
-
-        # most kernels share same buffers so they can share same register buffer code
-        if register_buffers:
-            # some kernels auto-pads in/out features
-            in_features = self.in_features if not register_buffers_in_features else register_buffers_in_features
-            out_features = self.out_features if not register_buffers_out_features else register_buffers_out_features
-
-            self.register_buffer(
-                "qweight",
-                t.zeros((in_features // self.pack_dtype_bits * self.bits, out_features), dtype=self.pack_dtype),
-            )
-            self.register_buffer(
-                "qzeros",
-                t.zeros(
-                    (
-                        math.ceil(in_features / self.group_size),
-                        out_features // self.pack_dtype_bits * self.bits,
-                    ),
-                    dtype=self.pack_dtype,
+    def _register_quant_buffers(self, in_features: int, out_features: int, with_bias: bool) -> None:
+        """
+        Lazily register quantization buffers so that kernels can reuse this helper.
+        """
+        self.register_buffer(
+            "qweight",
+            t.zeros(
+                (in_features // self.pack_dtype_bits * self.bits, out_features),
+                dtype=self.pack_dtype,
+            ),
+        )
+        self.register_buffer(
+            "qzeros",
+            t.zeros(
+                (
+                    math.ceil(in_features / self.group_size),
+                    out_features // self.pack_dtype_bits * self.bits,
                 ),
-            )
-            self.register_buffer(
-                "scales",
-                t.zeros(
-                    (math.ceil(in_features / self.group_size), out_features),
-                    dtype=t.float16,
-                ),
-            )
-            self.register_buffer(
-                "g_idx",
-                t.tensor([i // self.group_size for i in range(in_features)], dtype=t.int32),
-            )
-            if bias:
-                self.register_buffer("bias", t.zeros(out_features, dtype=t.float16))
-            else:
-                self.bias = None
-
+                dtype=self.pack_dtype,
+            ),
+        )
+        self.register_buffer(
+            "scales",
+            t.zeros(
+                (math.ceil(in_features / self.group_size), out_features),
+                dtype=t.float16,
+            ),
+        )
+        self.register_buffer(
+            "g_idx",
+            t.tensor([i // self.group_size for i in range(in_features)], dtype=t.int32),
+        )
+        if with_bias:
+            self.register_buffer("bias", t.zeros(out_features, dtype=t.float16))
+        else:
+            self.bias = None
 
     def list_buffers(self) -> List:
-        buf = []
-        if hasattr(self, "qweight") and self.qweight is not None:
-            buf.append(self.qweight)
-        if hasattr(self, "qzeros") and self.qzeros is not None:
-            buf.append(self.qzeros)
-        if hasattr(self, "scales") and self.scales is not None:
-            buf.append(self.scales)
-        if hasattr(self, "g_idx") and self.g_idx is not None:
-            buf.append(self.g_idx)
-        if hasattr(self, "bias") and self.bias is not None:
-            buf.append(self.bias)
-
-        return buf
+        """
+        Return registered quantization buffers. The order mirrors initialization.
+        """
+        buffers = []
+        for attr in ("qweight", "qzeros", "scales", "g_idx", "bias"):
+            value = getattr(self, attr, None)
+            if value is not None:
+                buffers.append(value)
+        return buffers
 
     def qzero_format(self, format: int = None) -> int:
+        """
+        Getter/setter for qzero storage format. Only GPTQ v1 (1) and v2 (2) are valid.
+        """
         # get
         if format is None:
             return self._qzeros_format
@@ -197,39 +221,42 @@ class BaseQuantLinear(nn.Module):
         """
         Validate that SUPPORTS parameters are not None or empty lists, raising an exception if the validation fails.
         """
-        base_supports_variables = [
-            (name, value) for name, value in BaseQuantLinear.__dict__.items()
+        base_supports_variables = {
+            name
+            for name, value in BaseQuantLinear.__dict__.items()
             if name.startswith("SUPPORTS") and not callable(value) and value is None
-        ]
-        child_supports_variables = [
-            (name, value) for name, value in cls.__dict__.items()
+        }
+        child_supports_variables = {
+            name: value
+            for name, value in cls.__dict__.items()
             if name.startswith("SUPPORTS") and not callable(value)
-        ]
+        }
 
-        base_supports_variables.sort(key=lambda x: x[0])
-        child_supports_variables.sort(key=lambda x: x[0])
-
-        base_variable_names = {name for name, value in base_supports_variables}
-        child_variable_names = {name for name, value in child_supports_variables}
-
-        missing_variables = base_variable_names - child_variable_names
+        missing_variables = base_supports_variables - set(child_supports_variables)
 
         if missing_variables:
             raise ValueError(
-                f"{cls.__name__} these SUPPORTS variables are not overridden: {', '.join(sorted(missing_variables))}")
+                f"{cls.__name__} these SUPPORTS variables are not overridden: {', '.join(sorted(missing_variables))}"
+            )
 
-        for name, value in child_supports_variables:
-            if not name.startswith("SUPPORTS") or callable(value):
-                continue
+        for name, value in child_supports_variables.items():
             if value is None:
                 raise ValueError(f"{cls.__name__}.{name} cannot be None.")
 
-            # if isinstance(value, list) and not value:
-            #     raise ValueError(f"{cls.__name__}.{name} cannot be an empty list.")
-
     @classmethod
-    def _validate(cls, bits: int=4, group_size: int=128, act_order: bool=False, sym: bool=False, pack_dtype:t.dtype=None, dynamic:Optional[dict]=None, in_features:int=None,
-                  out_features:int=None, device:Optional[DEVICE]=None, trainable:Optional[bool]=None) -> Tuple[bool, Optional[Exception]]:
+    def _validate(
+        cls,
+        bits: int = 4,
+        group_size: int = 128,
+        act_order: bool = False,
+        sym: bool = False,
+        pack_dtype: t.dtype = None,
+        dynamic: Optional[dict] = None,
+        in_features: int = None,
+        out_features: int = None,
+        device: Optional[DEVICE] = None,
+        trainable: Optional[bool] = None,
+    ) -> Tuple[bool, Optional[Exception]]:
         cls.verify_supports_params()
 
         if pack_dtype not in cls.SUPPORTS_PACK_DTYPES:
@@ -265,41 +292,24 @@ class BaseQuantLinear(nn.Module):
             err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual actor order = `{act_order}`"
             return False, NotImplementedError(err)
         if dynamic is not None:
-            dynamic_bits = {}
-            for pattern, pattern_dict in dynamic.items():
-                dynamic_bits[pattern] = pattern_dict.get("bits", bits)
             if len(cls.SUPPORTS_BITS) == 1:
                 err = f"{cls} not supported dynamic_bits, only support `{cls.SUPPORTS_BITS}` bits"
                 return False, NotImplementedError(err)
-            else:
-                for layer, bits in dynamic_bits.items():
-                    if bits not in cls.SUPPORTS_BITS:
-                        err = f"{cls} only supports `{cls.SUPPORTS_BITS}` bits: actual dynamic_bits = `{bits}` for layer `{layer}`"
+
+            dynamic_values = {
+                "bits": (cls.SUPPORTS_BITS, bits),
+                "group_size": (cls.SUPPORTS_GROUP_SIZE, group_size),
+                "sym": (cls.SUPPORTS_SYM, sym),
+                "act_order": (cls.SUPPORTS_ACT_ORDER, act_order),
+            }
+            for key, (supported, default) in dynamic_values.items():
+                for layer, value in cls._extract_dynamic_param(dynamic, key, default).items():
+                    if value not in supported:
+                        err = (
+                            f"{cls} only supports `{supported}` {key}: actual {key} = `{value}` "
+                            f"for layer `{layer}`"
+                        )
                         return False, NotImplementedError(err)
-
-            dynamic_group_size = {}
-            for pattern, pattern_dict in dynamic.items():
-                dynamic_group_size[pattern] = pattern_dict.get("group_size", group_size)
-            for layer, group_size in dynamic_group_size.items():
-                if group_size not in cls.SUPPORTS_GROUP_SIZE:
-                    err = f"{cls} only supports `{cls.SUPPORTS_GROUP_SIZE}` group_size: actual group_size = `{group_size}` for layer `{layer}`"
-                    return False, NotImplementedError(err)
-
-            dynamic_sym = {}
-            for pattern, pattern_dict in dynamic.items():
-                dynamic_sym[pattern] = pattern_dict.get("sym", sym)
-            for layer, sym in dynamic_sym.items():
-                if sym not in cls.SUPPORTS_SYM:
-                    err = f"{cls} only supports `{cls.SUPPORTS_SYM}` bits: actual sym = `{sym}` for layer `{layer}`"
-                    return False, NotImplementedError(err)
-
-            dynamic_act_order = {}
-            for pattern, pattern_dict in dynamic.items():
-                dynamic_act_order[pattern] = pattern_dict.get("act_order", act_order)
-            for layer, act_order in dynamic_act_order.items():
-                if act_order not in cls.SUPPORTS_ACT_ORDER:
-                    err = f"{cls} only supports `{cls.SUPPORTS_ACT_ORDER}` bits: actual act_order = `{act_order}` for layer `{layer}`"
-                    return False, NotImplementedError(err)
 
         if in_features is not None:
             validate = all(in_features % in_fea == 0 for in_fea in cls.SUPPORTS_IN_FEATURES_DIVISIBLE_BY)
@@ -317,6 +327,15 @@ class BaseQuantLinear(nn.Module):
                 err = f"{cls}: `out_features`: {out_features} must be divisible by {cls.SUPPORTS_OUT_FEATURES_DIVISIBLE_BY}."
                 return False, NotImplementedError(err)
         return True, None
+
+    @staticmethod
+    def _extract_dynamic_param(dynamic: dict, key: str, default):
+        """
+        Helper to obtain per-layer overrides from dynamic quantization configs.
+        """
+        if not dynamic:
+            return {}
+        return {pattern: params.get(key, default) for pattern, params in dynamic.items()}
 
     @classmethod
     def validate_device(cls, device: DEVICE):
