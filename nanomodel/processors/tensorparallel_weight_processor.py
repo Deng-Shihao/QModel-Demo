@@ -1,4 +1,4 @@
-"""Preprocessing stage that pads modules for tensor-parallel quantization."""
+"""A processor that calculates and annotates the required padding for tensor-parallel execution."""
 
 from __future__ import annotations
 
@@ -16,77 +16,83 @@ log = setup_logger()
 
 
 class TensorParallelWeightProcessor(BaseProcessor):
-    """Annotate modules with tensor-parallel padding metadata before quantisation.
+    """Calculates padding for tensor-parallelism and annotates modules.
 
-    Quantisation backends that shard weights across tensor-parallel ranks expect
-    column dimensions to align with the shard size. This processor computes the
-    minimal zero padding required to satisfy splits of 2, 4, and 8 and records
-    the result on the wrapped module so later stages can materialise padded
-    clones without mutating the live model parameters.
+    Quantization backends that shard weights across tensor-parallel ranks (e.g., 2, 4, or 8)
+    require that weight dimensions be divisible by the number of ranks. This processor
+    pre-computes the necessary padding and stores it in the module's state. Downstream
+    processes can then use this metadata to create padded weights without modifying
+    the original model parameters.
     """
 
+    # The tensor-parallel ranks we need to support.
     _TP_TARGETS = (2, 4, 8)
 
     def __init__(self, *args, **kwargs):
-        kwargs = dict(kwargs)
+        # This processor does not perform forward passes or calculate weight differences.
         kwargs.pop("calculate_w_wq_diff", None)
         kwargs.setdefault("require_fwd", False)
         kwargs.setdefault("fwd_after_process", False)
         super().__init__(*args, **kwargs)
 
+        # The target multiple is the Least Common Multiple (LCM) of the TP ranks.
+        # This ensures that the padded dimension is divisible by 2, 4, and 8.
         self._target_multiple = math.lcm(*self._TP_TARGETS)
 
-    def preprocess(self, module: NamedModule):  # pragma: no cover - simple hook
-        # The processor operates on every eligible module; no setup required.
+    def preprocess(self, module: NamedModule):
+        """A hook that runs before processing any modules. No setup is needed here."""
         pass
 
-    def is_skipped(self, module: NamedModule) -> bool:  # pragma: no cover - always active
+    def is_skipped(self, module: NamedModule) -> bool:
+        """Determines if this processor should skip a given module. It is always active."""
         return False
 
-    def pre_process_fwd_hook(self, name: str):  # pragma: no cover - no hook data needed
+    def pre_process_fwd_hook(self, name: str):
+        """Returns a forward hook. This processor doesn't need to inspect activations."""
         def _noop(module, inputs, output):
             return None
 
         return _noop
 
     def process(self, module: NamedModule):
-        target = module.module if isinstance(module, NamedModule) else module
-        weight = getattr(target, "weight", None)
-        if weight is None:
+        """Computes and stores the tensor-parallel padding info for a module."""
+        target = module.module
+        if not hasattr(target, "weight"):
             return
 
-        pad_info = self._compute_padding(target, module)
+        # Calculate the required padding for the weight's column dimension.
+        pad_info = self._compute_padding(module)
 
+        # If no padding is needed, ensure no old state remains.
         if pad_info["pad_cols"] == 0:
             module.state.pop("tp_pad_info", None)
             return
 
+        # Annotate the module with the padding information for later stages.
         module.state["tp_pad_info"] = pad_info
 
         log.debug(
-            "Pre-padding module %s: original_cols=%d target_multiple=%d pad_cols=%d",
-            getattr(module, "full_name", repr(module)),
+            "Annotated module %s for TP padding: original_cols=%d, pad_cols=%d",
+            module.full_name,
             pad_info["original_columns"],
-            pad_info["target_multiple"],
             pad_info["pad_cols"],
         )
-        # print(
-        #     "Pre-padding module %s: original_cols=%d target_multiple=%d pad_cols=%d",
-        #     getattr(module, "full_name", repr(module)),
-        #     pad_info["original_columns"],
-        #     pad_info["target_multiple"],
-        #     pad_info["pad_cols"],
-        # )
 
     def verify_calibration_dataset(self, processor_index: int) -> bool:
-        # Reuse the shared calibration cache; no bespoke dataset handling needed.
+        """Checks for a calibration dataset. Not needed for this processor."""
         return True
 
     def name(self) -> str:
+        """Returns the name of the processor."""
         return "tp-pre-pad"
 
-    def _compute_padding(self, module: torch.nn.Module, named: NamedModule) -> Dict[str, int]:
-        rows, columns = get_number_of_rows_and_cols(named)
+    def _compute_padding(self, named_module: NamedModule) -> Dict[str, int]:
+        """Calculates the number of columns to pad for tensor-parallel compatibility."""
+        _, columns = get_number_of_rows_and_cols(named_module)
+        
+        # Calculate how many columns we need to add to make the total divisible by the target multiple.
+        # Example: columns=100, target=8. 100 % 8 = 4. (8 - 4) % 8 = 4. We need to pad 4 columns.
+        # Example: columns=128, target=8. 128 % 8 = 0. (8 - 0) % 8 = 0. No padding needed.
         pad_cols = (self._target_multiple - (columns % self._target_multiple)) % self._target_multiple
 
         return {
