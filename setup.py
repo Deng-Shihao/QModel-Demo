@@ -424,16 +424,16 @@ if BUILD_CUDA_EXT_ENABLED:
                         extra_link_args=extra_link_args,
                         extra_compile_args=extra_compile_args,
                     ),
-                    cpp_ext.CUDAExtension(
-                        "nanomodel_awq_v2_kernels",
-                        [
-                            "nanomodel_ext/awq/pybind_awq_v2.cpp",
-                            "nanomodel_ext/awq/quantization_new/gemv/gemv_cuda.cu",
-                            "nanomodel_ext/awq/quantization_new/gemm/gemm_cuda.cu",
-                        ],
-                        extra_link_args=extra_link_args,
-                        extra_compile_args=extra_compile_args,
-                    )
+                    # cpp_ext.CUDAExtension(
+                    #     "nanomodel_awq_v2_kernels",
+                    #     [
+                    #         "nanomodel_ext/awq/pybind_awq_v2.cpp",
+                    #         "nanomodel_ext/awq/quantization_new/gemv/gemv_cuda.cu",
+                    #         "nanomodel_ext/awq/quantization_new/gemm/gemm_cuda.cu",
+                    #     ],
+                    #     extra_link_args=extra_link_args,
+                    #     extra_compile_args=extra_compile_args,
+                    # )
                 ]
 
 # Cached wheel fetcher
