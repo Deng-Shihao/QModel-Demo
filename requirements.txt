@@ -1,7 +1,8 @@
 setuptools>=80.9
 ninja>=1.13.0
 wheel==0.45.1
-torch>=2.8.0
+# torch>=2.8.0
+torch==2.9.0+cu130
 numpy==2.2.6
 transformers>=4.57.1
 accelerate>=1.10.1
@@ -16,4 +17,4 @@ maturin>=1.9.4
 datasets>=3.6.0
 pyarrow>=21.0
 dill>=0.3.8
-# flash-attn>=2.8.3
+flash-attn>=2.8.3

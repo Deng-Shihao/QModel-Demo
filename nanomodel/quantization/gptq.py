@@ -540,7 +540,7 @@ class GPTQ:
             self.H = torch.zeros((self.columns, self.columns), dtype=torch.float32, device=self._select_hessian_target_device(target_device))
         return self.H
 
-    # FIXME, optimum needs fasterquant, we need to remove it
+    # TODO optimum needs fasterquant, we need to remove it
     def fasterquant(
             self,
             blocksize=128,
@@ -552,7 +552,7 @@ class GPTQ:
     ):
         return self.hf_quantize(blocksize, percdamp, damp_auto_increment, group_size, actorder, static_groups)
 
-    # public api exposed to hf
+    # api exposed to hf
     def hf_quantize(
             self,
             blocksize=128,
