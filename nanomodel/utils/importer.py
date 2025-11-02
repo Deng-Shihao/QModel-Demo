@@ -27,14 +27,16 @@ from .torch import HAS_CUDA, HAS_MPS, HAS_XPU
 log = setup_logger()
 
 AUTO_SELECT_BACKEND_ORDER_MAP = {
+    # Marlin → Triton → Torch
     METHOD.GPTQ: OrderedDict(
         {
             BACKEND.MARLIN: MarlinQuantLinear,  # optimized for bs > 1
             BACKEND.TRITON: TritonV2QuantLinear,  # good all around kernel that JIT compiles
-            # BACKEND.CUDA: DynamicCudaQuantLinear,
             BACKEND.TORCH: TorchQuantLinear,  # slightly slower than Triton but getting close in Torch 2.6.0+
+            # BACKEND.CUDA: DynamicCudaQuantLinear,
         }
     ),
+    # Marlin → GEMM → GEMV → GEMV_FAST
     METHOD.AWQ: OrderedDict(
         {
             BACKEND.MARLIN: AwqMarlinQuantLinear,

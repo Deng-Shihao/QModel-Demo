@@ -13,11 +13,13 @@ class BACKEND(str, Enum):
     MARLIN_FP16 = "marlin_fp16" # FASTEST and then some: marlin reduce ops in fp16 (lower precision -> less accurate, slightly faster)
 
     # awq kernel
+    # MARLIN = "marlin" # FASTEST: marlin reduce ops in fp32 (higher precision -> more accurate, slightly slower)
+    # MARLIN_FP16 = "marlin_fp16" # FASTEST and then some: marlin reduce ops in fp16 (lower precision -> less accurate, slightly faster)
     GEMM = "gemm"
     GEMV = "gemv"
     GEMV_FAST = "gemv_fast"
 
-    # external
+    # TODO: external
     VLLM = "vllm" # External inference engine: CUDA + ROCm + IPEX
     SGLANG = "sglang" # External inference engine: CUDA + ROCm
     MLX = "mlx" # External inference engine: Apple MLX on M1+ (Apple Silicon)

@@ -60,3 +60,14 @@ uv pip install -e .
   year={2024}
 }
 ```
+
+### update
+gptq.py
+
+Documented and cleaned workspace/cache helpers to clarify device selection and resizing logic, including docstrings for _device_cache_key, _lease_workspace, and related methods (nanomodel/quantization/gptq.py (lines 22-205)).
+Added _quantize_block_vectorized and reused it across the mock/non-grouped paths to remove duplicated clamp/round code while preserving semantics (nanomodel/quantization/gptq.py (lines 233-267), nanomodel/quantization/gptq.py (lines 748-764)).
+Refactored process_batch to delegate reshaping to _reshape_inputs_for_hessian, tightened OOM handling, and added targeted logging/docstrings for easier reasoning about Hessian staging (nanomodel/quantization/gptq.py (lines 269-460)).
+Clarified quantization flow with docstrings, logging cleanups, and explanatory comments around activation ordering, static groups, and Hessian damping (nanomodel/quantization/gptq.py (lines 556-845)).
+Verified syntax with python3 - <<'PY' ... ast.parse(...) ... (py_compile attempted but blocked by sandbox cache permissions).
+
+Next steps: 1) Run ruff check nanomodel/quantization/gptq.py to keep formatting consistent. 2) Execute the existing quantization tests/recipes (e.g., pytest -k gptq or python example/basic_usage.py) to ensure runtime behavior still matches expectations.

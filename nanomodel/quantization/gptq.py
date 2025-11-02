@@ -1,12 +1,13 @@
 # adapted from @qwopqwop200 's [GPTQ-for-LLaMa](https://github.com/qwopqwop200/GPTQ-for-LLaMa/tree/cuda), which itself is based on [gptq](https://github.com/IST-DASLab/gptq)
 
 import contextlib
+import copy
 import math
 import os
 import sys
 import threading
 import time
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -24,8 +25,6 @@ from .quantizer import HF_OPTIMUM, Quantizer
 
 log = setup_logger()
 
-lock = threading.Lock()
-
 # Shared workspaces are cached globally per device so that concurrent GPTQ
 # instances reuse temporary buffers instead of repeatedly allocating large
 # tensors during Hessian accumulation. Each device retains at most a single
@@ -35,13 +34,14 @@ _WORKSPACE_CACHE: Dict[Tuple[str, Optional[int]], torch.Tensor] = {}
 _WORKSPACE_LOCKS: Dict[Tuple[str, Optional[int]], threading.Lock] = {}
 _BF16_SUPPORT_CACHE: Dict[Tuple[str, Optional[int]], bool] = {}
 
-
 def _device_cache_key(device: torch.device) -> Tuple[str, Optional[int]]:
+    """Build the global cache key for a torch device."""
     dev = torch.device(device)
     return dev.type, dev.index
 
 
 def _workspace_cache_key(device: torch.device) -> Tuple[str, Optional[int]]:
+    """Alias for `_device_cache_key` to clarify workspace intent."""
     return _device_cache_key(device)
 
 
@@ -51,24 +51,27 @@ def _needs_workspace_resize(
     required_rows: int,
     cols: int,
 ) -> bool:
+    """Return True when the cached workspace cannot satisfy the request."""
+
     if workspace is None:
         return True
-    if workspace.ndim != 2:
-        return True
-    if workspace.dtype != dtype:
-        return True
-    if workspace.shape[1] != cols:
-        return True
-    if workspace.shape[0] < required_rows:
-        return True
-    return False
+
+    return any(
+        [
+            workspace.ndim != 2,
+            workspace.dtype != dtype,
+            workspace.shape[1] != cols,
+            workspace.shape[0] < required_rows,
+        ]
+    )
 
 
 @contextlib.contextmanager
 def _lease_workspace(device: torch.device, dtype: torch.dtype, cols: int, required_rows: int):
+    """Provide a temporary workspace tensor, reusing cached buffers when possible."""
     key = _workspace_cache_key(device)
-    lock = _WORKSPACE_LOCKS.setdefault(key, threading.Lock())
-    with lock:
+    device_lock = _WORKSPACE_LOCKS.setdefault(key, threading.Lock())
+    with device_lock:
         workspace = _WORKSPACE_CACHE.pop(key, None)
         if _needs_workspace_resize(workspace, dtype, required_rows, cols):
             rows = max(required_rows, 1)
@@ -76,11 +79,12 @@ def _lease_workspace(device: torch.device, dtype: torch.dtype, cols: int, requir
     try:
         yield workspace
     finally:
-        with lock:
+        with device_lock:
             _WORKSPACE_CACHE[key] = workspace
 
 
 def _device_supports_bfloat16(device: torch.device) -> bool:
+    """Check whether a device can execute BF16 matmul operations."""
     cache_key = _device_cache_key(device)
     cached = _BF16_SUPPORT_CACHE.get(cache_key)
     if cached is not None:
@@ -104,6 +108,7 @@ def _device_supports_bfloat16(device: torch.device) -> bool:
 
 
 def get_number_of_rows_and_cols(layer: nn.Module):
+    """Return (rows, cols) for the weight matrix of supported layer types."""
     # return layer.weight.shape[0], np.prod(layer.weight.shape[1:])
     if isinstance(layer, NamedModule):
         layer = layer.module
@@ -119,17 +124,6 @@ def get_number_of_rows_and_cols(layer: nn.Module):
 class GPTQ:
     def __init__(self, module: nn.Module, qcfg: Optional[QuantizeConfig] = None):
         self.lock = threading.Lock()
-
-        # self.num_tied_handles = 0
-        # if qcfg.tied_gptq_handle is not None:
-        #     qcfg.tied_gptq_handle.num_tied_handles += 1
-
-        # Flags indicating issues
-        # self.issue_zero_samples = False
-        # self.issue_nan_hessian = False
-        # self.issue_non_invertible = False
-
-        # self.W = module.weight
         self.rows, self.columns = get_number_of_rows_and_cols(module)
         if isinstance(module, NamedModule):
             self.module = module.module
@@ -142,19 +136,7 @@ class GPTQ:
 
         self._original_rows = self.rows
         self._original_columns = self.columns
-        if self._named_module is not None:
-            pad_info = self._named_module.state.get("tp_pad_info")
-        else:
-            pad_info = getattr(self.module, "_tp_pad_info", None)
-        if isinstance(pad_info, dict):
-            pad_cols = int(pad_info.get("pad_cols", 0) or 0)
-            pad_cols = max(pad_cols, 0)
-        else:
-            pad_info = None
-            pad_cols = 0
-
-        self._tp_pad_info = pad_info
-        self._tp_pad_cols = pad_cols
+        self._tp_pad_info, self._tp_pad_cols = self._resolve_tensor_parallel_padding()
         if self._tp_pad_cols:
             self.columns += self._tp_pad_cols
 
@@ -168,21 +150,14 @@ class GPTQ:
 
         self._validate_module(self.module)
 
-        self.qcfg = qcfg if qcfg else QuantizeConfig()  # HF compat will not pass qcfg
-
-        self.module_copy = None
-
-        self.H = None
-        self.nsamples = 0
-
+        self.qcfg = qcfg if qcfg else QuantizeConfig()
         self.quantizer = self.create_quantizer(name=self.name)
 
-        # fwd counter
-        self.fwd_counter = 0
-
-        self.fail_safe = False
-
+        self.module_copy: Optional[torch.Tensor] = None
         self.H: Optional[torch.Tensor] = None
+        self.nsamples = 0
+        self.fwd_counter = 0
+        self.fail_safe = False
 
         # Store per-device Hessian contributions so multi-GPU calibration can
         # keep local accumulators and merge only once when quantization begins.
@@ -192,20 +167,34 @@ class GPTQ:
 
     @staticmethod
     def _validate_module(module):
+        """Ensure the module is of a supported layer type."""
         assert isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d,
                                    transformers.Conv1D)), f"We supports only linear and convolutional layers. actual = `{module}`"
 
-    # def has_hessian_issues(self) -> bool:
-    #     return any([self.issue_zero_samples, self.issue_nan_hessian, self.issue_non_invertible])
+    def _resolve_tensor_parallel_padding(self) -> Tuple[Optional[Dict[str, int]], int]:
+        """Return tensor parallel padding metadata (pad info, pad columns)."""
+        if self._named_module is not None:
+            pad_info = self._named_module.state.get("tp_pad_info")
+        else:
+            pad_info = getattr(self.module, "_tp_pad_info", None)
+
+        if isinstance(pad_info, dict):
+            pad_cols = max(int(pad_info.get("pad_cols", 0) or 0), 0)
+        else:
+            pad_info = None
+            pad_cols = 0
+
+        return pad_info, pad_cols
 
     def create_quantizer(self, name: str) -> Quantizer:
+        """Construct the `Quantizer` used to derive scale/zero parameters."""
         return Quantizer(qcfg=self.qcfg, name=name)
 
-    def shape(self):
-        if hasattr(self, "module"):
-            return self.module.weight.shape
-        else:
-            return (0, 0)
+    def shape(self) -> Tuple[int, ...]:
+        """Expose the module weight shape for compatibility with older callers."""
+        if hasattr(self.module, "weight"):
+            return tuple(self.module.weight.shape)
+        return (0, 0)
 
     def _mock_hessian_inverse(self, H: torch.Tensor):
         """Mock hessian inverse for fast testing"""
@@ -238,6 +227,7 @@ class GPTQ:
 
     @staticmethod
     def _truncate_last_dim(tensor: torch.Tensor, length: int) -> torch.Tensor:
+        """Trim the last dimension of `tensor` to `length` elements if needed."""
         if tensor.dim() == 0:
             return tensor
 
@@ -247,28 +237,97 @@ class GPTQ:
 
         return tensor.narrow(tensor.dim() - 1, 0, trim).contiguous()
 
-    def add_batch(self, inp: torch.Tensor, out: torch.Tensor, batch_index: Optional[int] = None):
+    def _quantize_block_vectorized(
+        self,
+        weights: torch.Tensor,
+        scale: torch.Tensor,
+        zero: Optional[torch.Tensor],
+    ) -> torch.Tensor:
+        """Vectorized quantization helper shared by mock and standard flows."""
+
+        maxq_val = (1 << self.qcfg.bits) - 1
+        scale_view = scale
+        zero_view = zero
+
+        if scale_view.dim() == 1:
+            scale_view = scale_view.view(-1, 1)
+
+        if zero_view is None:
+            zero_view = torch.zeros_like(scale_view)
+        elif zero_view.dim() == 1:
+            zero_view = zero_view.view(-1, 1)
+
+        if self.qcfg.sym:
+            rounded = torch.round(weights / scale_view)
+            clamped = torch.clamp(rounded, -(maxq_val // 2), maxq_val // 2)
+            return scale_view * clamped
+
+        rounded = torch.round(weights / scale_view) + zero_view
+        clamped = torch.clamp(rounded, 0, maxq_val)
+        return scale_view * (clamped - zero_view)
+
+    def _reshape_inputs_for_hessian(self, inp: torch.Tensor) -> torch.Tensor:
+        """Flatten module inputs so each row corresponds to a single activation vector."""
+        if isinstance(self.module, (nn.Linear, transformers.Conv1D)):
+            return inp.reshape(-1, inp.shape[-1])
+
+        if isinstance(self.module, nn.Conv1d):
+            reshaped_inp = inp.reshape(
+                inp.size(0) * self.module.groups,
+                inp.size(1) // self.module.groups,
+                inp.shape[2],
+                1,
+            )
+            unfold = nn.Unfold(
+                self.module.kernel_size + (1,),
+                dilation=self.module.dilation + (1,),
+                padding=self.module.padding + (0,),
+                stride=self.module.stride + (1,),
+            )
+        else:
+            reshaped_inp = inp.reshape(
+                inp.size(0) * self.module.groups,
+                inp.size(1) // self.module.groups,
+                inp.shape[2],
+                inp.shape[3],
+            )
+            unfold = nn.Unfold(
+                self.module.kernel_size,
+                dilation=self.module.dilation,
+                padding=self.module.padding,
+                stride=self.module.stride,
+            )
+
+        # `nn.Unfold` returns (batch, channels * prod(kernel_size), num_patches).
+        reshaped_inp = unfold(reshaped_inp)
+        return reshaped_inp.transpose(1, 2).flatten(0, 1)
+
+    def add_batch(self, inp: torch.Tensor, out: torch.Tensor, batch_index: Optional[int] = None) -> None:
+        """Accumulate Hessian statistics for a calibration batch."""
         batch_token_size, xtx, device = self.process_batch(inp)
         if batch_token_size == 0 or xtx is None:
             return
 
-        dev = torch.device(device)
+        target_device = torch.device(device)
 
         with self.lock:
             self.fwd_counter += 1
 
-            existing = self._device_hessian_partials.get(dev)
+            existing = self._device_hessian_partials.get(target_device)
             if existing is None:
-                self._device_hessian_partials[dev] = xtx
+                self._device_hessian_partials[target_device] = xtx
             else:
                 existing.add_(xtx)
                 del xtx
 
-            self._device_sample_counts[dev] = self._device_sample_counts.get(dev, 0) + batch_token_size
+            self._device_sample_counts[target_device] = (
+                self._device_sample_counts.get(target_device, 0) + batch_token_size
+            )
             self.nsamples += batch_token_size
             self._hessian_dirty = True
 
     def _preferred_staging_dtype(self, input_dtype: torch.dtype, device: torch.device) -> torch.dtype:
+        """Pick the staging dtype used before forming X^T X, honoring BF16 when viable."""
         device = torch.device(device)
 
         if not self.qcfg.hessian_use_bfloat16_staging:
@@ -283,6 +342,7 @@ class GPTQ:
         return torch.bfloat16
 
     def _resolve_hessian_chunk_size(self, rows: int, stage_dtype: torch.dtype) -> Optional[int]:
+        """Return the row chunk size for Hessian accumulation given config budgets."""
         if rows == 0:
             return None
 
@@ -307,6 +367,7 @@ class GPTQ:
         chunk: torch.Tensor,
         rows: int,
     ) -> torch.Tensor:
+        """Yield a float32 view of `chunk`, materializing on-demand workspaces."""
         if rows == 0:
             yield chunk.new_zeros((0, self.columns), dtype=torch.float32)
             return
@@ -335,6 +396,7 @@ class GPTQ:
                             torch.cuda.current_stream(device).synchronize()
 
     def _compute_hessian_xtx(self, matrix: torch.Tensor) -> torch.Tensor:
+        """Compute X^T X with optional chunking to stay within the memory budget."""
         rows = matrix.shape[0]
         if rows == 0:
             return torch.zeros((self.columns, self.columns), dtype=torch.float32, device=matrix.device)
@@ -358,74 +420,33 @@ class GPTQ:
         return xtx_accum
 
     def process_batch(self, inp: torch.Tensor) -> Tuple[int, Optional[torch.Tensor], torch.device]:
-        # print(f"inp = {inp}")
-        # print(f"self.module = {self.module} device = {self.module.target_device}")
+        """Reshape a calibration batch and return its Hessian contribution."""
+
         inp_device = get_device(inp)
+        reshaped_inp = self._reshape_inputs_for_hessian(inp).contiguous()
 
-        #inp = inp.to(device=self.module.target_device, dtype=torch.float32)
-
-        # input reshaping
-        if isinstance(self.module, (nn.Linear, transformers.Conv1D)):
-            reshaped_inp = inp.reshape(-1, inp.shape[-1])
-        else:
-            if isinstance(self.module, nn.Conv1d):
-                reshaped_inp = inp.reshape(
-                    inp.size(0) * self.module.groups,
-                    inp.size(1) // self.module.groups,
-                    inp.shape[2],
-                    1,
-                )
-                unfold = nn.Unfold(
-                    self.module.kernel_size + (1,),
-                    dilation=self.module.dilation + (1,),
-                    padding=self.module.padding + (0,),
-                    stride=self.module.stride + (1,),
-                )
-                # output size (batch_size, channels * \prod kernel_size, num_patches)
-                reshaped_inp = unfold(reshaped_inp)
-            else:
-                reshaped_inp = inp.reshape(
-                    inp.size(0) * self.module.groups,
-                    inp.size(1) // self.module.groups,
-                    inp.shape[2],
-                    inp.shape[3],
-                )
-                unfold = nn.Unfold(
-                    self.module.kernel_size,
-                    dilation=self.module.dilation,
-                    padding=self.module.padding,
-                    stride=self.module.stride,
-                )
-                # output size (batch_size, channels * \prod kernel_size, num_patches)
-                reshaped_inp = unfold(reshaped_inp)
-            reshaped_inp = reshaped_inp.transpose(1, 2).flatten(0, 1)
-
-        # Delay dtype conversion until we materialize Hessian chunks to avoid unnecessary temporaries
-        reshaped_inp = reshaped_inp.contiguous()
         if self._tp_pad_cols:
             pad = reshaped_inp.new_zeros((reshaped_inp.shape[0], self._tp_pad_cols))
             reshaped_inp = torch.cat((reshaped_inp, pad), dim=1)
-        canonical_device = torch.device(inp_device)
 
         batch_token_size = reshaped_inp.shape[0]
+        canonical_device = torch.device(inp_device)
 
         if batch_token_size == 0:
-            del reshaped_inp
+            reshaped_inp = None
             return 0, None, canonical_device
 
         try:
             xtx = self._compute_hessian_xtx(reshaped_inp).to(dtype=torch.float32)
         except RuntimeError as exc:
-            if (
-                torch.device(inp_device).type == "cuda"
-                and "out of memory" in str(exc).lower()
-            ):
+            if canonical_device.type == "cuda" and "out of memory" in str(exc).lower():
                 log.warn(
-                    "GPTQ module '%s' fell back to CPU Hessian accumulation due to GPU OOM during batch processing.",
+                    "GPTQ module '%s' fell back to CPU Hessian accumulation due to GPU OOM "
+                    "during batch processing.",
                     getattr(self, "name", "<unknown>"),
                 )
                 reshaped_inp_cpu = reshaped_inp.to(device=torch.device("cpu"))
-                del reshaped_inp
+                reshaped_inp = None
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 canonical_device = torch.device("cpu")
@@ -433,15 +454,17 @@ class GPTQ:
                 xtx = xtx.detach()
                 del reshaped_inp_cpu
             else:
-                del reshaped_inp
+                reshaped_inp = None
                 raise
         else:
             xtx = xtx.detach()
-            del reshaped_inp
+        finally:
+            reshaped_inp = None
 
         return batch_token_size, xtx, canonical_device
 
     def _select_hessian_target_device(self, requested: Optional[torch.device]) -> torch.device:
+        """Pick the device that should host the final Hessian buffer."""
         if requested is not None:
             return torch.device(requested)
 
@@ -456,6 +479,7 @@ class GPTQ:
         return torch.device("cpu")
 
     def _materialize_global_hessian(self, target_device: Optional[torch.device] = None) -> None:
+        """Aggregate per-device Hessian contributions into `self.H`."""
         device = self._select_hessian_target_device(target_device)
 
         with self.lock:
@@ -510,6 +534,7 @@ class GPTQ:
             self._device_sample_counts.clear()
 
     def finalize_hessian(self, target_device: Optional[torch.device] = None) -> torch.Tensor:
+        """Ensure the Hessian tensor is materialized on the target device."""
         self._materialize_global_hessian(target_device=target_device)
         if self.H is None:
             self.H = torch.zeros((self.columns, self.columns), dtype=torch.float32, device=self._select_hessian_target_device(target_device))
@@ -538,6 +563,7 @@ class GPTQ:
             static_groups=False,
             act_group_aware: Optional[bool] = None,
     ):
+        """HuggingFace entry point that forwards configuration into `quantize`."""
         self.qcfg.group_size = group_size
         self.qcfg.damp_percent = percdamp
         self.qcfg.damp_auto_increment = damp_auto_increment
@@ -552,6 +578,7 @@ class GPTQ:
 
     @torch.inference_mode()
     def hessian_inverse(self, H: torch.Tensor):
+        """Compute a damped Cholesky-based inverse of the Hessian approximation."""
 
         damp = self.qcfg.damp_percent
         diag = torch.arange(self.columns, device=H.device)
@@ -567,16 +594,30 @@ class GPTQ:
             except torch._C._LinAlgError as e:
                 if self.qcfg.damp_auto_increment != 0:
                     log.warn(
-                        f"Quantization: Module `{self.name}` -> Current `damp_percent = {damp:.5f}` is too low, auto-incrementing by `{self.qcfg.damp_auto_increment:.5f}`")
+                        "Quantization: Module `%s` -> Current damp_percent=%.5f is too low, "
+                        "auto-incrementing by %.5f",
+                        self.name,
+                        damp,
+                        self.qcfg.damp_auto_increment,
+                    )
                     damp += self.qcfg.damp_auto_increment
                 else:
                     log.warn(
-                        "Quantization: Module `{self.name}` -> Please increase damp or nsamples for calibration data to avoid the following quant error: current damp_percent=`{damp_percent:.5f}`")
+                        "Quantization: Module `%s` -> Please increase damp or nsamples for "
+                        "calibration data to avoid quantization errors; current "
+                        "damp_percent=%.5f",
+                        self.name,
+                        damp,
+                    )
                     raise e
 
         if not (0 < damp < 1):
             log.error(
-                f"Quantization: Module `{self.name}` -> `damp_percent` must between 0 and 1. current is {damp}. Module cannot be correctly processed.")
+                "Quantization: Module `%s` -> damp_percent must be between 0 and 1 (current %.5f). "
+                "Module cannot be correctly processed.",
+                self.name,
+                damp,
+            )
             # raise ValueError(f"Quantization: `damp_percent` must between 0 and 1. current is {damp}")
             return None, 1.0
 
@@ -587,6 +628,7 @@ class GPTQ:
             self,
             blocksize=128,
     ):
+        """Quantize the module weights using GPTQ while respecting the quant config."""
         # self.H = self.H.to(device=CUDA_0)
         # log.info(f"Quantization `{self.name}` using samples: `{self.nsamples}`")
         start = time.time()
@@ -619,21 +661,22 @@ class GPTQ:
             del self.module_copy
 
         self.quantizer.find_params(W, weight=True)
+        # Seed the quantizer with global statistics before any per-group overrides.
 
         # H = self.H.to(device=self.H.device)
 
         dead = torch.diag(self.H) == 0
+        # Guard against zeroed Hessian diagonals which would break the solve.
         self.H[dead, dead] = 1
         W[:, dead] = 0
 
-        # g_idx = []
-        scale = []
-        zero = []
+        scale: List[torch.Tensor] = []
+        zero: List[torch.Tensor] = []
         now_idx = 1
+        groups: Optional[List[Quantizer]] = None
 
         if self.qcfg.static_groups:
-            import copy
-
+            # Pre-compute immutable group quantizers once to reuse across blocks.
             groups = []
             for i in range(0, self.columns, self.qcfg.group_size):
                 quantizer = copy.deepcopy(self.quantizer)
@@ -644,12 +687,14 @@ class GPTQ:
                 groups.append(quantizer)
 
         if self.qcfg.act_order:
+            # Reorder columns by Hessian importance when activation ordering is enabled.
             perm = torch.argsort(torch.diag(self.H), descending=True)
             W = W[:, perm]
             self.H = self.H[perm][:, perm]
             invperm = torch.argsort(perm)
 
         elif self.qcfg.act_group_aware:
+            # Apply GAR permutations to improve group-wise loss characteristics.
             diag_h = torch.diag(self.H)
             local_perms, local_values = compute_local_perms(
                 diag_h, self.qcfg.group_size, return_values=True
@@ -678,7 +723,7 @@ class GPTQ:
                 W1 = W[:, i1:i2]
                 Q1 = torch.zeros_like(W1)
 
-                # Handle group quantization parameters efficiently (similar to original)
+                # Handle group quantization parameters efficiently when grouping is enabled.
                 if self.qcfg.group_size != -1:
                     if not self.qcfg.static_groups:
                         # Find parameters for entire groups at once (optimized)
@@ -700,34 +745,9 @@ class GPTQ:
 
                     # Vectorized quantization for the entire block (major optimization)
                     if len(scale) > 0 and len(zero) > 0:
-                        # Use latest scale and zero for the entire block
                         latest_scale = scale[-1]
                         latest_zero = zero[-1]
-
-                        # Vectorized quantization using broadcasting
-                        # Reshape scales and zeros to match block dimensions
-                        if latest_scale.dim() == 1:
-                            latest_scale = latest_scale.view(-1, 1)
-                        if latest_zero.dim() == 1:
-                            latest_zero = latest_zero.view(-1, 1)
-
-                        # Apply quantization formula using the cloned weights W1
-                        maxq_val = 2 ** self.qcfg.bits - 1
-                        if self.qcfg.sym:
-                            # Symmetric quantization: Q = scale * clamp(round(x/scale), -maxq/2, maxq/2)
-                            Q1 = latest_scale * torch.clamp(
-                                torch.round(W1 / latest_scale),
-                                -(maxq_val // 2),
-                                maxq_val // 2
-                            )
-                        else:
-                            # Asymmetric quantization: Q = scale * (clamp(round(x/scale) + zero, 0, maxq) - zero)
-                            quantized = torch.clamp(
-                                torch.round(W1 / latest_scale) + latest_zero,
-                                0,
-                                maxq_val
-                            )
-                            Q1 = latest_scale * (quantized - latest_zero)
+                        Q1 = self._quantize_block_vectorized(W1, latest_scale, latest_zero)
                     else:
                         # Fallback to individual quantization if no scale/zero available
                         for i in range(count):
@@ -736,29 +756,12 @@ class GPTQ:
                             Q1[:, i] = q
                 else:
                     # No grouping - vectorized quantization for entire block
-                    maxq_val = 2 ** self.qcfg.bits - 1
                     if hasattr(self.quantizer, 'scale') and hasattr(self.quantizer, 'zero'):
-                        latest_scale = self.quantizer.scale
-                        latest_zero = self.quantizer.zero
-
-                        if latest_scale.dim() == 1:
-                            latest_scale = latest_scale.view(-1, 1)
-                        if latest_zero.dim() == 1:
-                            latest_zero = latest_zero.view(-1, 1)
-
-                        if self.qcfg.sym:
-                            Q1 = latest_scale * torch.clamp(
-                                torch.round(W1 / latest_scale),
-                                -(maxq_val // 2),
-                                maxq_val // 2
-                            )
-                        else:
-                            quantized = torch.clamp(
-                                torch.round(W1 / latest_scale) + latest_zero,
-                                0,
-                                maxq_val
-                            )
-                            Q1 = latest_scale * (quantized - latest_zero)
+                        Q1 = self._quantize_block_vectorized(
+                            W1,
+                            self.quantizer.scale,
+                            self.quantizer.zero,
+                        )
                     else:
                         # Fallback to individual quantization
                         for i in range(count):
@@ -768,7 +771,7 @@ class GPTQ:
 
                 Q[:, i1:i2] = Q1
         else:
-            # Original heavy loop for normal quantization
+            # Standard GPTQ loop with rank-1 error feedback updates.
             for i1 in range(0, self.columns, blocksize):
                 i2 = min(i1 + blocksize, self.columns)
                 count = i2 - i1
@@ -898,6 +901,7 @@ class GPTQ:
         return Q, scale, zero, g_idx, duration, avg_loss, damp, self.nsamples
 
     def free(self):
+        """Release internal buffers that are no longer required post-quantization."""
         if hasattr(self, "H"):
             del self.H
         del self.quantizer
