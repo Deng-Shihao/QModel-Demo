@@ -17,4 +17,4 @@ maturin>=1.9.4
 datasets>=3.6.0
 pyarrow>=21.0
 dill>=0.3.8
-flash-attn>=2.8.3
+# flash-attn>=2.8.3
