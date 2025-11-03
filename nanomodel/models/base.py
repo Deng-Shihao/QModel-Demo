@@ -278,13 +278,9 @@ class BaseNanoModel(nn.Module):
         # Configure lookahead optimization for quantized modules if applicable.
         self._auto_configure_lookahead()
 
-    def _assign_tokenizer(
-        self, tokenizer: Optional[PreTrainedTokenizerBase]
-    ) -> None:
+    def _assign_tokenizer(self, tokenizer: Optional[PreTrainedTokenizerBase]) -> None:
         """Attach the tokenizer to both this wrapper and the underlying Hugging Face model."""
-        if tokenizer is not None and not isinstance(
-            tokenizer, PreTrainedTokenizerBase
-        ):
+        if tokenizer is not None and not isinstance(tokenizer, PreTrainedTokenizerBase):
             raise ValueError(
                 f"Unsupported `tokenizer` type: Expected `PreTrainedTokenizerBase`, actual = `{type(tokenizer)}`."
             )
@@ -417,7 +413,9 @@ class BaseNanoModel(nn.Module):
         return layer_modules
 
     @classmethod
-    def full_layer_modules(cls, model_config=None, is_awq_quantize: bool = False) -> List[List[str]]:
+    def full_layer_modules(
+        cls, model_config=None, is_awq_quantize: bool = False
+    ) -> List[List[str]]:
         """
         Builds the complete list of layer modules, including non-quantizable ones.
 
@@ -493,9 +491,7 @@ class BaseNanoModel(nn.Module):
         )
 
         for attr_name in primary_names:
-            if _maybe_resolve_length(
-                getattr(model_config, attr_name, None), attr_name
-            ):
+            if _maybe_resolve_length(getattr(model_config, attr_name, None), attr_name):
                 break
         if max_positions is None:
             for attr_name in fallback_names:
@@ -548,13 +544,13 @@ class BaseNanoModel(nn.Module):
         )
 
         # 6. Collate the final dataset into batches.
-        batched_dataset = self._batch_examples(
-            sorted_examples, batch_size=batch_size
-        )
+        batched_dataset = self._batch_examples(sorted_examples, batch_size=batch_size)
 
         return batched_dataset
 
-    def _process_and_tokenize_examples(self, raw_examples: List[Any]) -> List[Dict[str, torch.Tensor]]:
+    def _process_and_tokenize_examples(
+        self, raw_examples: List[Any]
+    ) -> List[Dict[str, torch.Tensor]]:
         """Process and tokenize a list of raw calibration examples."""
         processed_examples = []
         for idx, example in enumerate(raw_examples):
@@ -562,13 +558,25 @@ class BaseNanoModel(nn.Module):
                 # Handle dictionary-like examples (e.g., from datasets library)
                 example_dict = dict(example)
                 if "messages" in example_dict:
-                    processed_examples.append(self._tokenize_messages_value(example_dict["messages"], idx))
+                    processed_examples.append(
+                        self._tokenize_messages_value(example_dict["messages"], idx)
+                    )
                 elif "text" in example_dict:
-                    processed_examples.append(self._tokenize_text_value(example_dict["text"], idx))
+                    processed_examples.append(
+                        self._tokenize_text_value(example_dict["text"], idx)
+                    )
                 elif "input_ids" in example_dict:
-                    processed_examples.append(self._pack_ids(example_dict["input_ids"], example_dict.get("attention_mask"), idx))
+                    processed_examples.append(
+                        self._pack_ids(
+                            example_dict["input_ids"],
+                            example_dict.get("attention_mask"),
+                            idx,
+                        )
+                    )
                 else:
-                    raise ValueError(f"Unsupported calibration dict at index {idx}: keys={list(example_dict.keys())}")
+                    raise ValueError(
+                        f"Unsupported calibration dict at index {idx}: keys={list(example_dict.keys())}"
+                    )
             elif isinstance(example, str):
                 # Handle raw string examples
                 processed_examples.append(self._tokenize_text_value(example, idx))
@@ -577,20 +585,26 @@ class BaseNanoModel(nn.Module):
                 if all(isinstance(x, int) for x in example):
                     processed_examples.append(self._pack_ids(list(example), None, idx))
                 else:
-                    raise ValueError(f"List-based calibration example at index {idx} must contain only integers.")
+                    raise ValueError(
+                        f"List-based calibration example at index {idx} must contain only integers."
+                    )
             elif torch.is_tensor(example):
                 # Handle tensor examples
                 processed_examples.append(self._pack_ids(example, None, idx))
             else:
-                raise ValueError(f"Unsupported calibration example type {type(example)} at index {idx}.")
+                raise ValueError(
+                    f"Unsupported calibration example type {type(example)} at index {idx}."
+                )
         return processed_examples
 
-    def _trim_and_filter_examples(self, tokenized_examples: List[Dict[str, torch.Tensor]], min_length: int) -> List[Dict[str, List[List[int]]]]:
+    def _trim_and_filter_examples(
+        self, tokenized_examples: List[Dict[str, torch.Tensor]], min_length: int
+    ) -> List[Dict[str, List[List[int]]]]:
         """Trim examples to max sequence length and filter out those that are too short."""
         max_positions, max_positions_source = self._resolve_sequence_length_limit()
         trimmed_row_count = 0
         longest_trimmed_row = 0
-        
+
         new_calibration_dataset = []
         too_short_count = 0
 
@@ -614,34 +628,49 @@ class BaseNanoModel(nn.Module):
                         trimmed_input_ids.append(row_ids)
                         trimmed_attention_mask.append(row_mask)
                 if trimmed:
-                    input_ids, attention_mask = trimmed_input_ids, trimmed_attention_mask
+                    input_ids, attention_mask = (
+                        trimmed_input_ids,
+                        trimmed_attention_mask,
+                    )
 
             # Filter out examples that are shorter than the minimum length
             if len(input_ids[0]) <= min_length:
                 too_short_count += 1
                 continue
 
-            new_calibration_dataset.append({"input_ids": input_ids, "attention_mask": attention_mask})
+            new_calibration_dataset.append(
+                {"input_ids": input_ids, "attention_mask": attention_mask}
+            )
 
         if too_short_count > 0:
-            log.warning(f"Quantize: {too_short_count} inputs with length <= {min_length} were removed.")
+            log.warning(
+                f"Quantize: {too_short_count} inputs with length <= {min_length} were removed."
+            )
         if trimmed_row_count > 0:
-            log.info(f"Quantize: Trimmed {trimmed_row_count} calibration rows to {max_positions} tokens (source: {max_positions_source}, longest: {longest_trimmed_row}).")
+            log.info(
+                f"Quantize: Trimmed {trimmed_row_count} calibration rows to {max_positions} tokens (source: {max_positions_source}, longest: {longest_trimmed_row})."
+            )
 
         return new_calibration_dataset
 
-    def _concatenate_examples(self, examples: List[Dict[str, List[List[int]]]], concat_size: int) -> List[Dict[str, List[List[int]]]]:
+    def _concatenate_examples(
+        self, examples: List[Dict[str, List[List[int]]]], concat_size: int
+    ) -> List[Dict[str, List[List[int]]]]:
         """Concatenate multiple examples into single, larger sequences of a fixed size."""
         self._require_tokenizer("`calibration_dataset_concat_size` is specified")
-        
+
         concatenated_data = []
         input_ids_buffer, attention_mask_buffer = [], []
         current_length = 0
 
         # Tokenize the separator character
-        new_line_tokens = self.tokenizer(CALIBRATION_DATASET_CONCAT_CHAR, return_tensors="pt")
+        new_line_tokens = self.tokenizer(
+            CALIBRATION_DATASET_CONCAT_CHAR, return_tensors="pt"
+        )
         new_line_ids = self._convert_tensor_to_list(new_line_tokens["input_ids"])[0]
-        new_line_mask = self._convert_tensor_to_list(new_line_tokens["attention_mask"])[0]
+        new_line_mask = self._convert_tensor_to_list(new_line_tokens["attention_mask"])[
+            0
+        ]
         new_line_len = len(new_line_ids)
 
         for example in examples:
@@ -654,12 +683,17 @@ class BaseNanoModel(nn.Module):
                     remaining = concat_size - current_length
                     if remaining > new_line_len:
                         input_ids_buffer.extend(new_line_ids)
-                        input_ids_buffer.extend(ids[:remaining - new_line_len])
+                        input_ids_buffer.extend(ids[: remaining - new_line_len])
                         attention_mask_buffer.extend(new_line_mask)
-                        attention_mask_buffer.extend(mask[:remaining - new_line_len])
-                    
-                    concatenated_data.append({"input_ids": [input_ids_buffer], "attention_mask": [attention_mask_buffer]})
-                
+                        attention_mask_buffer.extend(mask[: remaining - new_line_len])
+
+                    concatenated_data.append(
+                        {
+                            "input_ids": [input_ids_buffer],
+                            "attention_mask": [attention_mask_buffer],
+                        }
+                    )
+
                 # Start a new buffer with the current example
                 input_ids_buffer = ids[:concat_size]
                 attention_mask_buffer = mask[:concat_size]
@@ -670,7 +704,7 @@ class BaseNanoModel(nn.Module):
                     input_ids_buffer.extend(new_line_ids)
                     attention_mask_buffer.extend(new_line_mask)
                     current_length += new_line_len
-                
+
                 input_ids_buffer.extend(ids)
                 attention_mask_buffer.extend(mask)
                 current_length += len(ids)
@@ -681,16 +715,27 @@ class BaseNanoModel(nn.Module):
             if padding_len > 0:
                 input_ids_buffer.extend([self.tokenizer.pad_token_id] * padding_len)
                 attention_mask_buffer.extend([0] * padding_len)
-            concatenated_data.append({"input_ids": [input_ids_buffer], "attention_mask": [attention_mask_buffer]})
+            concatenated_data.append(
+                {
+                    "input_ids": [input_ids_buffer],
+                    "attention_mask": [attention_mask_buffer],
+                }
+            )
 
         return concatenated_data
 
-    def _sort_examples(self, examples: List[Dict[str, List[List[int]]]], sort_mode: Optional[str]) -> List[Dict[str, List[List[int]]]]:
+    def _sort_examples(
+        self, examples: List[Dict[str, List[List[int]]]], sort_mode: Optional[str]
+    ) -> List[Dict[str, List[List[int]]]]:
         """Sort or shuffle the calibration dataset."""
         sort_mode = (sort_mode or "").lower()
         if sort_mode in {"asc", "desc"}:
             log.info(f"Calibration: Sorting by length in {sort_mode}ending order.")
-            return sorted(examples, key=lambda item: len(item["input_ids"][0]), reverse=sort_mode == "desc")
+            return sorted(
+                examples,
+                key=lambda item: len(item["input_ids"][0]),
+                reverse=sort_mode == "desc",
+            )
         elif sort_mode == "shuffle":
             log.info("Calibration: Shuffling dataset randomly.")
             shuffled = examples[:]
@@ -700,24 +745,37 @@ class BaseNanoModel(nn.Module):
             log.info("Calibration: Using native dataset order.")
             return examples
 
-    def _batch_examples(self, examples: List[Dict[str, Any]], batch_size: int) -> List[Dict[str, torch.Tensor]]:
+    def _batch_examples(
+        self, examples: List[Dict[str, Any]], batch_size: int
+    ) -> List[Dict[str, torch.Tensor]]:
         """Collate a list of examples into batches."""
         if self.support_batch_quantize:
             # Collate data into batches with padding
             batched_dataset = [
-                collate_data(examples[start:start + batch_size], self.tokenizer.pad_token_id)
+                collate_data(
+                    examples[start : start + batch_size], self.tokenizer.pad_token_id
+                )
                 for start in range(0, len(examples), batch_size)
             ]
-            
+
             # Log token statistics
-            total_padded = sum((batch["attention_mask"] == 0).sum().item() for batch in batched_dataset)
-            total_non_padded = sum((batch["attention_mask"] == 1).sum().item() for batch in batched_dataset)
-            log.info(f"Calibration: Total tokens: {total_non_padded + total_padded} ({total_non_padded} non-padded, {total_padded} padded).")
-            
+            total_padded = sum(
+                (batch["attention_mask"] == 0).sum().item() for batch in batched_dataset
+            )
+            total_non_padded = sum(
+                (batch["attention_mask"] == 1).sum().item() for batch in batched_dataset
+            )
+            log.info(
+                f"Calibration: Total tokens: {total_non_padded + total_padded} ({total_non_padded} non-padded, {total_padded} padded)."
+            )
+
             return batched_dataset
         else:
             # If batching is not supported, each example is its own "batch"
-            return [{"input_ids": torch.tensor(block["input_ids"], dtype=torch.long)} for block in examples]
+            return [
+                {"input_ids": torch.tensor(block["input_ids"], dtype=torch.long)}
+                for block in examples
+            ]
 
     def _require_tokenizer(self, reason: str) -> None:
         """Check for the existence of a tokenizer, raising an error if it's missing."""
@@ -729,17 +787,25 @@ class BaseNanoModel(nn.Module):
         try:
             tensor = torch.as_tensor(value, dtype=torch.long)
         except Exception as exc:
-            raise ValueError(f"Failed to convert `{name}` to a tensor for calibration item {idx}.") from exc
-        
+            raise ValueError(
+                f"Failed to convert `{name}` to a tensor for calibration item {idx}."
+            ) from exc
+
         if tensor.ndim == 0:
-            raise ValueError(f"`{name}` for item {idx} must be 1D or 2D, but got a scalar.")
+            raise ValueError(
+                f"`{name}` for item {idx} must be 1D or 2D, but got a scalar."
+            )
         if tensor.ndim == 1:
             tensor = tensor.unsqueeze(0)
         elif tensor.ndim != 2:
-            raise ValueError(f"`{name}` for item {idx} must be 1D or 2D, but got rank {tensor.ndim}.")
+            raise ValueError(
+                f"`{name}` for item {idx} must be 1D or 2D, but got rank {tensor.ndim}."
+            )
         return tensor
 
-    def _pack_ids(self, ids_value: Any, mask_value: Any, idx: int) -> Dict[str, torch.Tensor]:
+    def _pack_ids(
+        self, ids_value: Any, mask_value: Any, idx: int
+    ) -> Dict[str, torch.Tensor]:
         """Pack input_ids and an optional attention_mask into a standardized dictionary."""
         ids_tensor = self._to_2d_long_tensor(ids_value, "input_ids", idx)
 
@@ -752,22 +818,37 @@ class BaseNanoModel(nn.Module):
                 if mask_tensor.numel() == ids_tensor.numel():
                     mask_tensor = mask_tensor.reshape(ids_tensor.shape)
                 else:
-                    raise ValueError(f"Shape mismatch for item {idx}: input_ids is {ids_tensor.shape}, attention_mask is {mask_tensor.shape}.")
+                    raise ValueError(
+                        f"Shape mismatch for item {idx}: input_ids is {ids_tensor.shape}, attention_mask is {mask_tensor.shape}."
+                    )
 
-        return {"input_ids": ids_tensor.detach(), "attention_mask": mask_tensor.detach()}
+        return {
+            "input_ids": ids_tensor.detach(),
+            "attention_mask": mask_tensor.detach(),
+        }
 
-    def _tokenize_text_value(self, text_value: Any, idx: int) -> Dict[str, torch.Tensor]:
+    def _tokenize_text_value(
+        self, text_value: Any, idx: int
+    ) -> Dict[str, torch.Tensor]:
         """Tokenize a raw text string."""
         self._require_tokenizer("calibration data contains raw text")
-        tokenized = self.tokenizer(text_value, add_special_tokens=True, return_tensors="pt")
-        return self._pack_ids(tokenized["input_ids"], tokenized.get("attention_mask"), idx)
+        tokenized = self.tokenizer(
+            text_value, add_special_tokens=True, return_tensors="pt"
+        )
+        return self._pack_ids(
+            tokenized["input_ids"], tokenized.get("attention_mask"), idx
+        )
 
-    def _tokenize_messages_value(self, messages_value: Any, idx: int) -> Dict[str, torch.Tensor]:
+    def _tokenize_messages_value(
+        self, messages_value: Any, idx: int
+    ) -> Dict[str, torch.Tensor]:
         """Tokenize a chat-style messages list using the tokenizer's template."""
         self._require_tokenizer("calibration data uses the `messages` feature")
         apply_fn = getattr(self.tokenizer, "apply_template", None)
         if apply_fn is None:
-            raise ValueError("Tokenizer must have `apply_template` to handle `messages` calibration data.")
+            raise ValueError(
+                "Tokenizer must have `apply_template` to handle `messages` calibration data."
+            )
 
         # `apply_template` can have different signatures
         try:
@@ -776,19 +857,31 @@ class BaseNanoModel(nn.Module):
             templated = apply_fn(messages_value)
 
         if templated is None:
-            raise ValueError(f"tokenizer.apply_template returned None for calibration item {idx}.")
+            raise ValueError(
+                f"tokenizer.apply_template returned None for calibration item {idx}."
+            )
 
         # The result of apply_template can be a dict, list of ints, a tensor, or a string
         if hasattr(templated, "get") and "input_ids" in templated:
-            return self._pack_ids(templated["input_ids"], templated.get("attention_mask"), idx)
+            return self._pack_ids(
+                templated["input_ids"], templated.get("attention_mask"), idx
+            )
         if isinstance(templated, str):
             return self._tokenize_text_value(templated, idx)
-        if torch.is_tensor(templated) or (isinstance(templated, (list, tuple)) and templated and isinstance(templated[0], int)):
+        if torch.is_tensor(templated) or (
+            isinstance(templated, (list, tuple))
+            and templated
+            and isinstance(templated[0], int)
+        ):
             return self._pack_ids(templated, None, idx)
 
-        raise ValueError(f"tokenizer.apply_template returned an unsupported type {type(templated)} for item {idx}.")
-    
-    def _convert_tensor_to_list(self, tensor: Union[torch.Tensor, List]) -> List[List[int]]:
+        raise ValueError(
+            f"tokenizer.apply_template returned an unsupported type {type(templated)} for item {idx}."
+        )
+
+    def _convert_tensor_to_list(
+        self, tensor: Union[torch.Tensor, List]
+    ) -> List[List[int]]:
         """Ensure the input is a nested list of integers."""
         if isinstance(tensor, torch.Tensor):
             if tensor.ndim == 1:
@@ -811,7 +904,7 @@ class BaseNanoModel(nn.Module):
         backend: Optional[BACKEND] = BACKEND.AUTO,
         calibration_data_min_length: int = 10,
     ) -> Dict[str, List[Dict[str, str]]]:
-        """ 
+        """
         Performs quantization on the model using the provided calibration dataset.
 
         Args:
@@ -827,10 +920,14 @@ class BaseNanoModel(nn.Module):
             A dictionary containing the quantization log.
         """
         if self.quantized:
-            raise EnvironmentError("quantize() called on a model that is already quantized.")
+            raise EnvironmentError(
+                "quantize() called on a model that is already quantized."
+            )
 
         if self.quantize_config.quant_method in QUANTIZE_BLACK_LIST:
-            raise ValueError(f"Unsupported quant method: {self.quantize_config.quant_method}")
+            raise ValueError(
+                f"Unsupported quant method: {self.quantize_config.quant_method}"
+            )
 
         # Reset timers and memory management state.
         self.quant_region_timer.reset()
@@ -839,7 +936,9 @@ class BaseNanoModel(nn.Module):
 
         # Handle model-specific constraints.
         if not self.support_batch_quantize:
-            log.warning("Model does not support batch quantization; batch_size is forced to 1.")
+            log.warning(
+                "Model does not support batch quantization; batch_size is forced to 1."
+            )
             batch_size = 1
 
         # Validate quantization configuration.
@@ -887,16 +986,31 @@ class BaseNanoModel(nn.Module):
 
         # Initialize the quantization processors based on the chosen method.
         from ..processors.module_processor import ModuleProcessor
-        from ..processors.tensorparallel_weight_processor import TensorParallelWeightProcessor
+        from ..processors.tensorparallel_weight_processor import (
+            TensorParallelWeightProcessor,
+        )
 
         if self.quantize_config.quant_method == METHOD.AWQ:
             from ..processors.awq_processor import AWQProcessor
+
             os.environ["AWQ_BATCH_SIZE"] = str(batch_size)
-            awq_args = {"gptq_model": self, "model": self.model, "batch_size": batch_size, **processor_args}
-            processors = [TensorParallelWeightProcessor(**processor_args), AWQProcessor(**awq_args)]
+            awq_args = {
+                "gptq_model": self,
+                "model": self.model,
+                "batch_size": batch_size,
+                **processor_args,
+            }
+            processors = [
+                TensorParallelWeightProcessor(**processor_args),
+                AWQProcessor(**awq_args),
+            ]
         else:  # Default to GPTQ
             from ..processors.gptq_processor import GPTQProcessor
-            processors = [TensorParallelWeightProcessor(**processor_args), GPTQProcessor(**processor_args)]
+
+            processors = [
+                TensorParallelWeightProcessor(**processor_args),
+                GPTQProcessor(**processor_args),
+            ]
 
         # Run the quantization process.
         module_processor = ModuleProcessor(self, processors=processors)
@@ -918,10 +1032,14 @@ class BaseNanoModel(nn.Module):
 
         if self.quantize_config.quant_method == METHOD.AWQ:
             if self.quantize_config.kernel == KERNEL.GEMV_FAST:
-                log.info("AWQ with GEMV_FAST kernel requires pack_dtype=torch.int16. Auto-fixing.")
+                log.info(
+                    "AWQ with GEMV_FAST kernel requires pack_dtype=torch.int16. Auto-fixing."
+                )
                 self.quantize_config.pack_dtype = torch.int16
             elif self.quantize_config.kernel == KERNEL.MARLIN:
-                log.info("AWQ with Marlin kernel requires zero_point=False. Auto-fixing.")
+                log.info(
+                    "AWQ with Marlin kernel requires zero_point=False. Auto-fixing."
+                )
                 self.quantize_config.zero_point = False
 
     def _apply_model_rotation(self):
@@ -930,7 +1048,9 @@ class BaseNanoModel(nn.Module):
         from nanomodel.models.definitions.qwen2 import Qwen2NanoModel
 
         if not isinstance(self, (LlamaNanoModel, Qwen2NanoModel)):
-            raise ValueError(f"Rotation is only supported for Llama and Qwen2 models, not {self.__class__.__name__}.")
+            raise ValueError(
+                f"Rotation is only supported for Llama and Qwen2 models, not {self.__class__.__name__}."
+            )
 
         if self.model.config.tie_word_embeddings:
             log.info("Rotation requires untied word embeddings. Untying weights.")
@@ -951,7 +1071,11 @@ class BaseNanoModel(nn.Module):
         )
 
         # Apply rotation, using CPU for MPS devices as float64 is not supported.
-        rotation_device = self.quantize_config.device if self.quantize_config.device != DEVICE.MPS else DEVICE.CPU
+        rotation_device = (
+            self.quantize_config.device
+            if self.quantize_config.device != DEVICE.MPS
+            else DEVICE.CPU
+        )
         self.model, _ = rotate_model(
             model=self.model,
             rotate_mode=self.quantize_config.rotation,
@@ -1057,8 +1181,11 @@ class BaseNanoModel(nn.Module):
         """Returns a list of unique qlinear kernel types currently loaded in the model."""
         if not isinstance(self.model, nn.Module):
             return []
-        
-        loaded_kernels = {v.__class__ for v in find_modules(self.model, layers=[BaseQuantLinear]).values()}
+
+        loaded_kernels = {
+            v.__class__
+            for v in find_modules(self.model, layers=[BaseQuantLinear]).values()
+        }
         return list(loaded_kernels)
 
     def _auto_configure_lookahead(self) -> None:
@@ -1066,8 +1193,12 @@ class BaseNanoModel(nn.Module):
         if not isinstance(self.model, nn.Module):
             return
 
-        quant_modules = [m for m in self.model.modules() if isinstance(m, TorchQuantLinear)]
-        if not quant_modules or not any(getattr(m, "_lookahead_enabled", False) for m in quant_modules):
+        quant_modules = [
+            m for m in self.model.modules() if isinstance(m, TorchQuantLinear)
+        ]
+        if not quant_modules or not any(
+            getattr(m, "_lookahead_enabled", False) for m in quant_modules
+        ):
             return
 
         configure_default_lookahead(self.model)
@@ -1194,7 +1325,7 @@ class BaseNanoModel(nn.Module):
         pass
 
     def awq_get_modules_for_scaling(self, module, input_feat, module_kwargs):
-        """ 
+        """
         Identifies and groups modules within a layer for AWQ (Activation-aware Weight Quantization) scaling.
 
         This method iterates through the model's layers as defined by `full_layer_modules`
@@ -1213,9 +1344,15 @@ class BaseNanoModel(nn.Module):
         nodes = []
         last_module = None  # The most recent non-quantized module, typically a normalization layer.
         last_module_name = None
-        last_module_root = None  # The root of the last module (e.g., 'self_attn' or 'mlp').
+        last_module_root = (
+            None  # The root of the last module (e.g., 'self_attn' or 'mlp').
+        )
 
-        num_experts = self.get_num_experts(self.model.config) if self.dynamic_expert_index else None
+        num_experts = (
+            self.get_num_experts(self.model.config)
+            if self.dynamic_expert_index
+            else None
+        )
 
         def strip_not_quantize_flag(module_name):
             return module_name.split(NOT_QUANTIZE_FLAG)[0]
@@ -1232,18 +1369,28 @@ class BaseNanoModel(nn.Module):
                 continue
 
             # Handle MoE (Mixture of Experts) blocks where one norm precedes multiple expert layers.
-            if num_experts is not None and len(block) == num_experts and last_module is not None:
+            if (
+                num_experts is not None
+                and len(block) == num_experts
+                and last_module is not None
+            ):
                 target_suffix = last_module_name.split(".")[-1]
                 for name in block:
                     # Find the corresponding preceding operation for each expert.
                     prev_op_name = ".".join(name.split(".")[:-1] + [target_suffix])
                     prev_op, _ = get_module_by_name_prefix(module, prev_op_name)
-                    assert prev_op is not None, f"Could not find prev_op: {prev_op_name}"
+                    assert prev_op is not None, (
+                        f"Could not find prev_op: {prev_op_name}"
+                    )
 
                     m, _ = get_module_by_name_prefix(module, name)
                     n, _ = generate_node_for_awq_scaling(
-                        inp=input_feat[name], prev_op=prev_op, module_kwargs=module_kwargs,
-                        nodes_size=len(nodes), subset=[m], module2inspect=None
+                        inp=input_feat[name],
+                        prev_op=prev_op,
+                        module_kwargs=module_kwargs,
+                        nodes_size=len(nodes),
+                        subset=[m],
+                        module2inspect=None,
                     )
                     nodes.append(n)
             else:
@@ -1253,14 +1400,14 @@ class BaseNanoModel(nn.Module):
                 for name in block:
                     if NOT_QUANTIZE_FLAG in name:
                         continue
-                    
+
                     # AWQ-specific logic to skip certain modules like 'mlp.gate'
                     if name == "mlp.gate":
                         skip_block = True
                         break
 
                     m, _ = get_module_by_name_prefix(module, name)
-                    
+
                     # Skip attention output projection if its shape mismatches the previous norm (e.g., in GQA).
                     if (
                         self.awq_scale_optimize_shape_dependent_modules
@@ -1275,7 +1422,9 @@ class BaseNanoModel(nn.Module):
                 if skip_block or not subset:
                     continue
 
-                assert last_module is not None, "prev_op (last_module) not found for a quantizable block."
+                assert last_module is not None, (
+                    "prev_op (last_module) not found for a quantizable block."
+                )
 
                 # Determine the root module to inspect for inputs (e.g., 'self_attn').
                 root = block[0].split(".")[0]
@@ -1291,8 +1440,12 @@ class BaseNanoModel(nn.Module):
                     inp = input_feat[block[0]]
 
                 n, _ = generate_node_for_awq_scaling(
-                    inp=inp, prev_op=last_module, module_kwargs=module_kwargs,
-                    nodes_size=len(nodes), subset=subset, module2inspect=module2inspect
+                    inp=inp,
+                    prev_op=last_module,
+                    module_kwargs=module_kwargs,
+                    nodes_size=len(nodes),
+                    subset=subset,
+                    module2inspect=module2inspect,
                 )
                 nodes.append(n)
 
@@ -1408,7 +1561,9 @@ class BaseNanoModel(nn.Module):
                 or getattr(module, "full_name", None)
                 or module.__class__.__name__
             )
-            log.info(f"Memory threshold reached. Reloading turtle model to free RAM (triggered by: {label}).")
+            log.info(
+                f"Memory threshold reached. Reloading turtle model to free RAM (triggered by: {label})."
+            )
             self.reload_turtle_model(source=f"auto:{label}")
 
     def reload_turtle_model(self, *, source: Optional[str] = None) -> None:
@@ -1420,9 +1575,12 @@ class BaseNanoModel(nn.Module):
             return
 
         timer = getattr(self, "quant_region_timer", None)
-        timing_ctx = timer.measure("model_reload", source=source) if timer else nullcontext()
+        timing_ctx = (
+            timer.measure("model_reload", source=source) if timer else nullcontext()
+        )
 
         with timing_ctx:
+
             def _do_reload():
                 with self._turtle_lock:
                     if self.turtle_model is None or self.model_local_path is None:
@@ -1445,7 +1603,9 @@ class BaseNanoModel(nn.Module):
                     self.turtle_model = new_model
                     self._turtle_reload_accum_bytes = 0
 
-            reload_spinner = log.spinner(title="Turtle model reloading...", interval=0.1)
+            reload_spinner = log.spinner(
+                title="Turtle model reloading...", interval=0.1
+            )
             try:
                 # Run reload in a dedicated thread to avoid blocking
                 DEVICE_THREAD_POOL.submit("model_loader:cpu", _do_reload).result()
@@ -1476,7 +1636,7 @@ class BaseNanoModel(nn.Module):
                 target_submodule=target_submodule,
                 device=device,
             )
-        
+
         # Check if reloading the turtle model is necessary after this operation
         self._maybe_auto_reload_after_alias(module, target_submodule)
         return module
@@ -1505,7 +1665,9 @@ class BaseNanoModel(nn.Module):
 
         out_blocks = []
 
-        def process_entries(parent: str, entries: Union[tuple, list, dict], parent_group_offset: int = 0) -> defaultdict[int, list]:
+        def process_entries(
+            parent: str, entries: Union[tuple, list, dict], parent_group_offset: int = 0
+        ) -> defaultdict[int, list]:
             """Recursively process module entries to handle groups and nested structures."""
             groups = defaultdict(list)
 
@@ -1516,9 +1678,14 @@ class BaseNanoModel(nn.Module):
                     child = parts[0]
                     flags = parts[1:]
                     has_bang = "!" in flags
-                    grp = next((int(p) for p in flags if p.isdigit()), 0) + parent_group_offset
-                    
-                    full_path = f"{parent}.{child}" if parent and parent != child else child
+                    grp = (
+                        next((int(p) for p in flags if p.isdigit()), 0)
+                        + parent_group_offset
+                    )
+
+                    full_path = (
+                        f"{parent}.{child}" if parent and parent != child else child
+                    )
                     groups[grp].append((full_path, has_bang))
 
             elif isinstance(entries, dict):
@@ -1527,7 +1694,9 @@ class BaseNanoModel(nn.Module):
                 for sub_entries in entries.values():
                     if isinstance(sub_entries, (tuple, list)):
                         for ent in sub_entries:
-                            grp = next((int(p) for p in ent.split(":")[1:] if p.isdigit()), 0)
+                            grp = next(
+                                (int(p) for p in ent.split(":")[1:] if p.isdigit()), 0
+                            )
                             max_current_group = max(max_current_group, grp)
 
                 current_offset = parent_group_offset
@@ -1535,25 +1704,38 @@ class BaseNanoModel(nn.Module):
                     if sub_parent == "#":
                         # MoE expert placeholder
                         template_parent = f"{parent}.{EXPERT_INDEX_PLACEHOLDER}"
-                        expert_offset = current_offset + max_current_group + 100  # Use a large offset to avoid group collisions
-                        sub_groups = process_entries(template_parent, sub_entries, expert_offset)
+                        expert_offset = (
+                            current_offset + max_current_group + 100
+                        )  # Use a large offset to avoid group collisions
+                        sub_groups = process_entries(
+                            template_parent, sub_entries, expert_offset
+                        )
                     else:
                         # Regular nested module
-                        full_sub_parent = f"{parent}.{sub_parent}" if parent and sub_parent else parent or sub_parent
-                        sub_groups = process_entries(full_sub_parent, sub_entries, current_offset)
-                    
+                        full_sub_parent = (
+                            f"{parent}.{sub_parent}"
+                            if parent and sub_parent
+                            else parent or sub_parent
+                        )
+                        sub_groups = process_entries(
+                            full_sub_parent, sub_entries, current_offset
+                        )
+
                     for grp, items in sub_groups.items():
                         groups[grp].extend(items)
                     if sub_groups:
                         current_offset = max(sub_groups.keys()) + 1
-            
+
             return groups
 
         for parent, entries in mapping.items():
             groups = process_entries(parent, entries)
             # Sort by group ID and create the final blocks of module names
             for g in sorted(groups.keys()):
-                block = [path + (NOT_QUANTIZE_FLAG if has_bang else "") for path, has_bang in groups[g]]
+                block = [
+                    path + (NOT_QUANTIZE_FLAG if has_bang else "")
+                    for path, has_bang in groups[g]
+                ]
                 out_blocks.append(block)
 
         return out_blocks

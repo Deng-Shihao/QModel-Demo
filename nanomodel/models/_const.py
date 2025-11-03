@@ -19,10 +19,30 @@ CUDA_0 = device("cuda:0")
 XPU = device("xpu")
 XPU_0 = device("xpu:0")
 MPS = device("mps")
-ROCM = device("cuda:0")  # rocm maps to fake cuda
+ROCM = CUDA_0  # rocm maps to fake cuda
 
-# Modules frequently quantized by NanoModel; order matters for downstream pattern matching.
-SUPPORTS_MODULE_TYPES = (
+__all__ = [
+    "CALIBRATION_DATASET_CONCAT_CHAR",
+    "CPU",
+    "CUDA",
+    "CUDA_0",
+    "DEFAULT_MAX_SHARD_SIZE",
+    "DEVICE",
+    "EXPERT_INDEX_PLACEHOLDER",
+    "META",
+    "MPS",
+    "PLATFORM",
+    "ROCM",
+    "SUPPORTS_MODULE_TYPES",
+    "XPU",
+    "XPU_0",
+    "get_best_device",
+    "normalize_device",
+    "validate_cuda_support",
+]
+
+# Module type patterns shipped to quantization passes; order matters downstream.
+SUPPORTS_MODULE_TYPES: tuple[type[nn.Module], ...] = (
     nn.Linear,
     nn.Conv1d,
     nn.Conv2d,
@@ -30,6 +50,13 @@ SUPPORTS_MODULE_TYPES = (
 )
 
 DEFAULT_MAX_SHARD_SIZE = "4GB"
+
+# Shared accelerator priority; keeps `normalize_device` and `get_best_device` aligned.
+_ACCELERATOR_DEVICE_PRIORITY: tuple[tuple[bool, torch.device], ...] = (
+    (HAS_CUDA, CUDA_0),
+    (HAS_XPU, XPU_0),
+    (HAS_MPS, MPS),
+)
 
 
 class DEVICE(str, Enum):
@@ -71,6 +98,14 @@ class DEVICE(str, Enum):
         return {"": DEVICE.CUDA if self == DEVICE.ROCM else self}
 
 
+# Mirror of `_ACCELERATOR_DEVICE_PRIORITY` expressed in enum form.
+_ACCELERATOR_ENUM_PRIORITY: tuple[tuple[bool, DEVICE], ...] = (
+    (HAS_CUDA, DEVICE.CUDA),
+    (HAS_XPU, DEVICE.XPU),
+    (HAS_MPS, DEVICE.MPS),
+)
+
+
 class PLATFORM(str, Enum):
     ALL = "all"  # All platform
     LINUX = "linux"  # linux
@@ -93,6 +128,7 @@ def validate_cuda_support(raise_exception: bool = False) -> bool:
     if device_count == 0:
         return False
 
+    # Query each GPU since heterogeneous systems may mix capability levels.
     has_required_capability = any(
         torch.cuda.get_device_capability(index)[0] >= _CUDA_MINIMUM_MAJOR for index in range(device_count)
     )
@@ -111,12 +147,9 @@ def normalize_device(type_value: str | DEVICE | int | torch.device) -> DEVICE:
 
     if isinstance(type_value, int):
         # Pick the best accelerator available when users pass an index without a type.
-        if HAS_CUDA:
-            return DEVICE.CUDA
-        if HAS_XPU:
-            return DEVICE.XPU
-        if HAS_MPS:
-            return DEVICE.MPS
+        for has_hw, device_enum in _ACCELERATOR_ENUM_PRIORITY:
+            if has_hw:
+                return device_enum
         return DEVICE.CPU
 
     if isinstance(type_value, torch.device):
@@ -132,12 +165,11 @@ def normalize_device(type_value: str | DEVICE | int | torch.device) -> DEVICE:
 
 def get_best_device(backend: BACKEND = BACKEND.AUTO) -> torch.device:
     """Select the most capable local device; `backend` is reserved for future routing."""
-    if HAS_CUDA:
-        return CUDA_0
-    if HAS_XPU:
-        return XPU_0
-    if HAS_MPS:
-        return MPS
+    # Traverse hardware priority list so that future accelerators can slot in easily.
+    for has_hw, torch_device in _ACCELERATOR_DEVICE_PRIORITY:
+        if has_hw:
+            return torch_device
+
     return CPU
 
 EXPERT_INDEX_PLACEHOLDER = "{expert_index}"
