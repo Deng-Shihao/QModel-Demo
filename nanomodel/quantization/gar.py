@@ -1,3 +1,5 @@
+# https://arxiv.org/html/2505.14638v1#S3.E12
+
 import torch
 
 from nanomodel.utils import setup_logger

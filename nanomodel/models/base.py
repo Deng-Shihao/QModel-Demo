@@ -38,9 +38,11 @@ from .. import DEVICE_THREAD_POOL
 from ..nn_modules.qlinear import BaseQuantLinear
 from ..nn_modules.qlinear.lookahead import configure_default_lookahead
 from ..nn_modules.qlinear.torch import TorchQuantLinear
+
 from ..quantization import QuantizeConfig
 from ..quantization.config import KERNEL, METHOD, QUANTIZE_BLACK_LIST, dynamic_get
 from ..quantization.rotation.rotation import fuse_layer_norms, rotate_model
+
 from ..utils.backend import BACKEND
 from ..utils.data import collate_data
 from ..utils.device import get_device

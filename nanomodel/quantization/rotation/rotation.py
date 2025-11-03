@@ -1,3 +1,4 @@
+# Adapted from https://github.com/spcl/QuaRot/blob/main/fake_quant/rotation_utils.py
 import typing
 
 import torch
@@ -185,6 +186,7 @@ def rotate_model(model: PreTrainedModel, rotate_mode: str, device: torch.device,
     rotate_head(model, Q, device, lm_head_name)
     torch_empty_cache()
     layers , _ = get_module_by_name_prefix(model, layers_node)
+
     for idx, layer in enumerate(log.pb(layers).title("Rotating")):
         rotate_attention_inputs(layer, Q, device)
         rotate_attention_output(layer, Q, device)
