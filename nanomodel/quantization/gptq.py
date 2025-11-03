@@ -19,7 +19,12 @@ from ..processors.named_module import NamedModule
 from ..quantization import QuantizeConfig
 from ..utils.device import get_device
 from ..utils.logger import setup_logger
-from .gar import compose_final_perm, compute_global_perm, compute_local_perms, invert_perm
+from .gar import (
+    compose_final_perm,
+    compute_global_perm,
+    compute_local_perms,
+    invert_perm,
+)
 from .quantizer import HF_OPTIMUM, Quantizer
 
 
@@ -33,6 +38,7 @@ log = setup_logger()
 _WORKSPACE_CACHE: Dict[Tuple[str, Optional[int]], torch.Tensor] = {}
 _WORKSPACE_LOCKS: Dict[Tuple[str, Optional[int]], threading.Lock] = {}
 _BF16_SUPPORT_CACHE: Dict[Tuple[str, Optional[int]], bool] = {}
+
 
 def _device_cache_key(device: torch.device) -> Tuple[str, Optional[int]]:
     """Build the global cache key for a torch device."""
@@ -67,7 +73,9 @@ def _needs_workspace_resize(
 
 
 @contextlib.contextmanager
-def _lease_workspace(device: torch.device, dtype: torch.dtype, cols: int, required_rows: int):
+def _lease_workspace(
+    device: torch.device, dtype: torch.dtype, cols: int, required_rows: int
+):
     """Provide a temporary workspace tensor, reusing cached buffers when possible."""
     key = _workspace_cache_key(device)
     device_lock = _WORKSPACE_LOCKS.setdefault(key, threading.Lock())
@@ -168,8 +176,9 @@ class GPTQ:
     @staticmethod
     def _validate_module(module):
         """Ensure the module is of a supported layer type."""
-        assert isinstance(module, (nn.Linear, nn.Conv1d, nn.Conv2d,
-                                   transformers.Conv1D)), f"We supports only linear and convolutional layers. actual = `{module}`"
+        assert isinstance(
+            module, (nn.Linear, nn.Conv1d, nn.Conv2d, transformers.Conv1D)
+        ), f"We supports only linear and convolutional layers. actual = `{module}`"
 
     def _resolve_tensor_parallel_padding(self) -> Tuple[Optional[Dict[str, int]], int]:
         """Return tensor parallel padding metadata (pad info, pad columns)."""
@@ -302,7 +311,9 @@ class GPTQ:
         reshaped_inp = unfold(reshaped_inp)
         return reshaped_inp.transpose(1, 2).flatten(0, 1)
 
-    def add_batch(self, inp: torch.Tensor, out: torch.Tensor, batch_index: Optional[int] = None) -> None:
+    def add_batch(
+        self, inp: torch.Tensor, out: torch.Tensor, batch_index: Optional[int] = None
+    ) -> None:
         """Accumulate Hessian statistics for a calibration batch."""
         batch_token_size, xtx, device = self.process_batch(inp)
         if batch_token_size == 0 or xtx is None:
@@ -326,7 +337,9 @@ class GPTQ:
             self.nsamples += batch_token_size
             self._hessian_dirty = True
 
-    def _preferred_staging_dtype(self, input_dtype: torch.dtype, device: torch.device) -> torch.dtype:
+    def _preferred_staging_dtype(
+        self, input_dtype: torch.dtype, device: torch.device
+    ) -> torch.dtype:
         """Pick the staging dtype used before forming X^T X, honoring BF16 when viable."""
         device = torch.device(device)
 
@@ -341,7 +354,9 @@ class GPTQ:
 
         return torch.bfloat16
 
-    def _resolve_hessian_chunk_size(self, rows: int, stage_dtype: torch.dtype) -> Optional[int]:
+    def _resolve_hessian_chunk_size(
+        self, rows: int, stage_dtype: torch.dtype
+    ) -> Optional[int]:
         """Return the row chunk size for Hessian accumulation given config budgets."""
         if rows == 0:
             return None
@@ -352,7 +367,9 @@ class GPTQ:
 
         bytes_budget = self.qcfg.hessian_chunk_bytes
         if bytes_budget is not None:
-            bytes_per_row = self.columns * torch.tensor([], dtype=stage_dtype).element_size()
+            bytes_per_row = (
+                self.columns * torch.tensor([], dtype=stage_dtype).element_size()
+            )
             if bytes_per_row > 0:
                 chunk_rows = bytes_budget // bytes_per_row
                 if chunk_rows > 0:
@@ -375,7 +392,9 @@ class GPTQ:
         device = chunk.device
         stage_dtype = self._preferred_staging_dtype(chunk.dtype, device)
 
-        with _lease_workspace(device, stage_dtype, self.columns, rows) as staging_workspace:
+        with _lease_workspace(
+            device, stage_dtype, self.columns, rows
+        ) as staging_workspace:
             staging_view = staging_workspace[:rows, :]
             staging_view.copy_(chunk.to(dtype=stage_dtype))
 
@@ -386,7 +405,9 @@ class GPTQ:
                     if device.type == "cuda":
                         torch.cuda.current_stream(device).synchronize()
             else:
-                with _lease_workspace(device, torch.float32, self.columns, rows) as fp32_workspace:
+                with _lease_workspace(
+                    device, torch.float32, self.columns, rows
+                ) as fp32_workspace:
                     try:
                         fp32_view = fp32_workspace[:rows, :]
                         fp32_view.copy_(staging_view.to(torch.float32))
@@ -399,7 +420,9 @@ class GPTQ:
         """Compute X^T X with optional chunking to stay within the memory budget."""
         rows = matrix.shape[0]
         if rows == 0:
-            return torch.zeros((self.columns, self.columns), dtype=torch.float32, device=matrix.device)
+            return torch.zeros(
+                (self.columns, self.columns), dtype=torch.float32, device=matrix.device
+            )
 
         stage_dtype = self._preferred_staging_dtype(matrix.dtype, matrix.device)
         chunk_size = self._resolve_hessian_chunk_size(rows, stage_dtype)
@@ -408,18 +431,24 @@ class GPTQ:
             mat32 = matrix.to(dtype=torch.float32)
             return torch.matmul(mat32.T, mat32)
 
-        xtx_accum = torch.zeros((self.columns, self.columns), dtype=torch.float32, device=matrix.device)
+        xtx_accum = torch.zeros(
+            (self.columns, self.columns), dtype=torch.float32, device=matrix.device
+        )
 
         for start in range(0, rows, chunk_size):
             rows_this = min(chunk_size, rows - start)
-            source = matrix[start:start + rows_this]
-            with self._borrow_materialized_chunk_fp32(source, rows_this) as materialized:
+            source = matrix[start : start + rows_this]
+            with self._borrow_materialized_chunk_fp32(
+                source, rows_this
+            ) as materialized:
                 materialized32 = materialized
                 xtx_accum.add_(torch.matmul(materialized32.T, materialized32))
 
         return xtx_accum
 
-    def process_batch(self, inp: torch.Tensor) -> Tuple[int, Optional[torch.Tensor], torch.device]:
+    def process_batch(
+        self, inp: torch.Tensor
+    ) -> Tuple[int, Optional[torch.Tensor], torch.device]:
         """Reshape a calibration batch and return its Hessian contribution."""
 
         inp_device = get_device(inp)
@@ -450,7 +479,9 @@ class GPTQ:
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
                 canonical_device = torch.device("cpu")
-                xtx = self._compute_hessian_xtx(reshaped_inp_cpu).to(dtype=torch.float32)
+                xtx = self._compute_hessian_xtx(reshaped_inp_cpu).to(
+                    dtype=torch.float32
+                )
                 xtx = xtx.detach()
                 del reshaped_inp_cpu
             else:
@@ -463,7 +494,9 @@ class GPTQ:
 
         return batch_token_size, xtx, canonical_device
 
-    def _select_hessian_target_device(self, requested: Optional[torch.device]) -> torch.device:
+    def _select_hessian_target_device(
+        self, requested: Optional[torch.device]
+    ) -> torch.device:
         """Pick the device that should host the final Hessian buffer."""
         if requested is not None:
             return torch.device(requested)
@@ -478,7 +511,9 @@ class GPTQ:
 
         return torch.device("cpu")
 
-    def _materialize_global_hessian(self, target_device: Optional[torch.device] = None) -> None:
+    def _materialize_global_hessian(
+        self, target_device: Optional[torch.device] = None
+    ) -> None:
         """Aggregate per-device Hessian contributions into `self.H`."""
         device = self._select_hessian_target_device(target_device)
 
@@ -533,35 +568,48 @@ class GPTQ:
             self._device_hessian_partials.clear()
             self._device_sample_counts.clear()
 
-    def finalize_hessian(self, target_device: Optional[torch.device] = None) -> torch.Tensor:
+    def finalize_hessian(
+        self, target_device: Optional[torch.device] = None
+    ) -> torch.Tensor:
         """Ensure the Hessian tensor is materialized on the target device."""
         self._materialize_global_hessian(target_device=target_device)
         if self.H is None:
-            self.H = torch.zeros((self.columns, self.columns), dtype=torch.float32, device=self._select_hessian_target_device(target_device))
+            self.H = torch.zeros(
+                (self.columns, self.columns),
+                dtype=torch.float32,
+                device=self._select_hessian_target_device(target_device),
+            )
         return self.H
 
     # TODO optimum needs fasterquant, we need to remove it
     def fasterquant(
-            self,
-            blocksize=128,
-            percdamp=0.01,
-            damp_auto_increment=0.0015,
-            group_size=-1,
-            actorder=False,
-            static_groups=False,
+        self,
+        blocksize=128,
+        percdamp=0.01,
+        damp_auto_increment=0.0015,
+        group_size=-1,
+        actorder=False,
+        static_groups=False,
     ):
-        return self.hf_quantize(blocksize, percdamp, damp_auto_increment, group_size, actorder, static_groups)
+        return self.hf_quantize(
+            blocksize,
+            percdamp,
+            damp_auto_increment,
+            group_size,
+            actorder,
+            static_groups,
+        )
 
     # api exposed to hf
     def hf_quantize(
-            self,
-            blocksize=128,
-            percdamp=0.01,
-            damp_auto_increment=0.0015,
-            group_size=-1,
-            actorder=False,
-            static_groups=False,
-            act_group_aware: Optional[bool] = None,
+        self,
+        blocksize=128,
+        percdamp=0.01,
+        damp_auto_increment=0.0015,
+        group_size=-1,
+        actorder=False,
+        static_groups=False,
+        act_group_aware: Optional[bool] = None,
     ):
         """HuggingFace entry point that forwards configuration into `quantize`."""
         self.qcfg.group_size = group_size
@@ -572,7 +620,9 @@ class GPTQ:
             self.qcfg.act_group_aware = act_group_aware
         self.qcfg._resolve_activation_ordering(actorder, act_group_aware)
         self.qcfg.static_groups = static_groups
-        (Q, scale, zero, g_idx, duration, avg_loss, damp_percent, nsamples) = self.quantize(blocksize=blocksize)
+        (Q, scale, zero, g_idx, duration, avg_loss, damp_percent, nsamples) = (
+            self.quantize(blocksize=blocksize)
+        )
         self.module.weight.data = Q
         return scale, zero, g_idx, duration, avg_loss, damp_percent
 
@@ -625,8 +675,8 @@ class GPTQ:
 
     @torch.inference_mode()
     def quantize(
-            self,
-            blocksize=128,
+        self,
+        blocksize=128,
     ):
         """Quantize the module weights using GPTQ while respecting the quant config."""
         # self.H = self.H.to(device=CUDA_0)
@@ -651,7 +701,8 @@ class GPTQ:
         # TODO: waiting for pytorch implementation of ops for MPS
         if sys.platform == "darwin" and os.getenv("PYTORCH_ENABLE_MPS_FALLBACK") != "1":
             raise RuntimeError(
-                "For MacOS you must set env `PYTORCH_ENABLE_MPS_FALLBACK=1` before running quantization.")
+                "For MacOS you must set env `PYTORCH_ENABLE_MPS_FALLBACK=1` before running quantization."
+            )
 
         if self.module_copy is None:
             # log.info("copy W to cuda_1")
@@ -680,7 +731,7 @@ class GPTQ:
             groups = []
             for i in range(0, self.columns, self.qcfg.group_size):
                 quantizer = copy.deepcopy(self.quantizer)
-                quantizer.find_params(W[:, i: (i + self.qcfg.group_size)], weight=True)
+                quantizer.find_params(W[:, i : (i + self.qcfg.group_size)], weight=True)
 
                 scale.append(quantizer.scale)
                 zero.append(quantizer.zero)
@@ -705,7 +756,9 @@ class GPTQ:
                 precomputed_values=local_values,
             )
             del local_values
-            final_perm = compose_final_perm(local_perms, global_perm, self.qcfg.group_size)
+            final_perm = compose_final_perm(
+                local_perms, global_perm, self.qcfg.group_size
+            )
             W = W[:, final_perm]
             self.H = self.H[final_perm][:, final_perm]
 
@@ -729,9 +782,13 @@ class GPTQ:
                         # Find parameters for entire groups at once (optimized)
                         group_start_cols = list(range(i1, i2, self.qcfg.group_size))
                         for group_start in group_start_cols:
-                            group_end = min(group_start + self.qcfg.group_size, self.columns)
+                            group_end = min(
+                                group_start + self.qcfg.group_size, self.columns
+                            )
                             if group_start < group_end:
-                                self.quantizer.find_params(W[:, group_start:group_end], weight=True)
+                                self.quantizer.find_params(
+                                    W[:, group_start:group_end], weight=True
+                                )
                                 scale.append(self.quantizer.scale)
                                 zero.append(self.quantizer.zero)
                                 now_idx += 1
@@ -747,7 +804,9 @@ class GPTQ:
                     if len(scale) > 0 and len(zero) > 0:
                         latest_scale = scale[-1]
                         latest_zero = zero[-1]
-                        Q1 = self._quantize_block_vectorized(W1, latest_scale, latest_zero)
+                        Q1 = self._quantize_block_vectorized(
+                            W1, latest_scale, latest_zero
+                        )
                     else:
                         # Fallback to individual quantization if no scale/zero available
                         for i in range(count):
@@ -756,7 +815,9 @@ class GPTQ:
                             Q1[:, i] = q
                 else:
                     # No grouping - vectorized quantization for entire block
-                    if hasattr(self.quantizer, 'scale') and hasattr(self.quantizer, 'zero'):
+                    if hasattr(self.quantizer, "scale") and hasattr(
+                        self.quantizer, "zero"
+                    ):
                         Q1 = self._quantize_block_vectorized(
                             W1,
                             self.quantizer.scale,
@@ -792,7 +853,10 @@ class GPTQ:
                     if self.qcfg.group_size != -1:
                         if not self.qcfg.static_groups:
                             if (i1 + i) % self.qcfg.group_size == 0:
-                                self.quantizer.find_params(W[:, (i1 + i) : (i1 + i + self.qcfg.group_size)], weight=True)
+                                self.quantizer.find_params(
+                                    W[:, (i1 + i) : (i1 + i + self.qcfg.group_size)],
+                                    weight=True,
+                                )
 
                             if ((i1 + i) // self.qcfg.group_size) - now_idx == -1:
                                 scale.append(self.quantizer.scale)
@@ -829,16 +893,24 @@ class GPTQ:
                 if math.isnan(avg_loss):
                     print("Losses sum item:", torch.sum(Losses).item())
                     if self.fail_safe:
-                        log.info(f"Quantization: Failed due to `NaN` loss for `{self.name}`, use mock quantization retry for `{self.name}`")
+                        log.info(
+                            f"Quantization: Failed due to `NaN` loss for `{self.name}`, use mock quantization retry for `{self.name}`"
+                        )
                         self.qcfg.mock_quantization = True
                         return self.quantize(blocksize=blocksize)
                     else:
-                        raise ValueError(f"Quantization: Failed due to `NaN` loss for `{self.name}`, please try increasing calibration data samples or enable fail_safe=True")
+                        raise ValueError(
+                            f"Quantization: Failed due to `NaN` loss for `{self.name}`, please try increasing calibration data samples or enable fail_safe=True"
+                        )
             else:
                 if self.fail_safe:
-                    log.warn(f"Quantization: Module `{self.name}` -> using fail safe mode. Please check if calibration data is sufficient.")
+                    log.warn(
+                        f"Quantization: Module `{self.name}` -> using fail safe mode. Please check if calibration data is sufficient."
+                    )
                 else:
-                    log.warn(f"Quantization: `{self.name}` is not activated due to model inference logic (MoE)")
+                    log.warn(
+                        f"Quantization: `{self.name}` is not activated due to model inference logic (MoE)"
+                    )
                 avg_loss = 999999999
         else:
             avg_loss = 999999999
@@ -846,7 +918,9 @@ class GPTQ:
         del Losses
         del self.H
 
-        group_size = self.qcfg.group_size if self.qcfg.group_size != -1 else self.columns
+        group_size = (
+            self.qcfg.group_size if self.qcfg.group_size != -1 else self.columns
+        )
 
         if self.qcfg.static_groups and self.qcfg.act_order:
             g_idx = [perm[i] // group_size for i in range(self.columns)]

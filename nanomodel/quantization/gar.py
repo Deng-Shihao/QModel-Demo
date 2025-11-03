@@ -39,7 +39,9 @@ def compute_local_perms(
     if num_groups == 0:
         empty = torch.empty(0, groupsize, dtype=torch.long, device=diag_H.device)
         if return_values:
-            return empty, torch.empty(0, groupsize, dtype=diag_H.dtype, device=diag_H.device)
+            return empty, torch.empty(
+                0, groupsize, dtype=diag_H.dtype, device=diag_H.device
+            )
         return empty
 
     H = diag_H[: num_groups * groupsize].view(num_groups, groupsize)
@@ -118,7 +120,9 @@ def compose_final_perm(local_perms, global_perm, groupsize: int) -> torch.Tensor
     if isinstance(local_perms, list):
         # Ensure same device & dtype across elements
         device = local_perms[0].device
-        local = torch.stack([lp.to(device=device, dtype=torch.long) for lp in local_perms], dim=0)
+        local = torch.stack(
+            [lp.to(device=device, dtype=torch.long) for lp in local_perms], dim=0
+        )
     else:
         local = local_perms.to(dtype=torch.long)
 
@@ -130,8 +134,11 @@ def compose_final_perm(local_perms, global_perm, groupsize: int) -> torch.Tensor
 
     # Adjust local indices into the flat space, then reorder groups by global_perm
     # NOTE: we index rows (groups) by global_perm, then flatten
-    perm2d = (local + base)[global_perm.to(device=local.device, dtype=torch.long)]  # (G,S)
+    perm2d = (local + base)[
+        global_perm.to(device=local.device, dtype=torch.long)
+    ]  # (G,S)
     return perm2d.reshape(-1)  # (G*S,)
+
 
 # # original algo
 # def compute_global_perm_original(diag_H, groupsize):

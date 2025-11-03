@@ -29,7 +29,9 @@ def _configure_logging() -> None:
 
 
 class _LoggerMethod:
-    def __init__(self, logger: logging.Logger, method_name: str, once_registry: set[str]):
+    def __init__(
+        self, logger: logging.Logger, method_name: str, once_registry: set[str]
+    ):
         self._logger = logger
         self._method_name = method_name
         self._method = getattr(logger, method_name)
@@ -185,7 +187,9 @@ class _Spinner:
 
     def __init__(self, title: str, interval: float = 0.1) -> None:
         self._interval = max(interval, 0.05)
-        self._tqdm = tqdm(total=0, desc=title, bar_format="{desc} {postfix}", leave=False)
+        self._tqdm = tqdm(
+            total=0, desc=title, bar_format="{desc} {postfix}", leave=False
+        )
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
@@ -295,7 +299,9 @@ class QuantizationRegionTimer:
                 (region, self._fresh_stat()) for region in self._region_labels.keys()
             )
 
-    def record(self, region: str, duration: float, *, source: Optional[str] = None) -> None:
+    def record(
+        self, region: str, duration: float, *, source: Optional[str] = None
+    ) -> None:
         try:
             duration_value = float(duration)
         except (TypeError, ValueError):
@@ -376,7 +382,11 @@ def log_time_block(
     module_name: Optional[str] = None,
 ) -> Iterator[None]:
     active_logger = logger or setup_logger()
-    emit = active_logger.info if hasattr(active_logger, "info") else logging.getLogger("nanomodel").info
+    emit = (
+        active_logger.info
+        if hasattr(active_logger, "info")
+        else logging.getLogger("nanomodel").info
+    )
     start = time.perf_counter()
     try:
         yield

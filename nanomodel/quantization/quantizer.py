@@ -37,7 +37,9 @@ def quantize(
 class Quantizer(nn.Module):
     """Base quantizer that computes scale/zero parameters and applies quantization."""
 
-    def __init__(self, qcfg: QuantizeConfig, shape: int = 1, name: Optional[str] = None):
+    def __init__(
+        self, qcfg: QuantizeConfig, shape: int = 1, name: Optional[str] = None
+    ):
         super().__init__()
 
         self.qcfg = qcfg
@@ -68,7 +70,9 @@ class Quantizer(nn.Module):
 
         groupwise = self.requires_groupwise_processing()
         device, dtype = self.scale.device, self.scale.dtype
-        max_range = 2 ** (self.qcfg.bits - 1) - 1 if groupwise else 2**self.qcfg.bits - 1
+        max_range = (
+            2 ** (self.qcfg.bits - 1) - 1 if groupwise else 2**self.qcfg.bits - 1
+        )
         self.maxq = torch.tensor(max_range, device=device, dtype=dtype)
 
         self.perchannel = perchannel
@@ -134,11 +138,7 @@ class Quantizer(nn.Module):
                 p = 1 - i / self.grid
                 xmin1 = p * xmin
                 xmax1 = p * xmax
-                scale1 = (
-                    xmax1 / self.maxq
-                    if groupwise
-                    else (xmax1 - xmin1) / self.maxq
-                )
+                scale1 = xmax1 / self.maxq if groupwise else (xmax1 - xmin1) / self.maxq
                 zero1 = torch.round(-xmin1 / scale1) if not self.qcfg.sym else self.zero
                 q = quantize(
                     x,
@@ -196,5 +196,6 @@ class Quantizer(nn.Module):
 
     # def ready(self):
     # return torch.all(self.scale != 0)
+
 
 __all__ = ["Quantizer"]
