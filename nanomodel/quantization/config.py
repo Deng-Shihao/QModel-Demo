@@ -54,11 +54,6 @@ META_FIELD_TRUE_SEQUENTIAL = "true_sequential"
 META_FIELD_MSE = "mse"
 META_FIELD_ACT_GROUP_AWARE = "act_group_aware"
 
-META_FIELD_V2_ENABLED = "v2"
-META_FIELD_V2_ALPHA = "v2_alpha"
-META_FIELD_V2_MEMORY_DEVICE = "v2_memory_device"
-
-
 # saved kernels
 class KERNEL(str, Enum):
     # GPTQ
@@ -575,22 +570,6 @@ class QuantizeConfig:
             if len(parts) >= 2:
                 result.append((parts[0].lower(), parts[1].lower()))
         return result
-
-    def is_quantized_by_v2(self) -> bool:
-        """Check whether the checkpoint was produced with the experimental v2 packer."""
-        flag = self.meta_get(META_FIELD_V2_ENABLED)
-        if isinstance(flag, bool):
-            return flag
-        if isinstance(flag, str):
-            lowered = flag.strip().lower()
-            if lowered in {"true", "1", "yes", "y"}:
-                return True
-            if lowered in {"false", "0", "no", "n"}:
-                return False
-        if isinstance(flag, (int, float)):
-            return bool(flag)
-
-        return bool(self.v2)
 
     def save_pretrained(self, save_dir: str, **kwargs):
         """Persist the quantization configuration alongside a checkpoint directory."""
