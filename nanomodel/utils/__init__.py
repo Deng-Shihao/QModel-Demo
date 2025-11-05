@@ -1,32 +1,58 @@
-import logging
-import os
+from __future__ import annotations
+
+"""Top-level exports and shared utilities for the `nanomodel.utils` package."""
+
 from .backend import BACKEND
-from .logger import setup_logger # Removed custom logger import
-from .python import gte_python_3_13_3, gte_python_3_14, has_gil_control, has_gil_disabled, log_gil_requirements_for
+from .logger import setup_logger
+from .python import (
+    gte_python_3_13_3,
+    gte_python_3_14,
+    has_gil_control,
+    has_gil_disabled,
+    log_gil_requirements_for,
+)
 from .threads import AsyncManager, SerialWorker
 
-logger = logging.getLogger("nanomodel.utils") # Using standard logging
-# logger.setLevel(os.environ.get("NANOMODEL_LOGLEVEL", "INFO").upper())
-# if not logger.handlers:
-#     # Simple console handler setup
-#     handler = logging.StreamHandler()
-#     formatter = logging.Formatter('%(levelname)s:%(name)s:%(message)s')
-#     handler.setFormatter(formatter)
-#     logger.addHandler(handler)
+logger = setup_logger("nanomodel.utils")
+
+# Reusable worker pools that modules import for background work scheduling.
+ASYNC_BG_QUEUE: AsyncManager = AsyncManager(threads=4)
+SERIAL_BG_QUEUE: SerialWorker = SerialWorker()
 
 
-ASYNC_BG_QUEUE = AsyncManager(threads=4)
-SERIAL_BG_QUEUE = SerialWorker()
+def _register_optional_perplexity() -> None:
+    """Expose Perplexity helper only when Python runs without the GIL."""
+    if has_gil_disabled():
+        from .perplexity import Perplexity as _Perplexity
 
-# TODO: datasets is not compatible with free threading
-if has_gil_disabled():
-    # logger.info("Python GIL is disabled and nanomodel will auto enable multi-gpu quant acceleration for MoE models plus multi-cpu accelerated packing.") # Replaced log.info
-    from .perplexity import Perplexity
-else:
+        globals()["Perplexity"] = _Perplexity
+        return
+
     if has_gil_control():
-        pass
-        # logger.warning("Python >= 3.13T (free-threading) version detected but GIL is not disabled due to manual override or `regex` package compatibility which can be ignored. Please disable GIL via env `PYTHON_GIL=0`.")
-
-    # logger.warning("Python GIL is enabled: Multi-gpu quant acceleration for MoE models is sub-optimal and multi-core accelerated cpu packing is also disabled. We recommend Python >= 3.13.3t with Pytorch > 2.8 for mult-gpu quantization and multi-cpu packing with env `PYTHON_GIL=0`.")
+        logger.warning.once(
+            "Python reports GIL control support but it is still enabled; "
+            "Perplexity remains unavailable."
+        )
 
     log_gil_requirements_for("utils/Perplexity")
+
+
+_register_optional_perplexity()
+
+__all__ = [
+    "ASYNC_BG_QUEUE",
+    "BACKEND",
+    "SERIAL_BG_QUEUE",
+    "AsyncManager",
+    "SerialWorker",
+    "gte_python_3_13_3",
+    "gte_python_3_14",
+    "has_gil_control",
+    "has_gil_disabled",
+    "log_gil_requirements_for",
+    "logger",
+    "setup_logger",
+]
+
+if "Perplexity" in globals():
+    __all__.append("Perplexity")
