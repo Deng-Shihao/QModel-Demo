@@ -51,9 +51,9 @@ SUPPORTS_BACKEND_MAP = {
     METHOD.GPTQ: {
         KERNEL.GPTQ: [
             BACKEND.MARLIN,
-            BACKEND.TORCH_FUSED,
+            # BACKEND.TORCH_FUSED,
             BACKEND.TRITON,
-            BACKEND.TORCH_FUSED,
+            # BACKEND.TORCH_FUSED,
             BACKEND.TORCH,
             BACKEND.MARLIN_FP16,
         ],
