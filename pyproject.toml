@@ -16,7 +16,6 @@ dynamic = ["version"]
 dependencies = [
     "numpy==2.2.6",
     "torch>=2.8.0",
-    "torchao>=0.14.1",
     "accelerate>=1.10.1",
     "transformers>=4.57.1",
     "threadpoolctl>=3.6.0",
