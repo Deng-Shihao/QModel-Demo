@@ -17,7 +17,6 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 PRETRAINED_MODEL_ID = "Qwen/Qwen3-1.7B"
 QUANTIZED_MODEL_ID = "./quantized_models/qwen3-1.7b-gptq-4bit"
 
-
 def format_bytes(num_bytes: int) -> str:
     """Convert raw byte counts into a human readable string."""
     for unit in ["B", "KB", "MB", "GB", "TB"]:

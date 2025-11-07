@@ -44,9 +44,6 @@ def _load_prompts_from_file(path: str) -> list[str]:
 class InferenceSpeed:
     """Benchmark helper that measures tokens/second for quantized checkpoints."""
 
-    NATIVE_MODEL_ID = "/monster/data/model/DeepSeek-R1-Distill-Qwen-7B-gptqmodel-4bit-vortex-v2"
-    BITBLAS_NATIVE_MODEL_ID = "/monster/data/model/opt-125M-autoround-lm_head-false-symTrue"
-
     def __init__(
         self,
         *,
@@ -150,7 +147,7 @@ class InferenceSpeed:
         measured_times: list[float] = []
         measured_tokens: list[int] = []
 
-        # Kernels like BitBLAS, IPEX, and Triton perform JIT compilation, so run warm-up
+        # Kernels like Triton perform JIT compilation, so run warm-up
         # iterations before collecting speed measurements.
         if warmup_runs > 0:
             pb = logger.pb(range(warmup_runs)).title("Warmup")

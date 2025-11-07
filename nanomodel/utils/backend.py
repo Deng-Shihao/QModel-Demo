@@ -6,7 +6,6 @@ class BACKEND(str, Enum):
     AUTO_TRAINABLE = "auto_trainable" # choose the optimal trainable local kernel for post-quant training
 
     # gptq kernel
-    TORCH_FUSED = "torch_fused" # optimized for Intel XPU
     TORCH = "torch" # GOOD: about 80% of triton
     TRITON = "triton" # VERY GOOD: all-around kernel
     MARLIN = "marlin" # FASTEST: marlin reduce ops in fp32 (higher precision -> more accurate, slightly slower)
