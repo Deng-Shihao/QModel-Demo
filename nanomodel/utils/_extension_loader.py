@@ -57,10 +57,8 @@ def _ensure_torch_shared_libraries_loaded() -> None:
     _TORCH_SHARED_LIBS_PRELOADED = True
 
 
-def load_extension_module(module_name: str,
-                          package: Optional[str] = "nanomodel") -> ModuleType:
+def load_extension_module(module_name: str, package: Optional[str] = "nanomodel") -> ModuleType:
     """Import a compiled extension, with fallbacks for editable installs.
-
     Args:
         module_name: The qualified module name to import.
         package: Package hint used to derive search paths.

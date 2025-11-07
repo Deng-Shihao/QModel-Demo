@@ -114,7 +114,7 @@ def chat():
             torch.cuda.reset_peak_memory_stats(model_device)
 
         generate_kwargs = {
-            "max_new_tokens": 512,
+            "max_new_tokens": 2048,
             "temperature": 0.7,
             "top_p": 0.9,
             "do_sample": True,
@@ -138,6 +138,7 @@ def chat():
         print(f"Assistant: {assistant_text}")
 
         memory_stats = collect_memory_stats(model_device)
+
         total_duration = time.perf_counter() - turn_start
         if memory_stats:
             stats_str = ", ".join(
