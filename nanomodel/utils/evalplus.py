@@ -1,7 +1,6 @@
 import types
 
-# from tokenicer import Tokenicer
-from transformers import PreTrainedModel
+from transformers import AutoTokenizer, PreTrainedModel
 
 
 def patch_strip(self, *args, **kwargs):
@@ -19,13 +18,14 @@ def patch_evalplus(model):
 
     import torch
     from evalplus.provider.base import DecoderBase
-    from evalplus.provider.nanomdel import GPTQModelDecoder
+    # from evalplus.provider.nanomdel import GPTQModelDecoder
+    from ...evaplus_nanomodel import NanoModelDecoder
     from evalplus.provider.utility import extra_eos_for_direct_completion
 
-    from .. import GPTQModel
+    from .. import AutoNanoModel
     from ..models import BaseNanoModel
 
-    class PatchedGPTQModelDecoder(DecoderBase):
+    class PatchedNanoModelDecoder(DecoderBase):
         def __init__(
                 self,
                 name: str,
@@ -35,7 +35,7 @@ def patch_evalplus(model):
                 **kwargs,
         ):
 
-            super(GPTQModelDecoder, self).__init__(name=name, **kwargs)
+            super(NanoModelDecoder, self).__init__(name=name, **kwargs)
 
             if hasattr(torch, "mps") and hasattr(torch.mps, "is_available") and torch.mps.is_available():
                 device = torch.device("mps")
@@ -61,10 +61,16 @@ def patch_evalplus(model):
                 self.tokenizer = self.model.tokenizer
             elif isinstance(name, PreTrainedModel):
                 self.model = name
-                self.tokenizer = Tokenicer.load(name.config.name_or_path, trust_remote_code=self.trust_remote_code)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    name.config.name_or_path,
+                    trust_remote_code=self.trust_remote_code,
+                )
             elif isinstance(name, str):
-                self.tokenizer = Tokenicer.load(name, trust_remote_code=self.trust_remote_code)
-                self.model = GPTQModel.load(**kwargs)
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    name,
+                    trust_remote_code=self.trust_remote_code,
+                )
+                self.model = AutoNanoModel.load(**kwargs)
                 self.model = self.model.to(self.device)
             else:
                 raise ValueError(f"`name` is invalid. expected: `model instance or str` actual: `{name}`")
@@ -82,11 +88,11 @@ def patch_evalplus(model):
                 return self.model
             elif isinstance(self.model, PreTrainedModel):
                 return self.model.config.name_or_path
-            elif isinstance(self.model, BaseModelModel):
+            elif isinstance(self.model, BaseNanoModel):
                 return self.model.model_local_path
             else:
                 return self.model.__class__.__name__
 
 
-    GPTQModelDecoder.__init__ = PatchedGPTQModelDecoder.__init__
-    GPTQModelDecoder.__str__ = PatchedGPTQModelDecoder.__str__
+    NanoModelDecoder.__init__ = PatchedNanoModelDecoder.__init__
+    NanoModelDecoder.__str__ = PatchedNanoModelDecoder.__str__

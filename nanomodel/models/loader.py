@@ -635,9 +635,7 @@ def ModelLoader(cls):
         model = gptqmodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
 
         # TODO: eval()
-        # model.eval()
-
-        # TODO: MLX FOR MAC
+        model.eval()
 
         return cls(
             model,

@@ -5,17 +5,20 @@ import random
 import sys
 from functools import lru_cache
 from pathlib import Path
-from typing import Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Type, Union
+
 
 import numpy
 import torch
 from huggingface_hub import list_repo_files
-from transformers import AutoConfig
+from transformers import AutoConfig, AutoTokenizer, GenerationConfig, PreTrainedModel, PreTrainedTokenizerBase
 
 from ..quantization import METHOD, QUANT_CONFIG_FILENAME
 from ..utils import BACKEND
+from ..utils.eval import EVAL
 from ..utils.logger import setup_logger
 from .base import BaseNanoModel, QuantizeConfig
+
 from .definitions.llama import LlamaNanoModel
 from .definitions.qwen2 import Qwen2NanoModel
 from .definitions.qwen3 import Qwen3NanoModel
@@ -272,3 +275,213 @@ class AutoNanoModel:
             trust_remote_code=trust_remote_code,
             **kwargs,
         )
+
+    @classmethod
+    def eval(
+            cls,
+            model_or_id_or_path: str=None,
+            tokenizer: Optional[PreTrainedTokenizerBase]=None,
+            tasks: Union[EVAL.LM_EVAL, EVAL.EVALPLUS, List[EVAL.LM_EVAL], List[EVAL.EVALPLUS], EVAL.MMLU_PRO, List[EVAL.MMLU_PRO]] = None, # set to None to fix mutable warning
+            framework: Union[Type[EVAL.LM_EVAL],Type[EVAL.EVALPLUS],Type[EVAL.MMLU_PRO]] = EVAL.LM_EVAL,
+            batch_size: Union[int, str] = 1,
+            trust_remote_code: bool = False,
+            output_path: Optional[str] = None,
+            llm_backend: str = 'nanomodel',
+            backend: BACKEND = BACKEND.AUTO, # nanomodel arg only
+            random_seed: int = 1234,  # only for framework=EVAL.LM_EVAL backend=vllm
+            model_args: Dict[str, Any] = None,  # only for framework=EVAL.LM_EVAL backend=vllm
+            ntrain: int = 1,  # only for framework=EVAL.MMLUPRO
+            **args
+    ):
+        from peft import PeftModel
+        if model_args is None:
+            model_args = {}
+        if tasks is None:
+            if framework == EVAL.LM_EVAL:
+                tasks = [EVAL.LM_EVAL.ARC_CHALLENGE]
+            elif framework == EVAL.MMLU_PRO:
+                tasks = [EVAL.MMLU_PRO.MATH]
+            else:
+                tasks = [EVAL.EVALPLUS.HUMAN]
+
+        elif not isinstance(tasks, List):
+            tasks = [tasks]
+
+        if framework is None:
+            raise ValueError("Eval parameter: `framework` cannot be set to None")
+
+        if not isinstance(tasks, list):
+            raise ValueError("Eval parameter: `tasks` must be of List type")
+
+        if llm_backend not in ['nanomodel', 'vllm']:
+            raise ValueError('Eval framework support llm_backend: [nanomodel, vllm]')
+
+        if llm_backend == "vllm":
+            if "tensor_parallel_size" not in model_args:
+                try:
+                    cuda_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
+                except Exception:
+                    cuda_devices = 0
+                if cuda_devices:
+                    model_args["tensor_parallel_size"] = cuda_devices
+            if "gpu_memory_utilization" not in model_args:
+                model_args["gpu_memory_utilization"] = 0.90
+
+        if isinstance(model_or_id_or_path, str):
+            load_backend = backend
+            load_kwargs = {}
+
+            if llm_backend == "vllm":
+                disallowed_keys = {"pretrained", "tokenizer", "nanomodel", "trust_remote_code", "backend", "model_id_or_path"}
+                load_kwargs = {k: v for k, v in model_args.items() if k not in disallowed_keys}
+
+            backend_name = load_backend.value if isinstance(load_backend, BACKEND) else str(load_backend)
+            log.info(f"Eval: loading using backend = `{backend_name}`")
+            model = AutoNanoModel.load(
+                model_id_or_path=model_or_id_or_path,
+                backend=load_backend,
+                trust_remote_code=trust_remote_code,
+                **load_kwargs,
+            )
+            model_id_or_path = model_or_id_or_path
+        elif isinstance(model_or_id_or_path, BaseNanoModel) or isinstance(model_or_id_or_path, (PreTrainedModel, PeftModel)):
+            model = model_or_id_or_path
+            model_id_or_path = model.config.name_or_path  #
+        else:
+            raise ValueError(f"`model_or_id_or_path` is invalid. expected: `model instance or str` actual: `{model_or_id_or_path}`")
+
+        if tokenizer is None:
+            if isinstance(model, BaseNanoModel):
+                tokenizer = model.tokenizer
+            elif isinstance(model, PreTrainedModel):
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model.config.name_or_path,
+                    trust_remote_code=trust_remote_code,
+                )
+            elif isinstance(model_id_or_path, str) and model_id_or_path.strip():
+                tokenizer = AutoTokenizer.from_pretrained(
+                    model_id_or_path.strip(),
+                    trust_remote_code=trust_remote_code,
+                )
+
+        if tokenizer is None:
+            raise ValueError("Tokenizer: Auto-loading of tokenizer failed with `model_or_id_or_path`. Please pass in `tokenizer` as argument.")
+
+        if llm_backend == "nanomodel": # vllm loads tokenizer
+            model_args["tokenizer"] = tokenizer
+
+        if framework == EVAL.LM_EVAL:
+            from lm_eval.utils import make_table  # hack: circular import
+
+            for task in tasks:
+                if task not in EVAL.get_task_enums():
+                    raise ValueError(f"Eval.lm_eval supported `tasks`: `{EVAL.get_all_tasks_string()}`, actual = `{task}`")
+
+            model_name = "hf" if llm_backend == "nanomodel" else llm_backend
+
+            if llm_backend == "nanomodel":
+                model_args["nanomodel"] = True
+            model_args["pretrained"] = model_id_or_path
+
+            try:
+                from lm_eval import simple_evaluate
+                from lm_eval.models.huggingface import HFLM
+            except BaseException:
+                raise ValueError("lm_eval is not installed. Please install via `pip install nanomodel[eval]`.")
+
+            if llm_backend == "nanomodel" and model is not None:
+                model_name = HFLM(
+                    pretrained=model,
+                    batch_size=batch_size,
+                    trust_remote_code=trust_remote_code,
+                )
+
+            gen_kwargs = args.pop("gen_kwargs", None)
+
+            # use model.generation_config whenever possible
+            if gen_kwargs is None:
+                # TODO: move to utils
+                if hasattr(model, "generation_config") and isinstance(model.generation_config, GenerationConfig):
+                    gen_dict = {
+                        "do_sample": model.generation_config.do_sample,
+                        "temperature": model.generation_config.temperature,
+                        "top_k": model.generation_config.top_k,
+                        "top_p": model.generation_config.top_p,
+                        "min_p": model.generation_config.min_p,
+
+                    }
+                    gen_kwargs = ','.join(f"{key}={value}" for key, value in gen_dict.items() if value not in ["", {}, None, []])
+                else:
+                    gen_kwargs = "temperature=0.0,top_k=50" # default
+
+            log.info(f"LM-EVAL: `gen_kwargs` = `{gen_kwargs}`")
+
+            # lm-eval has very low scores if apply_chat_template is enabled
+            apply_chat_template = args.pop("apply_chat_template", False) # args.pop("apply_chat_template", True if tokenizer.chat_template is not None else False)
+            log.info(f"LM-EVAL: `apply_chat_template` = `{apply_chat_template}`")
+
+            results = simple_evaluate(
+                model=model_name,
+                model_args=model_args,
+                tasks=[task.value for task in tasks],
+                batch_size=batch_size,
+                apply_chat_template=apply_chat_template,
+                gen_kwargs=gen_kwargs,
+                random_seed=random_seed,
+                numpy_random_seed=random_seed,
+                torch_random_seed=random_seed,
+                fewshot_random_seed=random_seed,
+                **args,
+            )
+
+            if results is None:
+                raise ValueError('lm_eval run fail, check your code!!!')
+
+            print('--------lm_eval Eval Result---------')
+            print(make_table(results))
+            if "groups" in results:
+                print(make_table(results, "groups"))
+            print('--------lm_eval Result End---------')
+            return results
+        elif framework == EVAL.EVALPLUS:
+            for task in tasks:
+                if task not in EVAL.get_task_enums():
+                    raise ValueError(f"evalplus support tasks: {EVAL.get_all_tasks_string()}")
+            from ..utils.eval import evalplus, evalplus_make_table
+
+            results = {}
+            for task in tasks:
+                base_formatted, plus_formatted, result_path = evalplus(
+                    model=model_id_or_path,
+                    dataset=task.value,
+                    batch=batch_size,
+                    trust_remote_code=trust_remote_code,
+                    output_file=output_path,
+                    backend=llm_backend
+                )
+                results[task.value] = {"base tests": base_formatted, "base + extra tests": plus_formatted,
+                                       "results_path": result_path}
+            print('--------evalplus Eval Result---------')
+            evalplus_make_table(results)
+            print('--------evalplus Result End---------')
+            return results
+        elif framework == EVAL.MMLU_PRO:
+            for task in tasks:
+                if task not in EVAL.get_task_enums():
+                    raise ValueError(f"eval support tasks: {EVAL.get_all_tasks_string()}")
+            from ..utils.mmlupro import mmlupro
+            selected_subjects = ",".join(tasks)
+            results = mmlupro(model,
+                              tokenizer,
+                              save_dir=output_path,
+                              seed=random_seed,
+                              selected_subjects=selected_subjects,
+                              ntrain=ntrain,
+                              batch_size=batch_size)
+
+            print('--------MMLUPro Eval Result---------')
+            print(results)
+            print('--------MMLUPro Result End---------')
+            return results
+        else:
+            raise ValueError("Eval framework support: EVAL.LM_EVAL, EVAL.EVALPLUS, EVAL.MMLUPRO")
