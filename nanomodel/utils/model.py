@@ -362,7 +362,7 @@ def create_quant_module(
             tmp_sym = overrides.get("sym", sym)
             tmp_pack_dtype = overrides.get("pack_dtype", pack_dtype)
 
-    # when loading a quantized model, device is target device passed in GPTQModel.load()
+    # when loading a quantized model, device is target device passed in AutoNanoModel.load()
     # check in_features and out_features validate
     _, err = linear_cls.validate(
         bits=tmp_bits,
@@ -676,12 +676,12 @@ def simple_dispatch_model(model, device_map):
 
 
 # public/stable api exposed to transformer/optimum
-def hf_gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def hf_nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
-    return gptqmodel_post_init(model, use_act_order, quantize_config, max_input_length)
+    return nanomodel_post_init(model, use_act_order, quantize_config, max_input_length)
 
 
-def gptqmodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
+def nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
                         max_input_length: Optional[int] = None):
     for _, submodule in model.named_modules():
         if isinstance(submodule, BaseQuantLinear):

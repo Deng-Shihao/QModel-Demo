@@ -31,7 +31,7 @@ from ..utils.model import (
     find_modules,
     get_checkpoints,
     get_module_by_name_prefix,
-    gptqmodel_post_init,
+    nanomodel_post_init,
     load_checkpoint_in_model_then_tie_weights,
     make_quant,
     simple_dispatch_model,
@@ -429,15 +429,6 @@ def ModelLoader(cls):
                 raise TypeError(f"FORMAT.MARLIN requires BACKEND.AUTO or BACKEND.MARLIN: actual = `{backend}`.")
             backend = BACKEND.MARLIN
 
-        # marlin_compatible = False if backend == BACKEND.IPEX else _validate_marlin_device_support()
-        # check for marlin compat for cuda device only
-        # if backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and device == DEVICE.CUDA:
-        #     unsupported = _validate_marlin_compatibility(qcfg)
-        #     if unsupported is None and marlin_compatible:
-        #         logger.info(
-        #             "Hint: Model is compatible with the Marlin kernel. Marlin is optimized for batched inference on Nvidia GPU: `model = GPTQModel.load(..., backend=BACKEND.MARLIN)`."
-        #         )
-
         possible_model_basenames = [
             f"gptq_model-{qcfg.bits}bit-{qcfg.group_size}g",
             "model",
@@ -632,7 +623,7 @@ def ModelLoader(cls):
         _assign_model_seqlen(model)
 
         # Any post-initialization that require device information, for example buffers initialization on device.
-        model = gptqmodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
+        model = nanomodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
 
         # TODO: eval()
         model.eval()

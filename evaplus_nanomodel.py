@@ -7,8 +7,8 @@ try:
     from nanomodel import AutoNanoModel
 except ModuleNotFoundError as exception:
     raise type(exception)(
-        "Tried to load gptqmodel, but gptqmodel is not installed ",
-        "please install gptqmodel via `pip install gptqmodel --no-build-isolation`",
+        "Tried to load nanomodel, but nanomodel is not installed ",
+        "please install nanomodel via `pip install nanomodel --no-build-isolation`",
     )
 
 from evalplus.provider.base import DecoderBase
@@ -23,7 +23,7 @@ class NanoModelDecoder(DecoderBase):
         self,
         name: str,
         dataset: str,
-        gptqmodel_backend: str = "auto",
+        nanomodel_backend: str = "auto",
         force_base_prompt: bool = False,
         **kwargs,
     ):
@@ -55,7 +55,7 @@ class NanoModelDecoder(DecoderBase):
         kwargs = {
             "model_id_or_path": name,
             "trust_remote_code": self.trust_remote_code,
-            "backend": gptqmodel_backend,
+            "backend": nanomodel_backend,
             "device": device,
         }
         self.skip_special_tokens = True

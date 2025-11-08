@@ -18,8 +18,8 @@ def patch_evalplus(model):
 
     import torch
     from evalplus.provider.base import DecoderBase
-    # from evalplus.provider.nanomdel import GPTQModelDecoder
-    from ...evaplus_nanomodel import NanoModelDecoder
+    # from evalplus.provider.nanomdel import NanoModelDecoder
+    from evaplus_nanomodel import NanoModelDecoder
     from evalplus.provider.utility import extra_eos_for_direct_completion
 
     from .. import AutoNanoModel
@@ -30,7 +30,7 @@ def patch_evalplus(model):
                 self,
                 name: str,
                 dataset: str,
-                gptqmodel_backend: str = 'auto',
+                nanomodel_backend: str = 'auto',
                 force_base_prompt: bool = False,
                 **kwargs,
         ):
@@ -51,7 +51,7 @@ def patch_evalplus(model):
             kwargs = {
                 "model_id_or_path": name,
                 "trust_remote_code": self.trust_remote_code,
-                "backend": gptqmodel_backend,
+                "backend": nanomodel_backend,
                 "device": device
             }
             self.skip_special_tokens = True
