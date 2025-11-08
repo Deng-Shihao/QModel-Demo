@@ -12,4 +12,4 @@ lm_eval_data = AutoNanoModel.eval(model_id,
 # Use `evalplus` as framework to evaluate the model
 evalplus_data = AutoNanoModel.eval(model_id, 
                     framework=EVAL.EVALPLUS, 
-                    tasks=[EVAL.EVALPLUS.HUMAN])·
+                    tasks=[EVAL.EVALPLUS.HUMAN])
