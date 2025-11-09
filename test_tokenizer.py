@@ -9,12 +9,12 @@ from nanomodel import AutoNanoModel, get_best_device
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-pretrained_model_id = "Qwen/Qwen3-1.7B"
+# pretrained_model_id = "Qwen/Qwen3-1.7B"
 quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
 
 def main():
     """Load the quantized weights and print a one-shot model response."""
-    tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id, use_fast=True)
+    tokenizer = AutoTokenizer.from_pretrained(quantized_model_id, use_fast=True)
 
     device = get_best_device()
     model = AutoNanoModel.load(quantized_model_id, device=device)

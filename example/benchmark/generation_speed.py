@@ -25,7 +25,7 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 LOGGER = logging.getLogger("generation_speed")
 
-DEFAULT_MODEL_ID = "./quantized_models/qwen3-1.7b-gptq-4bit"
+DEFAULT_MODEL_ID = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
 DEFAULT_TOKENIZER_ID = "Qwen/Qwen3-1.7B"
 DEFAULT_PROMPTS: Sequence[str] = (
     "Explain the benefits of post-training quantization for LLMs.",

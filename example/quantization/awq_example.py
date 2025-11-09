@@ -10,7 +10,7 @@ os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "./quantized_models/qwen3-1.7b-awq-4bit"
+quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
 
 def main():
     """Quantize a pretrained model using AWQ and run a sample generation."""
