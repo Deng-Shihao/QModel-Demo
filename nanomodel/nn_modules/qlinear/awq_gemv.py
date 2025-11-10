@@ -104,16 +104,31 @@ class AwqGEMVQuantLinear(AWQuantLinear):
 
         super().post_init()
 
+    def _ensure_quant_buffers_on_device(self, device: torch.device) -> None:
+        """Move quantization buffers onto the compute device before launching CUDA kernels."""
+        if device.type != "cuda":
+            raise RuntimeError(
+                f"{self.__class__.__name__} requires CUDA tensors but received `{device}`. "
+                "Please load the quantized model on a CUDA device or switch to a CPU-compatible kernel."
+            )
+
+        for attr in ("qweight", "qzeros", "scales", "bias"):
+            tensor = getattr(self, attr, None)
+            if tensor is not None and tensor.device != device:
+                setattr(self, attr, tensor.to(device, non_blocking=True))
+
     def forward(self, x: torch.Tensor):
         if awq_ext is None:
             raise ModuleNotFoundError("External AWQ kernels are not properly installed." + msg)
 
         out_shape = x.shape[:-1] + (self.out_features,)
-        inputs = x.reshape(-1, x.shape[-1])
+        inputs = x.reshape(-1, x.shape[-1]).contiguous()
 
         input_dtype = inputs.dtype
         if input_dtype != torch.float16:
             inputs = inputs.half()
+
+        self._ensure_quant_buffers_on_device(inputs.device)
 
         if inputs.shape[0] > 8:
             out = awq_ext.gemmv2_forward_cuda(
