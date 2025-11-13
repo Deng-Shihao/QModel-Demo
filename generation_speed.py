@@ -1,9 +1,3 @@
-# SPDX-FileCopyrightText: 2024-2025 ModelCloud.ai
-# SPDX-FileCopyrightText: 2024-2025 qubitium@modelcloud.ai
-# SPDX-License-Identifier: Apache-2.0
-# Contact: qubitium@modelcloud.ai, x.com/qubitium
-
-import logging
 import random
 import time
 from argparse import ArgumentParser
@@ -12,14 +6,14 @@ from typing import Dict, List, Optional
 
 import torch
 from datasets import Dataset, load_dataset
-from logbar import LogBar
 from transformers import AutoTokenizer, GenerationConfig
 from transformers.generation.logits_process import LogitsProcessor
 
-from gptqmodel import BACKEND, GPTQModel, QuantizeConfig
+from nanomodel import AutoNanoModel, BACKEND, QuantizeConfig, get_best_device
+from nanomodel.utils.logger import setup_logger
 
 
-logger = LogBar.shared()
+logger = setup_logger(__name__)
 
 random.seed(0)
 
@@ -151,34 +145,36 @@ def load_model_tokenizer(
     model_id_or_path: str,
     backend: BACKEND,
     tokenizer_name_or_path: Optional[str] = None,
-    from_pretrained: bool = False,
-    model_basename: Optional[str] = None,
-    quantize_config: Optional[str] = None,
+    quantize_config: Optional[QuantizeConfig] = None,
     trust_remote_code: bool = False,
     use_fast_tokenizer: bool = False,
+    device: Optional[torch.device] = None,
 ):
     tokenizer = AutoTokenizer.from_pretrained(
         pretrained_model_name_or_path=tokenizer_name_or_path or model_id_or_path,
         use_fast=use_fast_tokenizer,
         trust_remote_code=trust_remote_code,
     )
-    if not tokenizer.pad_token_id:
+    if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    if from_pretrained:
-        model = GPTQModel.load(
-            pretrained_model_id_or_path=model_id_or_path,
-            quantize_config=QuantizeConfig(),
-            trust_remote_code=trust_remote_code,
-        )
+    model = AutoNanoModel.load(
+        model_id_or_path=model_id_or_path,
+        quantize_config=quantize_config,
+        trust_remote_code=trust_remote_code,
+        backend=backend,
+        device=device,
+    )
+
+    if hasattr(model, "_assign_tokenizer"):
+        model._assign_tokenizer(tokenizer)
     else:
-        model = GPTQModel.load(
-            model_id_or_path,
-            quantize_config=quantize_config,
-            model_basename=model_basename,
-            trust_remote_code=trust_remote_code,
-            backend=backend,
-        )
+        model.tokenizer = tokenizer
+        if hasattr(model.model, "tokenizer"):
+            model.model.tokenizer = tokenizer
+
+    if device is not None:
+        model.to(device)
 
     return model, tokenizer
 
@@ -220,10 +216,13 @@ def main():
     parser.add_argument("--model_id_or_path", type=str)
     parser.add_argument("--tokenizer_name_or_path", type=str, default=None)
     parser.add_argument("--from_pretrained", action="store_true")
-    parser.add_argument("--model_basename", type=str, default=None)
     parser.add_argument("--quantize_config_save_dir", type=str, default=None)
     parser.add_argument("--trust_remote_code", action="store_true")
-    parser.add_argument("--backend", choices=['AUTO', 'TRITON', 'EXLLAMA_V2', 'MARLIN', 'CUDA', 'BITBLAS', 'IPEX'], default='AUTO')
+    parser.add_argument(
+        "--backend",
+        choices=[backend.value for backend in BACKEND],
+        default=BACKEND.AUTO.value,
+    )
     parser.add_argument("--use_fast_tokenizer", action="store_true")
     parser.add_argument("--num_samples", type=int, default=10)
     parser.add_argument("--max_new_tokens", type=int, default=512)
@@ -234,33 +233,36 @@ def main():
     quantize_config = None
     if args.quantize_config_save_dir:
         quantize_config = QuantizeConfig.from_pretrained(args.quantize_config_save_dir)
+    if args.from_pretrained and quantize_config is None:
+        quantize_config = QuantizeConfig()
+
+    backend = BACKEND(args.backend)
+    device = torch.device(get_best_device())
 
     logger.info("loading model and tokenizer")
     start = time.time()
     model, tokenizer = load_model_tokenizer(
         model_id_or_path=args.model_id_or_path,
         tokenizer_name_or_path=args.tokenizer_name_or_path,
-        from_pretrained=args.from_pretrained,
-        model_basename=args.model_basename,
         quantize_config=quantize_config,
         trust_remote_code=args.trust_remote_code,
         use_fast_tokenizer=args.use_fast_tokenizer,
-        backend=BACKEND(args.backend.lower()),
+        backend=backend,
+        device=device,
     )
     end = time.time()
     logger.info(f"model and tokenizer loading time: {end - start:.4f}s")
     logger.info(f"model quantized: {model.quantized}")
-    logger.info(f"quantize config: {model.quantize_config.to_dict()}")
-    logger.info(f"model device map: {model.hf_device_map}")
+    if hasattr(model, "quantize_config") and model.quantize_config is not None:
+        logger.info(f"quantize config: {model.quantize_config.to_dict()}")
+    logger.info(f"model device map: {getattr(model, 'hf_device_map', None)}")
+    logger.info(f"running on device: {device}")
     logger.info("loading data")
     examples = load_data(
         tokenizer,
         args.num_samples,
         args.max_new_tokens,
     )
-
-    device = "cpu" if not torch.cuda.is_available() or args.backend == "IPEX" else "cuda:0"
-    model.to(device)
 
     generation_config = GenerationConfig(
         num_beams=args.num_beams,
@@ -276,10 +278,4 @@ def main():
     benchmark_generation_speed(model, tokenizer, examples, generation_config)
 
 if __name__ == "__main__":
-    logging.basicConfig(
-        format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-        level=logging.INFO,
-        datefmt="%Y-%m-%d %H:%M:%S",
-    )
-
     main()
