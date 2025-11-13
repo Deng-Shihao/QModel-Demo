@@ -229,8 +229,8 @@ def make_quant(
     dynamic = qcfg.dynamic
     pack_dtype = qcfg.pack_dtype
 
-    if not pack and format == KERNEL.GPTQ:
-        backend = BACKEND.TORCH
+    # if not pack and format == KERNEL.GPTQ:
+    #     backend = BACKEND.TORCH
 
     # returns multiple validated kernels
     quant_linear_candidates = select_quant_linear(
