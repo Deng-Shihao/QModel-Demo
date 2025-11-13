@@ -127,10 +127,6 @@ class GPTQProcessor(BaseProcessor):
             qcfg_clone.static_groups = self.qcfg.dynamic_get(
                 module.full_name, "static_groups", qcfg_clone.static_groups
             )
-            qcfg_clone.v2 = self.qcfg.dynamic_get(module.full_name, "v2", qcfg_clone.v2)
-            qcfg_clone.v2_alpha = self.qcfg.dynamic_get(
-                module.full_name, "v2_alpha", qcfg_clone.v2_alpha
-            )
 
             qcfg_clone._resolve_activation_ordering(
                 act_order_override, act_group_aware_override
@@ -402,7 +398,7 @@ class GPTQProcessor(BaseProcessor):
             return True
 
     def name(self) -> str:
-        # TODO fix me..this hacks inherited base class logic, why not override name in gptqv2?
+        # TODO fix me..this hacks inherited base class logic, why not override name per processor type if needed.
         qcfg = self.qcfg_dynamic if self.qcfg_dynamic is not None else self.qcfg
         return "gptq"
 

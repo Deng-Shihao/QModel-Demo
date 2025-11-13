@@ -1057,12 +1057,7 @@ class ModuleProcessor():
 
         for p_index, processor in enumerate(self.processors):
             if not processor.verify_calibration_dataset(p_index):
-                if (isinstance(processor, GPTQProcessor) and self.gptq_model.quantize_config.v2):
-                    prev_processor = self.processors[p_index - 1]
-                    processor.set_calibration_dataset(prev_processor.calibration_dataset)
-                    # If calibration_dataset is None or Empty, the input_cache of the previous processor is used.
-                    processor.receive_input_cache(prev_processor.inputs_cache)
-                elif isinstance(processor, DequantizeProcessor):
+                if isinstance(processor, DequantizeProcessor):
                     # DequantizeProcessor does not perform any operations on dataset.
                     processor.set_calibration_dataset([])
                     processor.receive_input_cache(InputCache([], [], [], []))
