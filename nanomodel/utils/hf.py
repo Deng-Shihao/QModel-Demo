@@ -50,6 +50,21 @@ def _load_sanitized_generation_config(path: str) -> Optional[GenerationConfig]:
     return cfg
 
 
+def _resolve_pad_token_id(model: PreTrainedModel) -> Optional[int]:
+    tokenizer = getattr(model, "tokenizer", None)
+    config = getattr(model, "config", None)
+    candidates = (
+        getattr(config, "pad_token_id", None),
+        getattr(tokenizer, "pad_token_id", None) if tokenizer is not None else None,
+        getattr(tokenizer, "eos_token_id", None) if tokenizer is not None else None,
+        getattr(config, "eos_token_id", None),
+    )
+    for candidate in candidates:
+        if candidate is not None:
+            return candidate
+    return None
+
+
 # TODO FIXME! Pre-quantized use AutoModelForCausalLM.from_pretrained() but post-quantized use AutoModelForCausalLM.from_config()
 def autofix_hf_model_config(model: PreTrainedModel, path: str = None):
     if model.can_generate():
@@ -78,6 +93,10 @@ def autofix_hf_model_config(model: PreTrainedModel, path: str = None):
 
         # print(f"Before autofix_hf_model_config: {model.generation_config}")
         autofix_hf_generation_config(model.generation_config)
+        pad_token_id = _resolve_pad_token_id(model)
+        if pad_token_id is not None and getattr(model.generation_config, "pad_token_id", None) != pad_token_id:
+            model.generation_config.pad_token_id = pad_token_id
+            log.info("Model: Synced `pad_token_id=%s` into `generation_config`.", pad_token_id)
         # print(f"After autofix_hf_model_config: {model.generation_config}")
 
 
