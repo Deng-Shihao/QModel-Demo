@@ -67,7 +67,7 @@ class AWQProcessor(BaseProcessor):
         calibration_concat_size: Optional[int],
         calibration_sort: Optional[str],
         batch_size: int,
-        gptq_model,
+        quant_model,
         model,
         require_fwd: bool = True,
         calculate_w_wq_diff: bool = False,
@@ -91,7 +91,7 @@ class AWQProcessor(BaseProcessor):
         self.avg_losses = []
         self.nsamples = 0
 
-        self.gptq_model = gptq_model
+        self.quant_model = quant_model
         self.model = model
         # Whether to apply clipping to the model during quantization. Some models may perform better with this set to False.
         self.apply_clip = True
@@ -126,7 +126,7 @@ class AWQProcessor(BaseProcessor):
 
     def init_quant(self):
         modules, _ = get_module_by_name_prefix(
-            self.gptq_model.model, self.gptq_model.extract_layers_node()
+            self.quant_model.model, self.quant_model.extract_layers_node()
         )
         # make sure samples tensor's shape is [*, max_calib_seq_len]
         pad_token_id = getattr(self.tokenizer, "pad_token_id", None)
@@ -164,11 +164,11 @@ class AWQProcessor(BaseProcessor):
         layer_kwargs = {}
 
         best_device = get_best_device()
-        modules[0] = self.gptq_model.pre_quantize(modules[0])
+        modules[0] = self.quant_model.pre_quantize(modules[0])
         modules[0] = modules[0].to(best_device)
 
         # embed should be on same gpu/best device
-        self.gptq_model.move_embed(best_device)
+        self.quant_model.move_embed(best_device)
 
         # get input and kwargs to layer 0
         # with_kwargs is only supported in PyTorch 2.0
@@ -232,7 +232,7 @@ class AWQProcessor(BaseProcessor):
         inps = inps[0]
 
         # we no longer need embed, reduce vram
-        self.gptq_model.move_embed("cpu")
+        self.quant_model.move_embed("cpu")
 
         if layer_kwargs.get("attention_mask") is not None:
             layer_kwargs["attention_mask"] = layer_kwargs["attention_mask"].to(
@@ -399,7 +399,7 @@ class AWQProcessor(BaseProcessor):
         # We need to move the rotary embedding every time we move to a new module.
         # Transformers 4.45.0 moved rotary embedding to model definition as of this PR:
         # https://github.com/huggingface/transformers/pull/32617
-        # self.gptq_model.move_embed(common_device)
+        # self.quant_model.move_embed(common_device)
 
         # Transformers >= 4.48.0 requires positional embeddings should be computed before forward pass
         if self.module_kwargs.get("position_embeddings") is None:
@@ -436,7 +436,7 @@ class AWQProcessor(BaseProcessor):
 
         # [STEP 2]: Compute and apply scale list
         # with tf32_disable_guard():
-        module_config: List[Dict] = self.gptq_model.awq_get_modules_for_scaling(
+        module_config: List[Dict] = self.quant_model.awq_get_modules_for_scaling(
             module, input_feat, self.module_kwargs
         )
         scales_list = [

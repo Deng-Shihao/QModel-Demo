@@ -430,7 +430,7 @@ def ModelLoader(cls):
             backend = BACKEND.MARLIN
 
         possible_model_basenames = [
-            f"gptq_model-{qcfg.bits}bit-{qcfg.group_size}g",
+            f"quant_model-{qcfg.bits}bit-{qcfg.group_size}g",
             "model",
         ]
 

@@ -63,7 +63,7 @@ def autofix_hf_model_config(model: PreTrainedModel, path: str = None):
                 cfg = _load_sanitized_generation_config(path)
                 if cfg is None:
                     cfg = GenerationConfig.from_pretrained(pretrained_model_name=path, do_sample=True)
-                    _sanitize_generation_config(cfg, drop_sampling_fields=True)
+                    _sanitize_generation_config(cfg, drop_sampling_fields=False)
                 if cfg != model.generation_config:
                     # migrated pad_token_id to config
                     if hasattr(model.generation_config, "pad_token_id"):

@@ -206,7 +206,7 @@ class ModuleProcessor():
     """
     def __init__(self, model: BaseNanoModel, processors: List[BaseProcessor]):
         self.processors = processors
-        self.gptq_model = model
+        self.quant_model = model
         self.support_batch_quantize = model.support_batch_quantize
         self.lock = threading.Lock()
         self._layer_callback = getattr(model, "layer_callback", None)
@@ -227,7 +227,7 @@ class ModuleProcessor():
                 f"{disk_speed_mb:.1f} MB/s."
             )
 
-        quant_device_hint = getattr(self.gptq_model.quantize_config, "device", None)
+        quant_device_hint = getattr(self.quant_model.quantize_config, "device", None)
         normalized_quant_device = normalize_device_like(quant_device_hint)
         quant_devices = select_forward_devices(normalized_quant_device) if normalized_quant_device else [CPU]
         if not quant_devices:
@@ -249,9 +249,9 @@ class ModuleProcessor():
         for candidate in (
             getattr(self, "_layer_callback", None),
             getattr(self, "layer_callback", None),
-            getattr(self.gptq_model, "layer_callback", None),
-            getattr(self.gptq_model, "callbackup", None),
-            getattr(self.gptq_model, "callback", None),
+            getattr(self.quant_model, "layer_callback", None),
+            getattr(self.quant_model, "callbackup", None),
+            getattr(self.quant_model, "callback", None),
         ):
             if candidate is not None:
                 return candidate
@@ -833,7 +833,7 @@ class ModuleProcessor():
         def hook(module, inputs, output):
             keep = self._get_processor_mask(processor)
 
-            timer = getattr(self.gptq_model, "quant_region_timer", None)
+            timer = getattr(self.quant_model, "quant_region_timer", None)
             start = time.perf_counter() if timer else None
 
             # Mask first tensor-like input if it's [B, S, ...]
@@ -883,7 +883,7 @@ class ModuleProcessor():
         position_ids = []
         layer_input_kwargs = []
 
-        timer = getattr(self.gptq_model, "quant_region_timer", None)
+        timer = getattr(self.quant_model, "quant_region_timer", None)
         if layers:
             first_layer = layers[0]
             layer_label = getattr(first_layer, "full_name", None)
@@ -944,17 +944,17 @@ class ModuleProcessor():
 
         # move layer to target device
         if cur_layer_device == META:
-            layers[0] = self.gptq_model.shell_module_materialize(
+            layers[0] = self.quant_model.shell_module_materialize(
                 target_submodule=layers[0],
-                device=self.gptq_model.quantize_config.device,
+                device=self.quant_model.quantize_config.device,
             )
-            cur_layer_device = self.gptq_model.quantize_config.device
+            cur_layer_device = self.quant_model.quantize_config.device
         else:
-            layers[0] = layers[0].to(self.gptq_model.quantize_config.device)
+            layers[0] = layers[0].to(self.quant_model.quantize_config.device)
 
         ori_outside_layer_module_devices = {}
-        for module_name in self.gptq_model.get_base_modules(self.gptq_model.model):
-            module, _ = get_module_by_name_prefix(self.gptq_model.model, [module_name])
+        for module_name in self.quant_model.get_base_modules(self.quant_model.model):
+            module, _ = get_module_by_name_prefix(self.quant_model.model, [module_name])
 
             if module is None:
                 continue
@@ -962,7 +962,7 @@ class ModuleProcessor():
             m_device = get_device(module)
             ori_outside_layer_module_devices[module_name] = CPU if m_device == META else m_device
             if module is not None:
-                self.gptq_model.shell_module_materialize(
+                self.quant_model.shell_module_materialize(
                     target_submodule=module,
                     device=cur_layer_device,
                 )
@@ -970,45 +970,45 @@ class ModuleProcessor():
         handle = layers[0].register_forward_pre_hook(store_input_hook, with_kwargs=True)
 
         # TODO FIX ME.. remove hard coded Ovis code
-        is_ovis = self.gptq_model.__class__.__name__ == "OvisGPTQ"
+        is_ovis = self.quant_model.__class__.__name__ == "OvisGPTQ"
 
         # LifeCycle: start pre-first layer embedding hook
-        self.gptq_model.pre_quantize_generate_hook_start()
+        self.quant_model.pre_quantize_generate_hook_start()
 
         for example in calibration_data:
             for k, v in example.items():
-                if self.gptq_model.ATTENTION_MASKS_REQUIRED_FOR_INPUT:
-                    data_device = self.gptq_model.quantize_config.device
+                if self.quant_model.ATTENTION_MASKS_REQUIRED_FOR_INPUT:
+                    data_device = self.quant_model.quantize_config.device
                 else:
-                    data_device = self.gptq_model.quantize_config.device if k == "pixel_values" else cur_layer_device
+                    data_device = self.quant_model.quantize_config.device if k == "pixel_values" else cur_layer_device
                 if isinstance(v, list):
                     for index in range(len(v)):
                         if len(v[index].shape) == 1:
                             v[index] = v[index].unsqueeze(0)
-                        v[index] = move_to(v[index].to(self.gptq_model.model.visual_tokenizer.dtype) if is_ovis else v[index],
+                        v[index] = move_to(v[index].to(self.quant_model.model.visual_tokenizer.dtype) if is_ovis else v[index],
                                                   device=data_device)
                 else:
                     if len(v.shape) == 1:
                         v = v.unsqueeze(0)
                     example[k] = move_to(v, device=data_device)
             try:
-                if self.gptq_model.ATTENTION_MASKS_DTYPE is torch.long:
+                if self.quant_model.ATTENTION_MASKS_DTYPE is torch.long:
                     example["attention_mask"] = example["attention_mask"].long()
 
                 # Ensure initial caches (like RoPE) are created on the quant device
                 with ctx(
-                    DEVICE_THREAD_POOL.read_lock(self.gptq_model.quantize_config.device),
-                    device_ctx(self.gptq_model.quantize_config.device),
+                    DEVICE_THREAD_POOL.read_lock(self.quant_model.quantize_config.device),
+                    device_ctx(self.quant_model.quantize_config.device),
                 ):
-                    if self.gptq_model.INPUT_EMBEDDING_EXTRA_ARGS:
-                        self.gptq_model.model.generate(**example, **self.gptq_model.INPUT_EMBEDDING_EXTRA_ARGS)
+                    if self.quant_model.INPUT_EMBEDDING_EXTRA_ARGS:
+                        self.quant_model.model.generate(**example, **self.quant_model.INPUT_EMBEDDING_EXTRA_ARGS)
                     else:
-                        self.gptq_model.model(**example, use_cache=use_cache)
+                        self.quant_model.model(**example, use_cache=use_cache)
             except StopForward:
                 pass
 
         # LifeCycle: pre-first layer embedding hook
-        self.gptq_model.pre_quantize_generate_hook_end()
+        self.quant_model.pre_quantize_generate_hook_end()
         handle.remove()
 
         result = InputCache(
@@ -1029,31 +1029,31 @@ class ModuleProcessor():
 
     @torch.inference_mode()
     def loop(self, fail_safe: bool = False, **kwargs):
-        if self.gptq_model.quantize_config.lm_head:
-            if self.gptq_model.model.config.tie_word_embeddings and hasattr(self.gptq_model.model.model, "_tied_weights_keys"):
-                tied_keys = self.gptq_model.model._tied_weights_keys
+        if self.quant_model.quantize_config.lm_head:
+            if self.quant_model.model.config.tie_word_embeddings and hasattr(self.quant_model.model.model, "_tied_weights_keys"):
+                tied_keys = self.quant_model.model._tied_weights_keys
                 for item in tied_keys:
-                    if self.gptq_model.lm_head in item:
+                    if self.quant_model.lm_head in item:
                         raise NotImplementedError("quantization of `lm_head` layer with `tied_weights=True` model state is not supported. Please check model has `tied_weights=False`.")
 
-            lm_head_module = get_module(self.gptq_model.model, key=self.gptq_model.lm_head)
-            if get_module(self.gptq_model.model, key=self.gptq_model.lm_head) is None:
-                raise ValueError(f"could not find layer {self.gptq_model.lm_head} in the model, exit...")
+            lm_head_module = get_module(self.quant_model.model, key=self.quant_model.lm_head)
+            if get_module(self.quant_model.model, key=self.quant_model.lm_head) is None:
+                raise ValueError(f"could not find layer {self.quant_model.lm_head} in the model, exit...")
 
             if not isinstance(lm_head_module, tuple(SUPPORTS_MODULE_TYPES)):
                 raise NotImplementedError(f"This type({type(lm_head_module)}) of lm_head quantization is currently not "
                                           f"supported. SUPPORTS_MODULE_TYPES is {SUPPORTS_MODULE_TYPES}")
 
             lm_head_quant_config = {"bits": 8, "group_size": 32, "sym": True, "act_order": False, "mse": 2.4}
-            if self.gptq_model.quantize_config.dynamic is None:
-                self.gptq_model.quantize_config.dynamic = {self.gptq_model.lm_head: lm_head_quant_config}
-            elif self.gptq_model.quantize_config.dynamic_get(self.gptq_model.lm_head, default=None) is None:
-                self.gptq_model.quantize_config.dynamic[self.gptq_model.lm_head] = lm_head_quant_config
+            if self.quant_model.quantize_config.dynamic is None:
+                self.quant_model.quantize_config.dynamic = {self.quant_model.lm_head: lm_head_quant_config}
+            elif self.quant_model.quantize_config.dynamic_get(self.quant_model.lm_head, default=None) is None:
+                self.quant_model.quantize_config.dynamic[self.quant_model.lm_head] = lm_head_quant_config
 
-        forward_pass_use_cache = self.gptq_model.model.config.use_cache if hasattr(self.gptq_model.model.config, "use_cache") else False
-        self.gptq_model.model.config.use_cache = False
-        layers, layers_prefix = get_module_by_name_prefix(self.gptq_model.model, self.gptq_model.extract_layers_node())
-        region_timer = getattr(self.gptq_model, "quant_region_timer", None)
+        forward_pass_use_cache = self.quant_model.model.config.use_cache if hasattr(self.quant_model.model.config, "use_cache") else False
+        self.quant_model.model.config.use_cache = False
+        layers, layers_prefix = get_module_by_name_prefix(self.quant_model.model, self.quant_model.extract_layers_node())
+        region_timer = getattr(self.quant_model, "quant_region_timer", None)
 
         for p_index, processor in enumerate(self.processors):
             if not processor.verify_calibration_dataset(p_index):
@@ -1076,15 +1076,15 @@ class ModuleProcessor():
         if region_timer is not None:
             region_timer.flush()
 
-        layer_modules = self.gptq_model.simple_layer_modules(model_config=self.gptq_model.model.config, quantize_config=self.gptq_model.quantize_config)
+        layer_modules = self.quant_model.simple_layer_modules(model_config=self.quant_model.model.config, quantize_config=self.quant_model.quantize_config)
 
         # true-sequential will replay the quantized activations after each subset has been quantized to be used for next subset quantization
         # this should always be true for gptq unless you want lower but misleading error_loss that is misleading and will lead to lower post-quantized model
-        if not self.gptq_model.quantize_config.true_sequential:
+        if not self.quant_model.quantize_config.true_sequential:
             layer_modules = [sum(layer_modules, [])]
 
         layer_count = len(layers)
-        total_layers = layer_count + 1 if self.gptq_model.quantize_config.lm_head else layer_count
+        total_layers = layer_count + 1 if self.quant_model.quantize_config.lm_head else layer_count
         pb = (
             create_progress(total_layers, unit="layer")
             .manual()
@@ -1097,14 +1097,14 @@ class ModuleProcessor():
 
         shared_kv_cache_dict = {}
 
-        replace_module_with_hooked_legacy(self.gptq_model.model, quant_lm_head=self.gptq_model.quantize_config.lm_head)
+        replace_module_with_hooked_legacy(self.quant_model.model, quant_lm_head=self.quant_model.quantize_config.lm_head)
 
-        if self.gptq_model.quantize_config.lm_head:
-            lm_head_module = get_module(self.gptq_model.model, key=self.gptq_model.lm_head)
+        if self.quant_model.quantize_config.lm_head:
+            lm_head_module = get_module(self.quant_model.model, key=self.quant_model.lm_head)
             if lm_head_module and isinstance(lm_head_module, torch.nn.Linear):
                 hooked_lm_head = HookedLinear.from_linear(lm_head_module)
-                module_path = self.gptq_model.lm_head.split('.')
-                parent = self.gptq_model.model
+                module_path = self.quant_model.lm_head.split('.')
+                parent = self.quant_model.model
                 for part in module_path[:-1]:
                     parent = getattr(parent, part)
                 setattr(parent, module_path[-1], hooked_lm_head)
@@ -1116,7 +1116,7 @@ class ModuleProcessor():
 
             if is_lm_head_module:
                 layer_title = "Quantizing lm_head"
-                module = get_module(self.gptq_model.model, key=self.gptq_model.lm_head)
+                module = get_module(self.quant_model.model, key=self.quant_model.lm_head)
             else:
                 layer_title = f"Quantizing layer {layer_index} of {layer_count - 1}"
                 module = layers[layer_index]
@@ -1127,23 +1127,23 @@ class ModuleProcessor():
                 # TODO FIXME: currently we not support quantizing cross attention layer (pixel_values)
                 continue
 
-            module = self.gptq_model.pre_quantize(module)
+            module = self.quant_model.pre_quantize(module)
 
             if is_lm_head_module:
-                layer_descriptor = self.gptq_model.lm_head
+                layer_descriptor = self.quant_model.lm_head
             elif layers_prefix:
                 layer_descriptor = f"{layers_prefix}.{layer_index}"
             else:
                 layer_descriptor = str(layer_index)
 
             cur_layer_device = get_device(module)
-            full = find_modules(module, name=self.gptq_model.lm_head if is_lm_head_module else "")
+            full = find_modules(module, name=self.quant_model.lm_head if is_lm_head_module else "")
 
             for p_index, processor in enumerate(self.processors):
                 processor.log_call_count = 0  # reset
                 processor.collect_memory_info(layer_index)
 
-                modules = [[self.gptq_model.lm_head]] if is_lm_head_module else layer_modules
+                modules = [[self.quant_model.lm_head]] if is_lm_head_module else layer_modules
 
                 # for NativeProcessor we process one time forward on all grouped module subsets
                 if processor.fwd_all_modules_in_single_pass:
@@ -1183,7 +1183,7 @@ class ModuleProcessor():
 
                 layer_inputs = processor.inputs_cache.layer_inputs
                 if is_lm_head_module:
-                    layer_inputs = self.gptq_model.lm_head_pre_quantize_generate_hook(layer_inputs)
+                    layer_inputs = self.quant_model.lm_head_pre_quantize_generate_hook(layer_inputs)
                 layer_input_kwargs = processor.inputs_cache.layer_input_kwargs
                 position_ids = processor.inputs_cache.position_ids
                 attention_masks = processor.inputs_cache.attention_masks
@@ -1363,7 +1363,7 @@ class ModuleProcessor():
                             )
 
                         # Run processor.process for this NamedModule
-                        timer = getattr(self.gptq_model, "quant_region_timer", None)
+                        timer = getattr(self.quant_model, "quant_region_timer", None)
                         start = time.perf_counter() if timer else None
                         try:
                             proc.process(module=nm)
@@ -1460,9 +1460,9 @@ class ModuleProcessor():
                     torch_sync()
 
                     if not is_lm_head_module:
-                        layers[layer_index] = self.gptq_model.post_quantize(module)
+                        layers[layer_index] = self.quant_model.post_quantize(module)
                     else:
-                        self.gptq_model.post_quantize(module)
+                        self.quant_model.post_quantize(module)
 
                     for finalized in processed_subset.values():
                         if isinstance(finalized, NamedModule):
@@ -1528,17 +1528,17 @@ class ModuleProcessor():
                                 logger=logger,
                                 module_name=resolved_label,
                             ):
-                                process.submodule_finalize(module, self.gptq_model)
+                                process.submodule_finalize(module, self.quant_model)
 
                             # Disk offload (lifecycle TODO note preserved)
                             if isinstance(process, (GPTQProcessor, AWQProcessor)):
-                                quant_config = getattr(self.gptq_model, "quantize_config", None)
+                                quant_config = getattr(self.quant_model, "quantize_config", None)
                                 if quant_config and getattr(quant_config, "offload_to_disk", False):
                                     offload_path = getattr(quant_config, "offload_to_disk_path", None)
                                     if offload_path:
                                         module_full_name = getattr(module, "full_name", None)
                                         target_module = (
-                                            self.gptq_model.model.get_submodule(module_full_name)
+                                            self.quant_model.model.get_submodule(module_full_name)
                                             if module_full_name
                                             else module
                                         )
@@ -1549,7 +1549,7 @@ class ModuleProcessor():
                                             module_name=resolved_label,
                                         ):
                                             offload_to_disk(
-                                                model=self.gptq_model.model,
+                                                model=self.quant_model.model,
                                                 module=target_module,
                                                 disk_path=offload_path,
                                             )
@@ -1729,7 +1729,7 @@ class ModuleProcessor():
                 processor_name = reverse_p.name()
                 total_log[processor_name] = reverse_p.log
                 if processor_name in ["gptq"]:
-                    self.gptq_model.quant_log = reverse_p.log
+                    self.quant_model.quant_log = reverse_p.log
 
                 for module_log in reverse_p.log:
                     logger.info(module_log)
@@ -1737,7 +1737,7 @@ class ModuleProcessor():
 
                 finalize_start = time.perf_counter() if region_timer is not None else None
                 try:
-                    reverse_p.finalize(model=self.gptq_model, **kwargs)
+                    reverse_p.finalize(model=self.quant_model, **kwargs)
                 finally:
                     if region_timer is not None and finalize_start is not None:
                         region_timer.record(
@@ -1755,7 +1755,7 @@ class ModuleProcessor():
         if region_timer is not None:
             region_timer.flush()
 
-        self.gptq_model.model.config.use_cache = forward_pass_use_cache
+        self.quant_model.model.config.use_cache = forward_pass_use_cache
 
         return total_log
 
@@ -1767,11 +1767,11 @@ class ModuleProcessor():
                 subset[n] = full[n]
             # some modules have layer_modules that are dynamic based on config
             # ref: deepseek v2/v3/r1
-            elif self.gptq_model.layer_modules_strict:
+            elif self.quant_model.layer_modules_strict:
                 raise ValueError(f"layer module item `{n}` not found in model, please check your model config.")
         skipped_modules = []
         for name in subset:
-            layer_name = self.gptq_model.lm_head if is_lm_head_module else f"{layers_prefix}.{layer_index}.{name}"
+            layer_name = self.quant_model.lm_head if is_lm_head_module else f"{layers_prefix}.{layer_index}.{name}"
 
             # gptq task is created and stored inside processor
             if not isinstance(subset[name], NamedModule):

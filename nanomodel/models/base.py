@@ -625,7 +625,7 @@ class BaseNanoModel(nn.Module):
 
             os.environ["AWQ_BATCH_SIZE"] = str(batch_size)
             awq_args = {
-                "gptq_model": self,
+                "quant_model": self,
                 "model": self.model,
                 "batch_size": batch_size,
                 **processor_args,
