@@ -8,14 +8,13 @@ import re
 import threading
 import time
 from collections import defaultdict
-from collections.abc import Mapping
 from contextlib import nullcontext
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Tuple, Type, Union
+from itertools import count
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Set, Type, Union
 
 import torch
 import torch._dynamo
 import torch.nn as nn
-
 
 from transformers import (
     AutoModelForCausalLM,
@@ -44,7 +43,7 @@ from ..quantization.config import KERNEL, METHOD, QUANTIZE_BLACK_LIST, dynamic_g
 from ..quantization.rotation.rotation import fuse_layer_norms, rotate_model
 
 from ..utils.backend import BACKEND
-from ..utils.data import collate_data
+from ..utils.calibration import prepare_calibration_dataset
 from ..utils.device import get_device
 from ..utils.hf import autofix_hf_model_config
 from ..utils.importer import select_quant_linear
@@ -135,6 +134,8 @@ def apply_module_tree_override(module_tree, override):
 
 
 NOT_QUANTIZE_FLAG = ":!"
+CAPTURE_ONLY_FLAG = ":?"
+NON_QUANTIZE_FLAGS = (NOT_QUANTIZE_FLAG, CAPTURE_ONLY_FLAG)
 
 # Fix cpu memory leak.
 # See https://github.com/huggingface/transformers/issues/34366
@@ -183,6 +184,9 @@ class BaseNanoModel(nn.Module):
     info: Dict[str, str] = {}
 
     supports_act_order = [True, False]
+
+    # prefixes that identify expert modules in MoE architectures
+    moe_expert_module_name_prefixes: List[str] = [".expert", ".experts"]
 
     modality: List[MODALITY] = [MODALITY.TEXT]
 
@@ -396,7 +400,11 @@ class BaseNanoModel(nn.Module):
 
     @classmethod
     def simple_layer_modules(
-        cls, model_config, quantize_config, is_awq_quantize: bool = False
+        cls,
+        model_config,
+        quantize_config,
+        is_awq_quantize: bool = False,
+        include_capture_only: bool = False,
     ) -> List[List[str]]:
         """
         Builds a simplified list of layer modules for quantization.
@@ -405,7 +413,9 @@ class BaseNanoModel(nn.Module):
         and then filtering out non-quantizable modules. This is the primary method
         used during the quantization process.
         """
-        layer_modules = cls.build_layer_modules(cls.module_tree)
+        layer_modules = cls.build_layer_modules(
+            cls.module_tree, include_capture_only=include_capture_only
+        )
         layer_modules = cls.build_moe_modules_if_need(
             model_config, layer_modules, is_awq_quantize
         )
@@ -414,7 +424,10 @@ class BaseNanoModel(nn.Module):
 
     @classmethod
     def full_layer_modules(
-        cls, model_config=None, is_awq_quantize: bool = False
+        cls,
+        model_config=None,
+        is_awq_quantize: bool = False,
+        include_capture_only: bool = False,
     ) -> List[List[str]]:
         """
         Builds the complete list of layer modules, including non-quantizable ones.
@@ -422,41 +435,11 @@ class BaseNanoModel(nn.Module):
         This is useful for operations that need to inspect the entire model structure,
         such as AWQ scaling.
         """
-        full = cls.build_layer_modules(cls.module_tree)
+        full = cls.build_layer_modules(
+            cls.module_tree, include_capture_only=include_capture_only
+        )
         full = cls.build_moe_modules_if_need(model_config, full, is_awq_quantize)
         return full
-
-    def _materialize_calibration_examples(
-        self,
-        calibration_dataset: Union[
-            List[Dict[str, Union[List[int], torch.LongTensor]]],
-            List[str],
-            List[List[int]],
-            "HFDatasetType",
-            "HFIterableDatasetType",
-        ],
-    ) -> List[Any]:
-        """Convert the provided calibration dataset into a concrete list of examples."""
-        hf_dataset_types: Tuple[type, ...] = tuple(
-            dataset_type
-            for dataset_type in (HFDataset, HFIterableDataset)
-            if dataset_type is not None
-        )
-
-        if isinstance(calibration_dataset, str):
-            raise ValueError(
-                "Quantize: calibration dataset must be iterable, not a single string."
-            )
-
-        if hf_dataset_types and isinstance(calibration_dataset, hf_dataset_types):
-            return list(calibration_dataset)
-
-        try:
-            return list(calibration_dataset)
-        except TypeError as exc:
-            raise ValueError(
-                "Quantize: calibration dataset must be iterable and materializable."
-            ) from exc
 
     def _resolve_sequence_length_limit(self) -> tuple[Optional[int], Optional[str]]:
         """Inspect the HF config for the smallest declared maximum sequence length."""
@@ -515,382 +498,25 @@ class BaseNanoModel(nn.Module):
         calibration_dataset_sort: Optional[str] = None,
         batch_size: int = 1,
         calibration_data_min_length: int = 10,
+        calibration_concat_separator: Optional[str] = CALIBRATION_DATASET_CONCAT_CHAR,
     ):
-        """Tokenize/normalize calibration samples and collate them into batches."""
-        # 1. Materialize and validate the initial dataset.
-        raw_examples = self._materialize_calibration_examples(calibration_dataset)
-        if not raw_examples:
-            raise ValueError("Quantize: calibration dataset is empty.")
+        """
+        Tokenize/normalize calibration samples and collate them into batches.
 
-        # 2. Process and tokenize each example based on its format (text, dict, etc.).
-        processed_examples = self._process_and_tokenize_examples(raw_examples)
-
-        # 3. Trim sequences to the model's max length and filter out short examples.
-        trimmed_examples = self._trim_and_filter_examples(
-            processed_examples, min_length=calibration_data_min_length
+        The heavy lifting is delegated to `prepare_calibration_dataset` so the logic stays
+        in sync with GPTQModel's reference implementation.
+        """
+        return prepare_calibration_dataset(
+            model=self,
+            calibration_dataset=calibration_dataset,
+            calibration_dataset_concat_size=calibration_dataset_concat_size,
+            calibration_dataset_sort=calibration_dataset_sort,
+            batch_size=batch_size,
+            calibration_data_min_length=calibration_data_min_length,
+            calibration_concat_separator=calibration_concat_separator,
+            logger=log,
         )
 
-        # 4. Concatenate examples into larger sequences if a concat size is provided.
-        if calibration_dataset_concat_size:
-            final_examples = self._concatenate_examples(
-                trimmed_examples, concat_size=calibration_dataset_concat_size
-            )
-        else:
-            final_examples = trimmed_examples
-
-        # 5. Sort the dataset according to the specified mode (asc, desc, shuffle).
-        sorted_examples = self._sort_examples(
-            final_examples, sort_mode=calibration_dataset_sort
-        )
-
-        # 6. Collate the final dataset into batches.
-        batched_dataset = self._batch_examples(sorted_examples, batch_size=batch_size)
-
-        return batched_dataset
-
-    def _process_and_tokenize_examples(
-        self, raw_examples: List[Any]
-    ) -> List[Dict[str, torch.Tensor]]:
-        """Process and tokenize a list of raw calibration examples."""
-        processed_examples = []
-        for idx, example in enumerate(raw_examples):
-            if isinstance(example, Mapping):
-                # Handle dictionary-like examples (e.g., from datasets library)
-                example_dict = dict(example)
-                if "messages" in example_dict:
-                    processed_examples.append(
-                        self._tokenize_messages_value(example_dict["messages"], idx)
-                    )
-                elif "text" in example_dict:
-                    processed_examples.append(
-                        self._tokenize_text_value(example_dict["text"], idx)
-                    )
-                elif "input_ids" in example_dict:
-                    processed_examples.append(
-                        self._pack_ids(
-                            example_dict["input_ids"],
-                            example_dict.get("attention_mask"),
-                            idx,
-                        )
-                    )
-                else:
-                    raise ValueError(
-                        f"Unsupported calibration dict at index {idx}: keys={list(example_dict.keys())}"
-                    )
-            elif isinstance(example, str):
-                # Handle raw string examples
-                processed_examples.append(self._tokenize_text_value(example, idx))
-            elif isinstance(example, (list, tuple)):
-                # Handle list-of-integers examples
-                if all(isinstance(x, int) for x in example):
-                    processed_examples.append(self._pack_ids(list(example), None, idx))
-                else:
-                    raise ValueError(
-                        f"List-based calibration example at index {idx} must contain only integers."
-                    )
-            elif torch.is_tensor(example):
-                # Handle tensor examples
-                processed_examples.append(self._pack_ids(example, None, idx))
-            else:
-                raise ValueError(
-                    f"Unsupported calibration example type {type(example)} at index {idx}."
-                )
-        return processed_examples
-
-    def _trim_and_filter_examples(
-        self, tokenized_examples: List[Dict[str, torch.Tensor]], min_length: int
-    ) -> List[Dict[str, List[List[int]]]]:
-        """Trim examples to max sequence length and filter out those that are too short."""
-        max_positions, max_positions_source = self._resolve_sequence_length_limit()
-        trimmed_row_count = 0
-        longest_trimmed_row = 0
-
-        new_calibration_dataset = []
-        too_short_count = 0
-
-        for example in tokenized_examples:
-            # Convert tensors to nested lists for manipulation
-            input_ids = self._convert_tensor_to_list(example["input_ids"])
-            attention_mask = self._convert_tensor_to_list(example["attention_mask"])
-
-            # Trim sequences that exceed the model's maximum length
-            if max_positions is not None:
-                trimmed = False
-                trimmed_input_ids, trimmed_attention_mask = [], []
-                for row_ids, row_mask in zip(input_ids, attention_mask):
-                    if len(row_ids) > max_positions:
-                        trimmed = True
-                        trimmed_row_count += 1
-                        longest_trimmed_row = max(longest_trimmed_row, len(row_ids))
-                        trimmed_input_ids.append(row_ids[:max_positions])
-                        trimmed_attention_mask.append(row_mask[:max_positions])
-                    else:
-                        trimmed_input_ids.append(row_ids)
-                        trimmed_attention_mask.append(row_mask)
-                if trimmed:
-                    input_ids, attention_mask = (
-                        trimmed_input_ids,
-                        trimmed_attention_mask,
-                    )
-
-            # Filter out examples that are shorter than the minimum length
-            if len(input_ids[0]) <= min_length:
-                too_short_count += 1
-                continue
-
-            new_calibration_dataset.append(
-                {"input_ids": input_ids, "attention_mask": attention_mask}
-            )
-
-        if too_short_count > 0:
-            log.warning(
-                f"Quantize: {too_short_count} inputs with length <= {min_length} were removed."
-            )
-        if trimmed_row_count > 0:
-            log.info(
-                f"Quantize: Trimmed {trimmed_row_count} calibration rows to {max_positions} tokens (source: {max_positions_source}, longest: {longest_trimmed_row})."
-            )
-
-        return new_calibration_dataset
-
-    def _concatenate_examples(
-        self, examples: List[Dict[str, List[List[int]]]], concat_size: int
-    ) -> List[Dict[str, List[List[int]]]]:
-        """Concatenate multiple examples into single, larger sequences of a fixed size."""
-        self._require_tokenizer("`calibration_dataset_concat_size` is specified")
-
-        concatenated_data = []
-        input_ids_buffer, attention_mask_buffer = [], []
-        current_length = 0
-
-        # Tokenize the separator character
-        new_line_tokens = self.tokenizer(
-            CALIBRATION_DATASET_CONCAT_CHAR, return_tensors="pt"
-        )
-        new_line_ids = self._convert_tensor_to_list(new_line_tokens["input_ids"])[0]
-        new_line_mask = self._convert_tensor_to_list(new_line_tokens["attention_mask"])[
-            0
-        ]
-        new_line_len = len(new_line_ids)
-
-        for example in examples:
-            ids, mask = example["input_ids"][0], example["attention_mask"][0]
-
-            # If adding the next example exceeds the concat size, process the buffer
-            if current_length + len(ids) + new_line_len >= concat_size:
-                if current_length > 0:
-                    # Fill remaining space in the buffer
-                    remaining = concat_size - current_length
-                    if remaining > new_line_len:
-                        input_ids_buffer.extend(new_line_ids)
-                        input_ids_buffer.extend(ids[: remaining - new_line_len])
-                        attention_mask_buffer.extend(new_line_mask)
-                        attention_mask_buffer.extend(mask[: remaining - new_line_len])
-
-                    concatenated_data.append(
-                        {
-                            "input_ids": [input_ids_buffer],
-                            "attention_mask": [attention_mask_buffer],
-                        }
-                    )
-
-                # Start a new buffer with the current example
-                input_ids_buffer = ids[:concat_size]
-                attention_mask_buffer = mask[:concat_size]
-                current_length = len(input_ids_buffer)
-            else:
-                # Add the example to the current buffer
-                if current_length > 0:
-                    input_ids_buffer.extend(new_line_ids)
-                    attention_mask_buffer.extend(new_line_mask)
-                    current_length += new_line_len
-
-                input_ids_buffer.extend(ids)
-                attention_mask_buffer.extend(mask)
-                current_length += len(ids)
-
-        # Add the last buffer if it contains data
-        if input_ids_buffer:
-            padding_len = concat_size - len(input_ids_buffer)
-            if padding_len > 0:
-                input_ids_buffer.extend([self.tokenizer.pad_token_id] * padding_len)
-                attention_mask_buffer.extend([0] * padding_len)
-            concatenated_data.append(
-                {
-                    "input_ids": [input_ids_buffer],
-                    "attention_mask": [attention_mask_buffer],
-                }
-            )
-
-        return concatenated_data
-
-    def _sort_examples(
-        self, examples: List[Dict[str, List[List[int]]]], sort_mode: Optional[str]
-    ) -> List[Dict[str, List[List[int]]]]:
-        """Sort or shuffle the calibration dataset."""
-        sort_mode = (sort_mode or "").lower()
-        if sort_mode in {"asc", "desc"}:
-            log.info(f"Calibration: Sorting by length in {sort_mode}ending order.")
-            return sorted(
-                examples,
-                key=lambda item: len(item["input_ids"][0]),
-                reverse=sort_mode == "desc",
-            )
-        elif sort_mode == "shuffle":
-            log.info("Calibration: Shuffling dataset randomly.")
-            shuffled = examples[:]
-            random.shuffle(shuffled)
-            return shuffled
-        else:
-            log.info("Calibration: Using native dataset order.")
-            return examples
-
-    def _batch_examples(
-        self, examples: List[Dict[str, Any]], batch_size: int
-    ) -> List[Dict[str, torch.Tensor]]:
-        """Collate a list of examples into batches."""
-        if self.support_batch_quantize:
-            # Collate data into batches with padding
-            batched_dataset = [
-                collate_data(
-                    examples[start : start + batch_size], self.tokenizer.pad_token_id
-                )
-                for start in range(0, len(examples), batch_size)
-            ]
-
-            # Log token statistics
-            total_padded = sum(
-                (batch["attention_mask"] == 0).sum().item() for batch in batched_dataset
-            )
-            total_non_padded = sum(
-                (batch["attention_mask"] == 1).sum().item() for batch in batched_dataset
-            )
-            log.info(
-                f"Calibration: Total tokens: {total_non_padded + total_padded} ({total_non_padded} non-padded, {total_padded} padded)."
-            )
-
-            return batched_dataset
-        else:
-            # If batching is not supported, each example is its own "batch"
-            return [
-                {"input_ids": torch.tensor(block["input_ids"], dtype=torch.long)}
-                for block in examples
-            ]
-
-    def _require_tokenizer(self, reason: str) -> None:
-        """Check for the existence of a tokenizer, raising an error if it's missing."""
-        if self.tokenizer is None:
-            raise ValueError(f"A tokenizer must be provided when {reason}.")
-
-    def _to_2d_long_tensor(self, value: Any, name: str, idx: int) -> torch.Tensor:
-        """Convert a value to a 2D LongTensor, raising detailed errors on failure."""
-        try:
-            tensor = torch.as_tensor(value, dtype=torch.long)
-        except Exception as exc:
-            raise ValueError(
-                f"Failed to convert `{name}` to a tensor for calibration item {idx}."
-            ) from exc
-
-        if tensor.ndim == 0:
-            raise ValueError(
-                f"`{name}` for item {idx} must be 1D or 2D, but got a scalar."
-            )
-        if tensor.ndim == 1:
-            tensor = tensor.unsqueeze(0)
-        elif tensor.ndim != 2:
-            raise ValueError(
-                f"`{name}` for item {idx} must be 1D or 2D, but got rank {tensor.ndim}."
-            )
-        return tensor
-
-    def _pack_ids(
-        self, ids_value: Any, mask_value: Any, idx: int
-    ) -> Dict[str, torch.Tensor]:
-        """Pack input_ids and an optional attention_mask into a standardized dictionary."""
-        ids_tensor = self._to_2d_long_tensor(ids_value, "input_ids", idx)
-
-        if mask_value is None:
-            mask_tensor = torch.ones_like(ids_tensor)
-        else:
-            mask_tensor = self._to_2d_long_tensor(mask_value, "attention_mask", idx)
-            if mask_tensor.shape != ids_tensor.shape:
-                # Attempt to reshape if the number of elements is the same
-                if mask_tensor.numel() == ids_tensor.numel():
-                    mask_tensor = mask_tensor.reshape(ids_tensor.shape)
-                else:
-                    raise ValueError(
-                        f"Shape mismatch for item {idx}: input_ids is {ids_tensor.shape}, attention_mask is {mask_tensor.shape}."
-                    )
-
-        return {
-            "input_ids": ids_tensor.detach(),
-            "attention_mask": mask_tensor.detach(),
-        }
-
-    def _tokenize_text_value(
-        self, text_value: Any, idx: int
-    ) -> Dict[str, torch.Tensor]:
-        """Tokenize a raw text string."""
-        self._require_tokenizer("calibration data contains raw text")
-        tokenized = self.tokenizer(
-            text_value, add_special_tokens=True, return_tensors="pt"
-        )
-        return self._pack_ids(
-            tokenized["input_ids"], tokenized.get("attention_mask"), idx
-        )
-
-    def _tokenize_messages_value(
-        self, messages_value: Any, idx: int
-    ) -> Dict[str, torch.Tensor]:
-        """Tokenize a chat-style messages list using the tokenizer's template."""
-        self._require_tokenizer("calibration data uses the `messages` feature")
-        apply_fn = getattr(self.tokenizer, "apply_template", None)
-        if apply_fn is None:
-            raise ValueError(
-                "Tokenizer must have `apply_template` to handle `messages` calibration data."
-            )
-
-        # `apply_template` can have different signatures
-        try:
-            templated = apply_fn(messages_value, tokenize=False)
-        except TypeError:
-            templated = apply_fn(messages_value)
-
-        if templated is None:
-            raise ValueError(
-                f"tokenizer.apply_template returned None for calibration item {idx}."
-            )
-
-        # The result of apply_template can be a dict, list of ints, a tensor, or a string
-        if hasattr(templated, "get") and "input_ids" in templated:
-            return self._pack_ids(
-                templated["input_ids"], templated.get("attention_mask"), idx
-            )
-        if isinstance(templated, str):
-            return self._tokenize_text_value(templated, idx)
-        if torch.is_tensor(templated) or (
-            isinstance(templated, (list, tuple))
-            and templated
-            and isinstance(templated[0], int)
-        ):
-            return self._pack_ids(templated, None, idx)
-
-        raise ValueError(
-            f"tokenizer.apply_template returned an unsupported type {type(templated)} for item {idx}."
-        )
-
-    def _convert_tensor_to_list(
-        self, tensor: Union[torch.Tensor, List]
-    ) -> List[List[int]]:
-        """Ensure the input is a nested list of integers."""
-        if isinstance(tensor, torch.Tensor):
-            if tensor.ndim == 1:
-                tensor = tensor.unsqueeze(0)
-            return tensor.long().cpu().numpy().tolist()
-        # Already a list
-        if isinstance(tensor[0], list):
-            return tensor
-        return [tensor]
 
     def quantize(
         self,
@@ -903,6 +529,7 @@ class BaseNanoModel(nn.Module):
         tokenizer: Optional[PreTrainedTokenizerBase] = None,
         backend: Optional[BACKEND] = BACKEND.AUTO,
         calibration_data_min_length: int = 10,
+        calibration_concat_separator: Optional[str] = CALIBRATION_DATASET_CONCAT_CHAR,
     ) -> Dict[str, List[Dict[str, str]]]:
         """
         Performs quantization on the model using the provided calibration dataset.
@@ -915,6 +542,7 @@ class BaseNanoModel(nn.Module):
             tokenizer: An optional tokenizer. If not provided, the model's existing tokenizer is used.
             backend: The computation backend to use (e.g., 'auto', 'torch').
             calibration_data_min_length: Minimum sequence length for a calibration sample to be included.
+            calibration_concat_separator: Optional separator token/string when concatenating samples.
 
         Returns:
             A dictionary containing the quantization log.
@@ -982,6 +610,8 @@ class BaseNanoModel(nn.Module):
             "calibration_concat_size": calibration_concat_size,
             "calibration_sort": calibration_sort,
             "batch_size": batch_size,
+            "calibration_data_min_length": calibration_data_min_length,
+            "calibration_concat_separator": calibration_concat_separator,
         }
 
         # Initialize the quantization processors based on the chosen method.
@@ -1326,133 +956,224 @@ class BaseNanoModel(nn.Module):
 
     def awq_get_modules_for_scaling(self, module, input_feat, module_kwargs):
         """
-        Identifies and groups modules within a layer for AWQ (Activation-aware Weight Quantization) scaling.
-
-        This method iterates through the model's layers as defined by `full_layer_modules`
-        and creates a list of "nodes". Each node represents a group of linear layers (a "subset")
-        that should be scaled together, along with their preceding operation (e.g., a LayerNorm)
-        and the input features required for scaling.
-
-        Args:
-            module: The current layer module (e.g., a single Transformer block).
-            input_feat: A dictionary mapping module names to their captured input features.
-            module_kwargs: Keyword arguments to be passed to the scaling function.
-
-        Returns:
-            A list of nodes, where each node is a dictionary containing information for scaling.
+        Mirror GPTQModel's AWQ scaling node construction logic, supporting capture-only
+        markers, expert-aware grouping, and better diagnostics.
         """
         nodes = []
-        last_module = None  # The most recent non-quantized module, typically a normalization layer.
+        last_module = None  # most recent norm object
         last_module_name = None
-        last_module_root = (
-            None  # The root of the last module (e.g., 'self_attn' or 'mlp').
-        )
+        last_module_root = None  # e.g., "self_attn" or "mlp"
 
-        num_experts = (
+        if self.model.config is not None and self.dynamic_expert_index is not None:
             self.get_num_experts(self.model.config)
-            if self.dynamic_expert_index
-            else None
+
+        def strip_non_quantize_flags(module_name: str) -> str:
+            for flag in NON_QUANTIZE_FLAGS:
+                if flag in module_name:
+                    module_name = module_name.replace(flag, "")
+            return module_name
+
+        def _select_feature_name(names: List[str]) -> Optional[str]:
+            """Return the first quantized child that has captured activations."""
+            for raw in names:
+                stripped = strip_non_quantize_flags(raw)
+                if stripped in input_feat:
+                    return stripped
+            return strip_non_quantize_flags(names[0]) if names else None
+
+        def _try_update_last_module(candidate_name: str) -> bool:
+            nonlocal last_module, last_module_name, last_module_root
+
+            resolved_module, _ = get_module_by_name_prefix(module, candidate_name)
+            if resolved_module is None:
+                log.debug(
+                    "awq_get_modules_for_scaling: last-module candidate `%s` missing; retaining previous `%s`",
+                    candidate_name,
+                    last_module_name,
+                )
+                return False
+
+            last_module = resolved_module
+            last_module_name = candidate_name
+            if "." in candidate_name:
+                last_module_root = candidate_name.split(".", 1)[0]
+            return True
+
+        full_layer_modules = self.full_layer_modules(
+            self.model.config,
+            is_awq_quantize=True,
+            include_capture_only=True,
         )
+        for i, block in enumerate(full_layer_modules):
+            not_quantized = all(
+                any(flag in name for flag in NON_QUANTIZE_FLAGS) for name in block
+            )
+            if not_quantized:
+                if (
+                    i > 0
+                    and all(
+                        any(flag in name for flag in NON_QUANTIZE_FLAGS)
+                        for name in full_layer_modules[i - 1]
+                    )
+                ):
+                    continue
 
-        def strip_not_quantize_flag(module_name):
-            return module_name.split(NOT_QUANTIZE_FLAG)[0]
-
-        # Iterate over blocks of modules defined in the model's architecture.
-        for block in self.full_layer_modules(self.model.config, is_awq_quantize=True):
-            # A block can be a list of module names, e.g., ['self_attn.q_proj', 'self_attn.k_proj']
-            # or a norm layer, e.g., ['post_attention_layernorm:!']
-
-            # If all modules in the block are marked as non-quantizable, it's likely a norm layer.
-            if all(NOT_QUANTIZE_FLAG in name for name in block):
-                last_module_name = strip_not_quantize_flag(block[-1])
-                last_module, _ = get_module_by_name_prefix(module, last_module_name)
+                candidate_name = strip_non_quantize_flags(block[-1])
+                _try_update_last_module(candidate_name)
                 continue
 
-            # Handle MoE (Mixture of Experts) blocks where one norm precedes multiple expert layers.
-            if (
-                num_experts is not None
-                and len(block) == num_experts
-                and last_module is not None
-            ):
+            is_moe_block = any(
+                any(k in name for k in self.moe_expert_module_name_prefixes)
+                for name in block
+            )
+            is_moe_down_block = is_moe_block and any("down" in name for name in block)
+            is_moe_gate_up_block = is_moe_block and any("gate" in name for name in block) and any(
+                "up" in name for name in block
+            )
+            if is_moe_down_block and last_module is not None and last_module_name is not None:
                 target_suffix = last_module_name.split(".")[-1]
                 for name in block:
-                    # Find the corresponding preceding operation for each expert.
                     prev_op_name = ".".join(name.split(".")[:-1] + [target_suffix])
                     prev_op, _ = get_module_by_name_prefix(module, prev_op_name)
-                    assert prev_op is not None, (
-                        f"Could not find prev_op: {prev_op_name}"
-                    )
+                    if prev_op is None or strip_non_quantize_flags(name) not in input_feat:
+                        log.debug(
+                            "awq_get_modules_for_scaling: skipping expert `%s` due to missing prev_op or features",
+                            name,
+                        )
+                        continue
 
                     m, _ = get_module_by_name_prefix(module, name)
-                    n, _ = generate_node_for_awq_scaling(
-                        inp=input_feat[name],
+                    if m is None:
+                        log.debug(
+                            "awq_get_modules_for_scaling: skipping missing expert module `%s`",
+                            name,
+                        )
+                        continue
+                    subset = [m]
+                    n, root = generate_node_for_awq_scaling(
+                        inp=input_feat[strip_non_quantize_flags(name)],
                         prev_op=prev_op,
                         module_kwargs=module_kwargs,
                         nodes_size=len(nodes),
-                        subset=[m],
+                        subset=subset,
                         module2inspect=None,
                     )
+                    if root is not None and last_module_root != root:
+                        last_module_root = root
+
                     nodes.append(n)
             else:
-                # Handle regular, non-MoE blocks.
                 subset = []
-                skip_block = False
+                skip = False
                 for name in block:
-                    if NOT_QUANTIZE_FLAG in name:
-                        continue
+                    if all(flag not in name for flag in NON_QUANTIZE_FLAGS):
+                        m, _ = get_module_by_name_prefix(module, name)
 
-                    # AWQ-specific logic to skip certain modules like 'mlp.gate'
-                    if name == "mlp.gate":
-                        skip_block = True
-                        break
+                        if (
+                            self.awq_scale_optimize_shape_dependent_modules is not None
+                            and name in self.awq_scale_optimize_shape_dependent_modules
+                            and isinstance(last_module, nn.Linear)
+                            and last_module.weight.shape != m.weight.shape
+                        ):
+                            skip = True
 
-                    m, _ = get_module_by_name_prefix(module, name)
+                        if m is None:
+                            log.debug(
+                                "awq_get_modules_for_scaling: skipping missing module `%s`",
+                                name,
+                            )
+                            skip = True
+                            break
+                        subset.append(m)
 
-                    # Skip attention output projection if its shape mismatches the previous norm (e.g., in GQA).
-                    if (
-                        self.awq_scale_optimize_shape_dependent_modules
-                        and name in self.awq_scale_optimize_shape_dependent_modules
-                        and isinstance(last_module, nn.Linear)
-                        and last_module.weight.shape != m.weight.shape
-                    ):
-                        skip_block = True
-                        break
-                    subset.append(m)
-
-                if skip_block or not subset:
+                if skip or not subset:
                     continue
 
-                assert last_module is not None, (
-                    "prev_op (last_module) not found for a quantizable block."
-                )
+                prev_op = last_module
+                if prev_op is None:
+                    log.debug(
+                        "awq_get_modules_for_scaling: skipping block %s due to missing previous module",
+                        block,
+                    )
+                    continue
 
-                # Determine the root module to inspect for inputs (e.g., 'self_attn').
-                root = block[0].split(".")[0]
+                feature_name = _select_feature_name(block) or strip_non_quantize_flags(block[0])
+                root_split = feature_name.split(".")
                 module2inspect = None
-                if root != last_module_root:
-                    last_module_root = root
-                    module2inspect, _ = get_module_by_name_prefix(module, root)
+                if len(root_split) >= 2:
+                    root = root_split[0]
+                    if root != last_module_root:
+                        last_module_root = root
+                        module2inspect, _ = get_module_by_name_prefix(module, root)
 
-                # For MoE, the input might come from the root of the expert block.
-                if num_experts and len(block) == 2 * num_experts and module2inspect:
-                    inp = input_feat[last_module_root]
+                if is_moe_gate_up_block and module2inspect is not None:
+                    if last_module_root not in input_feat:
+                        log.debug(
+                            "awq_get_modules_for_scaling: missing input feature for `%s` while processing experts block (layer block size=%s)",
+                            last_module_root,
+                            len(block),
+                        )
+                    inp = input_feat.get(last_module_root, input_feat.get(_select_feature_name(block)))
                 else:
-                    inp = input_feat[block[0]]
+                    inp = input_feat.get(feature_name)
 
-                n, _ = generate_node_for_awq_scaling(
+                if inp is None:
+                    log.debug(
+                        "awq_get_modules_for_scaling: skipping block %s due to missing input features",
+                        block,
+                    )
+                    continue
+
+                n, root = generate_node_for_awq_scaling(
                     inp=inp,
-                    prev_op=last_module,
+                    prev_op=prev_op,
                     module_kwargs=module_kwargs,
                     nodes_size=len(nodes),
                     subset=subset,
                     module2inspect=module2inspect,
                 )
+
                 nodes.append(n)
 
-            # Update the last seen module to the final one in the current block.
-            last_module_name = strip_not_quantize_flag(block[-1])
-            last_module, _ = get_module_by_name_prefix(module, last_module_name)
+            if is_moe_gate_up_block:
+                gate_up_proj_indices = [
+                    idx
+                    for idx, name in enumerate(block)
+                    if any(k in name for k in self.moe_expert_module_name_prefixes)
+                    and ("gate" in name or "up" in name)
+                ]
 
+                assert gate_up_proj_indices, "No expert gate_proj/up_proj found in block."
+                last_up_proj_index = gate_up_proj_indices[-1]
+
+                candidate_name = strip_non_quantize_flags(block[last_up_proj_index])
+                assert "gate" in candidate_name or "up" in candidate_name
+            else:
+                candidate_name = strip_non_quantize_flags(block[-1])
+            _try_update_last_module(candidate_name)
+
+        import torch
+
+        def format_nodes(nodes):
+            out = []
+            for n in nodes:
+                entry = {}
+                for k, v in n.items():
+                    if isinstance(v, torch.Tensor):
+                        entry[k] = f"Tensor(shape={tuple(v.shape)}, dtype={v.dtype})"
+                    elif isinstance(v, dict):
+                        entry[k] = [
+                            f"Key: {kk}, Value: Tensor(shape={tuple(x.shape)}, dtype={x.dtype}); "
+                            if isinstance(x, torch.Tensor)
+                            else type(x).__name__
+                            for kk, x in v.items()
+                        ]
+                    else:
+                        entry[k] = v
+                out.append(entry)
+            return out
+
+        # print("DEBUG AWQ NODES:", format_nodes(nodes))
         return nodes
 
     def _clone_model_init_kwargs(self, source: PreTrainedModel) -> Dict[str, Any]:
@@ -1642,54 +1363,127 @@ class BaseNanoModel(nn.Module):
         return module
 
     @classmethod
-    def build_layer_modules(cls, tree: List[Union[str, Dict]]) -> List[List[str]]:
+    def build_layer_modules(
+        cls, tree: List[Union[str, Dict]], include_capture_only: bool = False
+    ) -> List[List[str]]:
         """
-        Parses the `module_tree` to build a structured list of module names for each layer.
+        Parse the `module_tree` definition to build execution-ordered layer blocks.
 
-        The tree format is a list containing module names and a dictionary that defines
-        the structure of quantizable layers.
-        e.g., ["model", "layers", "#", { "parent_module": ("child[:!][:grp]", ...), ... }]
-
-        Rules:
-          - ':!': Marks a module as non-quantizable (e.g., a norm layer).
-          - ':<digit>': Assigns a module to a group. Modules with the same group ID are processed together.
-          - Nested dicts: Define complex structures, like in MoE models.
-          - EXPERT_INDEX_PLACEHOLDER: A placeholder replaced with expert indices for MoE layers.
-
-        Returns:
-          A list of lists, where each inner list is a block of module names to be processed together.
+        The structure mirrors GPTQModel's builder and supports additional annotations:
+          - ':!' keeps the module for activation capture but skips quantization.
+          - ':?' marks capture-only nodes; only included when include_capture_only=True.
+          - ':<digit>' assigns modules to a shared processing group.
+          - Nested dicts describe MoE hierarchies and expert aliases.
         """
+
         mapping = next((item for item in tree if isinstance(item, dict)), None)
         if mapping is None:
             raise ValueError("Mapping configuration not found in the module tree.")
 
-        out_blocks = []
+        out_blocks: List[List[str]] = []
+        alias_groups: Dict[tuple[Optional[str], int], List[tuple[str, bool, bool]]] = {}
+        alias_meta: Dict[tuple[Optional[str], int], Dict[str, int]] = {}
+        alias_seq = count()
+        group_seq = count()
+
+        def _parse_token(token: str) -> tuple[str, List[str]]:
+            parts = token.split(":")
+            name = parts[0]
+            flags = [p for p in parts[1:] if p]
+            return name, flags
+
+        def _group_from_flags(flags: List[str]) -> int:
+            for flag in flags:
+                if flag.isdigit():
+                    return int(flag)
+            return 0
+
+        def _has_numeric_flag(flags: List[str]) -> bool:
+            return any(flag.isdigit() for flag in flags)
+
+        def _get_scope(parent_name: str) -> Optional[str]:
+            if not parent_name:
+                return None
+            return parent_name.split(".", 1)[0]
 
         def process_entries(
-            parent: str, entries: Union[tuple, list, dict], parent_group_offset: int = 0
-        ) -> defaultdict[int, list]:
+            parent_token: str,
+            entries: Union[tuple, list, dict],
+            parent_group_offset: int = 0,
+            scope_key: Optional[str] = None,
+        ) -> defaultdict[int, List[tuple]]:
             """Recursively process module entries to handle groups and nested structures."""
-            groups = defaultdict(list)
+            groups: defaultdict[int, List[tuple]] = defaultdict(list)
+
+            parent_name, parent_flags = _parse_token(parent_token)
+            parent_rel_group = _group_from_flags(parent_flags)
+            parent_group = parent_group_offset + parent_rel_group
+            parent_has_bang = "!" in parent_flags
+            parent_capture_only = "?" in parent_flags
+            parent_has_numeric = _has_numeric_flag(parent_flags)
+
+            scope = scope_key if scope_key is not None else _get_scope(parent_name)
+            parent_alias_scope = scope if parent_has_numeric else parent_name
+
+            def _make_entry(
+                full_path: str,
+                has_bang: bool,
+                capture_only: bool,
+                *,
+                alias_base: int,
+                alias_rel: int,
+                alias_scope: Optional[str],
+            ) -> tuple:
+                return (full_path, has_bang, capture_only, alias_scope, (alias_base, alias_rel))
+
+            child_group_offset = parent_group_offset
+            add_parent = parent_has_bang or (parent_capture_only and include_capture_only)
+            if add_parent:
+                alias_base = parent_rel_group if parent_has_numeric else parent_group
+                parent_entry_scope = (
+                    f"{parent_alias_scope}.__parent__" if parent_alias_scope is not None else None
+                )
+                groups[parent_group].append(
+                    _make_entry(
+                        parent_name,
+                        parent_has_bang,
+                        parent_capture_only,
+                        alias_base=alias_base,
+                        alias_rel=0,
+                        alias_scope=parent_entry_scope,
+                    )
+                )
+                child_group_offset = max(child_group_offset, parent_group + 1)
 
             if isinstance(entries, (tuple, list)):
-                # Base case: a list/tuple of module names
                 for ent in entries:
-                    parts = ent.split(":")
-                    child = parts[0]
-                    flags = parts[1:]
-                    has_bang = "!" in flags
-                    grp = (
-                        next((int(p) for p in flags if p.isdigit()), 0)
-                        + parent_group_offset
-                    )
+                    child_name, child_flags = _parse_token(ent)
 
-                    full_path = (
-                        f"{parent}.{child}" if parent and parent != child else child
+                    has_bang = "!" in child_flags
+                    capture_only = "?" in child_flags
+                    child_rel_group = _group_from_flags(child_flags)
+                    grp = child_group_offset + child_rel_group
+
+                    if parent_name.endswith(f".{child_name}") or parent_name == child_name:
+                        full_path = parent_name
+                    elif parent_name:
+                        full_path = f"{parent_name}.{child_name}"
+                    else:
+                        full_path = child_name
+
+                    alias_scope = parent_alias_scope if parent_has_numeric else scope
+                    alias_base = child_rel_group if _has_numeric_flag(child_flags) else grp
+                    entry = _make_entry(
+                        full_path,
+                        has_bang,
+                        capture_only,
+                        alias_base=alias_base,
+                        alias_rel=0,
+                        alias_scope=alias_scope,
                     )
-                    groups[grp].append((full_path, has_bang))
+                    groups[grp].append(entry)
 
             elif isinstance(entries, dict):
-                # Recursive case: a dictionary defining a nested structure (like MoE)
                 max_current_group = 0
                 for sub_entries in entries.values():
                     if isinstance(sub_entries, (tuple, list)):
@@ -1702,41 +1496,88 @@ class BaseNanoModel(nn.Module):
                 current_offset = parent_group_offset
                 for sub_parent, sub_entries in entries.items():
                     if sub_parent == "#":
-                        # MoE expert placeholder
-                        template_parent = f"{parent}.{EXPERT_INDEX_PLACEHOLDER}"
-                        expert_offset = (
-                            current_offset + max_current_group + 100
-                        )  # Use a large offset to avoid group collisions
-                        sub_groups = process_entries(
-                            template_parent, sub_entries, expert_offset
-                        )
+                        template_parent = f"{parent_name}.{EXPERT_INDEX_PLACEHOLDER}"
+                        template_parent_token = f"{template_parent}:{parent_rel_group}"
+                        alias_scope = scope or parent_name
+                        alias_base = parent_rel_group if parent_has_numeric else parent_group
+                        expert_offset = current_offset + max_current_group + 100
+                        if isinstance(sub_entries, (tuple, list)):
+                            groups[expert_offset].append(
+                                _make_entry(
+                                    template_parent,
+                                    False,
+                                    False,
+                                    alias_base=alias_base,
+                                    alias_rel=0,
+                                    alias_scope=alias_scope,
+                                )
+                            )
+                        else:
+                            sub_groups = process_entries(
+                                template_parent_token, sub_entries, expert_offset, scope
+                            )
+                            for grp, items in sub_groups.items():
+                                groups[grp].extend(items)
                     else:
-                        # Regular nested module
-                        full_sub_parent = (
-                            f"{parent}.{sub_parent}"
-                            if parent and sub_parent
-                            else parent or sub_parent
-                        )
+                        if sub_parent == "":
+                            full_sub_parent = parent_name
+                        else:
+                            full_sub_parent = (
+                                f"{parent_name}.{sub_parent}" if parent_name else sub_parent
+                            )
                         sub_groups = process_entries(
-                            full_sub_parent, sub_entries, current_offset
+                            full_sub_parent, sub_entries, current_offset, scope
                         )
-
-                    for grp, items in sub_groups.items():
-                        groups[grp].extend(items)
-                    if sub_groups:
-                        current_offset = max(sub_groups.keys()) + 1
+                        for grp, items in sub_groups.items():
+                            groups[grp].extend(items)
+                        if sub_groups:
+                            current_offset = max(sub_groups.keys()) + 1
 
             return groups
 
+        def _register_alias(order_idx: int, item: tuple):
+            full_path, has_bang, capture_only, scope, alias_parts = item
+            if capture_only and not include_capture_only:
+                return
+            alias_scope = scope
+            alias_base, alias_rel = alias_parts
+            alias_index = alias_base + alias_rel
+            key = (alias_scope, alias_index)
+            meta = alias_meta.get(key)
+            if meta is None:
+                alias_meta[key] = {"order": order_idx, "seq": next(alias_seq)}
+                alias_groups[key] = [(full_path, has_bang, capture_only)]
+            else:
+                meta["order"] = min(meta["order"], order_idx)
+                alias_groups[key].append((full_path, has_bang, capture_only))
+
         for parent, entries in mapping.items():
             groups = process_entries(parent, entries)
-            # Sort by group ID and create the final blocks of module names
-            for g in sorted(groups.keys()):
-                block = [
-                    path + (NOT_QUANTIZE_FLAG if has_bang else "")
-                    for path, has_bang in groups[g]
-                ]
-                out_blocks.append(block)
+
+            for g in sorted(groups):
+                order_idx = next(group_seq)
+                items = groups[g]
+                for item in items:
+                    if len(item) == 3:
+                        full_path, has_bang, capture_only = item
+                        scope = full_path
+                        alias_parts = (g, 0)
+                        _register_alias(order_idx, (full_path, has_bang, capture_only, scope, alias_parts))
+                    else:
+                        _register_alias(order_idx, item)
+
+        for key in sorted(
+            alias_groups.keys(), key=lambda k: (alias_meta[k]["order"], alias_meta[k]["seq"])
+        ):
+            block = []
+            for full_path, has_bang, capture_only in alias_groups[key]:
+                name = full_path
+                if has_bang:
+                    name += NOT_QUANTIZE_FLAG
+                if capture_only and include_capture_only:
+                    name += CAPTURE_ONLY_FLAG
+                block.append(name)
+            out_blocks.append(block)
 
         return out_blocks
 
@@ -1788,17 +1629,12 @@ class BaseNanoModel(nn.Module):
         if isinstance(node, dict):
             new_dict = {}
             for k, v in node.items():
-                # Expand tuple-of-strings blocks (special handling)
                 if isinstance(v, (tuple, list)) and all(isinstance(x, str) for x in v):
-                    # Rule 1: check if ALL entries are :!
-                    if all(any(p == "!" for p in x.split(":")[1:]) for x in v):
-                        continue  # skip this parent entirely
-
-                    # Rule 2: strip :! and :digit markers
+                    if all(any(p in {"!", "?"} for p in x.split(":")[1:]) for x in v):
+                        continue
                     cleaned = tuple(x.split(":")[0] for x in v)
                     new_dict[k] = cleaned
                 else:
-                    # Recurse deeper
                     new_dict[k] = self.generate_layers_modules_tree_simple(v)
             return new_dict
 

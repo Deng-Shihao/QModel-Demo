@@ -67,6 +67,8 @@ class BaseProcessor:
         calibration_concat_size: Optional[int] = None,
         calibration_sort: Optional[str] = None,
         batch_size: int = 1,
+        calibration_data_min_length: int = 10,
+        calibration_concat_separator: Optional[str] = None,
         require_fwd: bool = True,
         fwd_after_process: bool = True,
         fwd_all_modules_in_single_pass: bool = False,
@@ -122,6 +124,8 @@ class BaseProcessor:
             calibration_concat_size=calibration_concat_size,
             calibration_sort=calibration_sort,
             batch_size=batch_size,
+            calibration_data_min_length=calibration_data_min_length,
+            calibration_concat_separator=calibration_concat_separator,
         )
 
         # Track the current calibration batch index on a per-thread basis so
@@ -136,6 +140,8 @@ class BaseProcessor:
         calibration_concat_size: Optional[int],
         calibration_sort: Optional[str],
         batch_size: int,
+        calibration_data_min_length: int,
+        calibration_concat_separator: Optional[str],
     ) -> Tuple[List[Dict[str, Any]], int]:
         """Validate, preprocess, and materialise the calibration dataset."""
         if calibration is None:
@@ -161,6 +167,8 @@ class BaseProcessor:
             calibration_dataset_concat_size=calibration_concat_size,
             calibration_dataset_sort=calibration_sort,
             batch_size=batch_size,
+            calibration_data_min_length=calibration_data_min_length,
+            calibration_concat_separator=calibration_concat_separator,
         )
 
         dataset = list(processed)

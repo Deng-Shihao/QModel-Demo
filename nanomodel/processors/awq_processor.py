@@ -71,6 +71,8 @@ class AWQProcessor(BaseProcessor):
         model,
         require_fwd: bool = True,
         calculate_w_wq_diff: bool = False,
+        calibration_data_min_length: int = 10,
+        calibration_concat_separator: Optional[str] = None,
     ):
         super().__init__(
             tokenizer=tokenizer,
@@ -80,6 +82,8 @@ class AWQProcessor(BaseProcessor):
             calibration_sort=calibration_sort,
             prepare_dataset_func=prepare_dataset_func,
             batch_size=batch_size,
+            calibration_data_min_length=calibration_data_min_length,
+            calibration_concat_separator=calibration_concat_separator,
             require_fwd=require_fwd,
         )
 

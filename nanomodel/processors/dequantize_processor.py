@@ -18,8 +18,11 @@ class DequantizeProcessor(BaseProcessor):
             qcfg=None,
             calibration=None,
             calibration_concat_size=None,
+            calibration_sort=None,
             prepare_dataset_func=None,
             batch_size=1,
+            calibration_data_min_length=1,
+            calibration_concat_separator=None,
             require_fwd=False,
         )
 
