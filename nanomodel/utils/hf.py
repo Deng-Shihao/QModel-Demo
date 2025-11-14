@@ -38,17 +38,14 @@ def _load_sanitized_generation_config(path: str) -> Optional[GenerationConfig]:
         return None
 
     cleaned = dict(config_dict)
-    removed = False
-    for field in GENERATION_SAMPLING_FIELDS:
-        if field in cleaned:
-            cleaned.pop(field, None)
-            removed = True
+    changed = False
     if cleaned.get("do_sample") is not True:
         cleaned["do_sample"] = True
+        changed = True
 
     cfg = GenerationConfig.from_dict(cleaned, **kwargs)
-    if removed:
-        log.info("Model: Removed unsupported sampling fields from `generation_config.json` during load.")
+    if changed:
+        log.info("Model: Normalized `generation_config.json` while loading (`do_sample=True`).")
     _sanitize_generation_config(cfg, drop_sampling_fields=False)
     return cfg
 
@@ -112,7 +109,7 @@ def autofix_hf_generation_config(cfg: GenerationConfig):
             log.info("Model: Auto-Fixed `generation_config` by setting `do_sample=True`.")
 
 
-def sanitize_generation_config_file(path: str) -> bool:
+def sanitize_generation_config_file(path: str, cfg: Optional[GenerationConfig] = None) -> bool:
     try:
         with open(path, "r", encoding="utf-8") as fp:
             data = json.load(fp)
@@ -120,10 +117,19 @@ def sanitize_generation_config_file(path: str) -> bool:
         return False
 
     changed = False
-    for field in GENERATION_SAMPLING_FIELDS:
-        if field in data:
-            data.pop(field, None)
-            changed = True
+
+    if cfg is not None:
+        required_fields = {
+            "pad_token_id": getattr(cfg, "pad_token_id", None),
+            "temperature": getattr(cfg, "temperature", None),
+            "top_k": getattr(cfg, "top_k", None),
+        }
+        for field, value in required_fields.items():
+            if value is None:
+                continue
+            if data.get(field) != value:
+                data[field] = value
+                changed = True
 
     if data.get("do_sample") is not True:
         data["do_sample"] = True

@@ -275,7 +275,8 @@ def ModelWriter(cls):
         self.model.save_pretrained(save_dir, state_dict={}, is_main_process=True)
 
         gen_config_path = os.path.join(save_dir, "generation_config.json")
-        if sanitize_generation_config_file(gen_config_path):
+        gen_config = getattr(self.model, "generation_config", None)
+        if sanitize_generation_config_file(gen_config_path, gen_config):
             log.info("Model: Sanitized `generation_config.json` before packaging.")
 
         quantize_config.save_pretrained(save_dir)
