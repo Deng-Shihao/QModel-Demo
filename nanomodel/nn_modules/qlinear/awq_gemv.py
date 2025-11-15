@@ -27,7 +27,7 @@ class AwqGEMVQuantLinear(AWQuantLinear):
     SUPPORTS_PLATFORM = [PLATFORM.ALL]
     SUPPORTS_PACK_DTYPES = [torch.int32]
 
-    SUPPORTS_DTYPES = [torch.float16, torch.bfloat16]
+    SUPPORTS_DTYPES = [torch.float16]
 
     # for transformers/optimum tests compat
     QUANT_TYPE = "awq_gemv"
@@ -60,7 +60,6 @@ class AwqGEMVQuantLinear(AWQuantLinear):
             **kwargs)
 
         self.split_k_iters = 8
-        self._split_k_warning_emitted = False
 
         self.bias = None
 
@@ -105,62 +104,16 @@ class AwqGEMVQuantLinear(AWQuantLinear):
 
         super().post_init()
 
-    def _ensure_quant_buffers_on_device(self, device: torch.device) -> None:
-        """Move quantization buffers onto the compute device before launching CUDA kernels."""
-        if device.type != "cuda":
-            raise RuntimeError(
-                f"{self.__class__.__name__} requires CUDA tensors but received `{device}`. "
-                "Please load the quantized model on a CUDA device or switch to a CPU-compatible kernel."
-            )
-
-        for attr in ("qweight", "qzeros", "scales", "bias"):
-            tensor = getattr(self, attr, None)
-            if tensor is not None and tensor.device != device:
-                setattr(self, attr, tensor.to(device, non_blocking=True))
-
-    def _resolve_split_k_iters(self, k_dim: int) -> int:
-        """
-        Clamp the number of split-k iterations so the CUDA kernel never launches
-        more split slices than there are 32-wide tiles along the K dimension.
-        """
-        # Each iteration processes a chunk of 32 input channels. If the requested split
-        # factor exceeds the available tiles we halve it (maintaining power-of-two)
-        # to avoid illegal memory access inside the fused kernel.
-        max_tiles = max(1, (k_dim + 31) // 32)
-        split_k_iters = self.split_k_iters
-        while split_k_iters > max_tiles and split_k_iters > 1:
-            split_k_iters >>= 1
-
-        if (
-            split_k_iters != self.split_k_iters
-            and not self._split_k_warning_emitted
-        ):
-            log.debug(
-                "Reducing split_k_iters for %s from %d to %d because the K dimension (%d) exposes only %d tiles.",
-                getattr(self, "name", self.__class__.__name__),
-                self.split_k_iters,
-                split_k_iters,
-                k_dim,
-                max_tiles,
-            )
-            self._split_k_warning_emitted = True
-
-        return split_k_iters
-
     def forward(self, x: torch.Tensor):
         if awq_ext is None:
             raise ModuleNotFoundError("External AWQ kernels are not properly installed." + msg)
 
         out_shape = x.shape[:-1] + (self.out_features,)
-        inputs = x.reshape(-1, x.shape[-1]).contiguous()
+        inputs = x.reshape(-1, x.shape[-1])
 
         input_dtype = inputs.dtype
         if input_dtype != torch.float16:
             inputs = inputs.half()
-
-        self._ensure_quant_buffers_on_device(inputs.device)
-
-        split_k_iters = self._resolve_split_k_iters(inputs.shape[-1])
 
         if inputs.shape[0] > 8:
             out = awq_ext.gemmv2_forward_cuda(
@@ -169,7 +122,7 @@ class AwqGEMVQuantLinear(AWQuantLinear):
                 self.scales,
                 self.qzeros,
                 self.group_size,
-                split_k_iters,
+                self.split_k_iters,
             )
         else:
             out = awq_ext.gemv_forward_cuda(

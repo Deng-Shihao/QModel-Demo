@@ -1,10 +1,16 @@
+# SPDX-FileCopyrightText: 2024-2025 ModelCloud.ai
+# SPDX-FileCopyrightText: 2024-2025 qubitium@modelcloud.ai
+# SPDX-License-Identifier: Apache-2.0
+# Contact: qubitium@modelcloud.ai, x.com/qubitium
+
+
 import torch
 import torch.nn as nn
 
-from nanomodel.quantization.awq.utils.module import try_import
+from gptqmodel.quantization.awq.utils.module import try_import
 
 
-awq_ext, msg = try_import("nanomodel_awq_kernels")
+awq_ext, msg = try_import("gptqmodel_awq_kernels")
 
 def make_divisible(c, divisor):
     return (c + divisor - 1) // divisor
