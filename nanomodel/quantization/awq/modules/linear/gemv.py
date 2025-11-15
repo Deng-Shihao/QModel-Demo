@@ -75,6 +75,16 @@ class WQLinear_GEMV(nn.Module):
         else:
             self.bias = None
 
+    def _resolve_split_k_iters(self, k_dim: int) -> int:
+        # The CUDA kernels operate on 32-channel tiles along K. If we try to
+        # launch more split-K slices than available tiles the kernel will read
+        # past the end of the packed weights, so we clamp the split factor.
+        max_tiles = max(1, (k_dim + 31) // 32)
+        split_k_iters = self.split_k_iters
+        while split_k_iters > max_tiles and split_k_iters > 1:
+            split_k_iters >>= 1
+        return split_k_iters
+
     @classmethod
     def from_linear(
         cls, linear, w_bit, group_size, init_only=False, scales=None, zeros=None
@@ -166,6 +176,8 @@ class WQLinear_GEMV(nn.Module):
         if input_dtype != torch.float16:
             inputs = inputs.half()
 
+        split_k_iters = self._resolve_split_k_iters(inputs.shape[-1])
+
         if inputs.shape[0] > 8:
             out = awq_ext.gemmv2_forward_cuda(
                 inputs,
@@ -173,7 +185,7 @@ class WQLinear_GEMV(nn.Module):
                 self.scales,
                 self.qzeros,
                 self.group_size,
-                self.split_k_iters,
+                split_k_iters,
             )
         else:
             out = awq_ext.gemv_forward_cuda(
