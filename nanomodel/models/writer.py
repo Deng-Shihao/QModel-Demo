@@ -57,6 +57,7 @@ PROCESS_LOG_TIME = "time"
 PROCESS_LOG_FWD_TIME = "fwd_time"
 PROCESS_USED_MEMORY = "(v)ram"
 
+
 def _parse_max_shard_size(value: Optional[Union[int, str]]) -> Optional[int]:
     """Convert a human-readable shard size (e.g. `2GB`) into bytes."""
     if value is None:
@@ -308,13 +309,15 @@ def ModelWriter(cls):
         metadata_dict = _normalize_metadata(safetensors_metadata)
         metadata_dict["format"] = "pt"
 
-        expected_files, tensor_to_filename, total_size_bytes = streaming_state_dict_to_shards(
-            state_dict,
-            save_dir=save_dir,
-            model_base_name=model_base_name,
-            single_file_name=model_save_name,
-            metadata=metadata_dict,
-            max_shard_size=max_shard_size_bytes,
+        expected_files, tensor_to_filename, total_size_bytes = (
+            streaming_state_dict_to_shards(
+                state_dict,
+                save_dir=save_dir,
+                model_base_name=model_base_name,
+                single_file_name=model_save_name,
+                metadata=metadata_dict,
+                max_shard_size=max_shard_size_bytes,
+            )
         )
 
         _remove_unexpected_weight_files(
@@ -392,7 +395,9 @@ def ModelWriter(cls):
                     "w",
                     encoding="utf-8",
                 ) as file:
-                    json.dump(saved_tokenizer_config, file, indent=2, ensure_ascii=False)
+                    json.dump(
+                        saved_tokenizer_config, file, indent=2, ensure_ascii=False
+                    )
 
     cls.save_quantized = save_quantized
 

@@ -9,7 +9,12 @@ from torch.cpu import StreamContext
 
 from ..utils.logger import setup_logger
 from ..utils.safe import GC
-from . import gte_python_3_13_3, gte_python_3_14, has_gil_disabled, log_gil_requirements_for
+from . import (
+    gte_python_3_13_3,
+    gte_python_3_14,
+    has_gil_disabled,
+    log_gil_requirements_for,
+)
 
 
 _TORCH_VERSION = version.parse(torch.__version__)
@@ -45,6 +50,7 @@ def timed_gc_collect() -> int:
     log.info(f"gc.collect() reclaimed {collected} objects in {duration:.3f}s")
     return collected
 
+
 # reset dynamo cache on each model load since during ci loop model inference may exhuast cache
 try:
     torch._dynamo.reset()
@@ -59,6 +65,7 @@ except BaseException:
 mlx_core = None
 try:
     import mlx.core as mlx_core
+
     HAS_MLX = True
 except BaseException:
     mlx_core = None
@@ -143,8 +150,10 @@ def torch_compile(
         return module
     if HAS_MPS and not TORCH_GTE_28:
         if not torch._dynamo.config.suppress_errors:
-            log.warn("To use compile() with MPS, you need to have torch version >= 2.8.0, "
-                     "please upgrade it by `pip install -U torch torchaudio torchvision`")
+            log.warn(
+                "To use compile() with MPS, you need to have torch version >= 2.8.0, "
+                "please upgrade it by `pip install -U torch torchaudio torchvision`"
+            )
             torch._dynamo.config.suppress_errors = True
         return module
     try:
@@ -152,6 +161,7 @@ def torch_compile(
     except BaseException as e:
         log.warn.once(f"Failed to compile `{module}`, {e}")
         return module
+
 
 def torch_new_stream(force_new: bool = False):
     """Return a cached accelerator stream, recreating it when `force_new` is True."""
@@ -183,6 +193,7 @@ def torch_new_stream_ctx():
         return torch.xpu.stream(stream)
 
     return contextlib.nullcontext()
+
 
 def torch_sync(device: torch.device = None):
     """Synchronize accelerator queues.
@@ -230,6 +241,7 @@ def torch_sync(device: torch.device = None):
     elif device.type == "cpu":
         torch.cpu.synchronize()
 
+
 def torch_empty_cache(device: torch.device = None, gc: bool = True):
     """Clear per-backend allocator caches and optionally trigger Python GC."""
     if gc:
@@ -260,6 +272,7 @@ def torch_empty_cache(device: torch.device = None, gc: bool = True):
         if HAS_MLX and mlx_core is not None and hasattr(mlx_core, "clear_cache"):
             mlx_core.clear_cache()
 
+
 def auto_select_torch_device(index: int = 0):
     """Choose a torch.device for the requested index while handling out-of-range values."""
     assert index >= 0, f"device index should be a positive integer: actual = `{index}`"
@@ -281,6 +294,7 @@ def auto_select_torch_device(index: int = 0):
 
     return CPU  # CPU has no index concept.
 
+
 # some device types can have multiple gpus cuda/rocm + xpu
 def torch_devices() -> List[torch.device]:
     if HAS_CUDA:
@@ -291,6 +305,7 @@ def torch_devices() -> List[torch.device]:
         return [torch.device("mps")]
     else:
         return [CPU]
+
 
 ALL_DEVICES = torch_devices()
 
@@ -307,7 +322,10 @@ DEVICE_1 = auto_select_torch_device(index=1)
 
 DEVICE_0_STREAM = ALL_STREAMS[0]
 
-def torch_stream_ctx(stream: Union[torch.cuda.Stream, "torch.xpu.Stream"]) -> StreamContext:
+
+def torch_stream_ctx(
+    stream: Union[torch.cuda.Stream, "torch.xpu.Stream"],
+) -> StreamContext:
     """Enter the provided stream using the appropriate backend context manager."""
     if HAS_CUDA:
         return torch.cuda.stream(stream)

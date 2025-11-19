@@ -10,7 +10,9 @@ import torch.nn as nn
 from .logger import setup_logger
 
 
-DEBUG_MODE = os.environ.get("NANOMODEL_MEM_DEBUG", os.environ.get("DEBUG", "0")).lower() in {
+DEBUG_MODE = os.environ.get(
+    "NANOMODEL_MEM_DEBUG", os.environ.get("DEBUG", "0")
+).lower() in {
     "1",
     "true",
     "yes",
@@ -23,6 +25,7 @@ log = setup_logger(__name__)
 def _log(msg: str) -> None:
     if DEBUG_MODE:
         log.debug(msg)
+
 
 # ---------- TYPE ALIASES ----------
 Obj = nn.Module | torch.Tensor
@@ -72,7 +75,9 @@ class MemTracker:
             for dev, b in sizes.items():
                 if b <= 0:
                     continue
-                self._allocated_by_dev[dev] = max(0, self._allocated_by_dev.get(dev, 0) - b)
+                self._allocated_by_dev[dev] = max(
+                    0, self._allocated_by_dev.get(dev, 0) - b
+                )
                 self._freed_by_dev[dev] = self._freed_by_dev.get(dev, 0) + b
                 affected.add(dev)
                 _log(f"[free] released {format_bytes(b)} on {dev}")
@@ -103,13 +108,21 @@ class MemTracker:
 
     def allocated(self, device: torch.device | None = None) -> Tuple[int, str]:
         with self._lock:
-            val = sum(self._allocated_by_dev.values()) if device is None else _sum_for_device(self._allocated_by_dev, device)
+            val = (
+                sum(self._allocated_by_dev.values())
+                if device is None
+                else _sum_for_device(self._allocated_by_dev, device)
+            )
         _log(f"[allocated] query={device}, result={format_bytes(val)}")
         return val, format_bytes(val)
 
     def freed(self, device: torch.device | None = None) -> Tuple[int, str]:
         with self._lock:
-            val = sum(self._freed_by_dev.values()) if device is None else _sum_for_device(self._freed_by_dev, device)
+            val = (
+                sum(self._freed_by_dev.values())
+                if device is None
+                else _sum_for_device(self._freed_by_dev, device)
+            )
         _log(f"[freed] query={device}, result={format_bytes(val)}")
         return val, format_bytes(val)
 
@@ -118,7 +131,9 @@ class MemTracker:
 
     # ---------- Auto threshold ----------
     def _resolve_and_set_auto_gc(self, val: int | str | None, context: str) -> None:
-        auto_requested = (val is None) or (isinstance(val, str) and val.lower() == "auto")
+        auto_requested = (val is None) or (
+            isinstance(val, str) and val.lower() == "auto"
+        )
 
         if not auto_requested:
             if not isinstance(val, int) or val < 0:
@@ -133,9 +148,13 @@ class MemTracker:
             self._auto_gc_bytes = threshold
 
         if threshold is None or threshold <= 0:
-            _log(f"[{context}] auto_gc_bytes: CUDA not available; auto-GC disabled. {debug_msg}")
+            _log(
+                f"[{context}] auto_gc_bytes: CUDA not available; auto-GC disabled. {debug_msg}"
+            )
         else:
-            _log(f"[{context}] auto_gc_bytes (auto): {debug_msg} -> {format_bytes(threshold)}")
+            _log(
+                f"[{context}] auto_gc_bytes (auto): {debug_msg} -> {format_bytes(threshold)}"
+            )
 
     def _compute_auto_threshold(self) -> tuple[int | None, str]:
         try:
@@ -155,7 +174,10 @@ class MemTracker:
                 return None, "No visible CUDA totals found"
             min_total = min(totals)
             threshold = min_total // 3
-            return threshold, f"visible CUDA -> [{', '.join(parts)}]; min={format_bytes(min_total)}; min/3={format_bytes(threshold)}"
+            return (
+                threshold,
+                f"visible CUDA -> [{', '.join(parts)}]; min={format_bytes(min_total)}; min/3={format_bytes(threshold)}",
+            )
         except Exception as e:
             return None, f"auto detection error: {e}"
 
@@ -192,7 +214,9 @@ class MemTracker:
         for b in ob.buffers(recurse=True):
             yield b
 
-    def _sum_by_dev_dedup(self, tensors: Iterable[torch.Tensor]) -> Dict[torch.device, int]:
+    def _sum_by_dev_dedup(
+        self, tensors: Iterable[torch.Tensor]
+    ) -> Dict[torch.device, int]:
         seen_keys: set[tuple[int, int]] = set()
         by_dev: Dict[torch.device, int] = {}
 
@@ -223,7 +247,10 @@ class MemTracker:
                 _accumulate_dense(t.crow_indices())
                 _accumulate_dense(t.col_indices())
                 _accumulate_dense(t.values())
-            elif getattr(torch, "sparse_csc", None) is not None and t.layout == torch.sparse_csc:
+            elif (
+                getattr(torch, "sparse_csc", None) is not None
+                and t.layout == torch.sparse_csc
+            ):
                 _accumulate_dense(t.ccol_indices())
                 _accumulate_dense(t.row_indices())
                 _accumulate_dense(t.values())
@@ -235,7 +262,9 @@ class MemTracker:
     # ---------- Summaries ----------
     def _all_known_devices_locked(self) -> list[torch.device]:
         all_set = set(self._allocated_by_dev.keys()) | set(self._freed_by_dev.keys())
-        return sorted(all_set, key=lambda d: (d.type, -1 if d.index is None else d.index))
+        return sorted(
+            all_set, key=lambda d: (d.type, -1 if d.index is None else d.index)
+        )
 
     def _totals_by_type_locked(self, table: Dict[torch.device, int]) -> Dict[str, int]:
         out: Dict[str, int] = {}
@@ -286,7 +315,9 @@ class MemTracker:
                 per_dev_count = self._gc_count_by_dev[dev]
                 total_count = self._gc_total_count
 
-            _log(f"[auto_gc] {dev}: ran GC (count={per_dev_count}), total across devices={total_count}")
+            _log(
+                f"[auto_gc] {dev}: ran GC (count={per_dev_count}), total across devices={total_count}"
+            )
 
 
 def _run_backend_gc(dev: torch.device) -> bool:

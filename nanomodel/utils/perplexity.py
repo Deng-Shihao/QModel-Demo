@@ -9,19 +9,20 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
+
 class Perplexity:
     """
     A class for calculating the perplexity of a language model.
     """
 
     def __init__(
-            self,
-            model,
-            tokenizer,
-            dataset_path="wikitext",
-            dataset_name=None,
-            split="test",
-            text_column="text",
+        self,
+        model,
+        tokenizer,
+        dataset_path="wikitext",
+        dataset_name=None,
+        split="test",
+        text_column="text",
     ):
         """
         Calculate perplexity using the same method as seen in llama.cpp.
@@ -76,11 +77,15 @@ class Perplexity:
         length = 512 if self._dataset_path == "wikitext" else 2048
         if self._dataset_path.startswith("/") or self._dataset_path.startswith("./"):
             if self._dataset_path.endswith(".gz"):
-                data = load_dataset(self._dataset_name, data_files=self._dataset_path, split=self._split)
+                data = load_dataset(
+                    self._dataset_name, data_files=self._dataset_path, split=self._split
+                )
             else:
                 data = load_from_disk(self._dataset_path)[self._split]
         else:
-            data = load_dataset(self._dataset_path, self._dataset_name, split=self._split)
+            data = load_dataset(
+                self._dataset_path, self._dataset_name, split=self._split
+            )
 
         datas = []
         for index, sample in enumerate(data):
@@ -129,14 +134,21 @@ class Perplexity:
         """
         # Tokenize the text
         self._tokenizer.model_max_length = sys.maxsize
-        tokens = self._tokenizer(self._text, truncation=False, return_tensors="pt").input_ids.to(self._model.device)
+        tokens = self._tokenizer(
+            self._text, truncation=False, return_tensors="pt"
+        ).input_ids.to(self._model.device)
 
         nll = 0.0  # Negative log likelihood
         count = 0  # Counter for processed tokens
         curr_ppl = 0
         all_perplexity = []
 
-        progress = tqdm(range(len(tokens[0]) // n_ctx), desc="Perplexity: -", unit="chunk", leave=False)
+        progress = tqdm(
+            range(len(tokens[0]) // n_ctx),
+            desc="Perplexity: -",
+            unit="chunk",
+            leave=False,
+        )
         for i in progress:
             # Process each batch of tokens
             nll, count = self._process_batch(i, n_ctx, n_batch, tokens, nll, count)
@@ -148,7 +160,9 @@ class Perplexity:
 
         progress.close()
         if all_perplexity:
-            logger.info("Perplexity calculation completed; last chunk: %.4f", all_perplexity[-1])
+            logger.info(
+                "Perplexity calculation completed; last chunk: %.4f", all_perplexity[-1]
+            )
 
         return all_perplexity
 
@@ -244,5 +258,5 @@ class Perplexity:
         """
         # Compute the logits without keeping track of gradients
         with torch.inference_mode():
-            outputs = self._model(tokens[:, batch_start: batch_start + batch_size])
+            outputs = self._model(tokens[:, batch_start : batch_start + batch_size])
         return outputs.logits.detach()

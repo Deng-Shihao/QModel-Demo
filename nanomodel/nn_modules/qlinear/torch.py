@@ -24,6 +24,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 log = setup_logger()
 
+
 class TorchQuantLinear(PackableQuantLinear):
     SUPPORTS_BITS = [2, 3, 4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128, 256, 512, 1024]
@@ -68,7 +69,8 @@ class TorchQuantLinear(PackableQuantLinear):
             pack_dtype=pack_dtype,
             backend=kwargs.pop("backend", BACKEND.TORCH),
             register_buffers=register_buffers,
-            **kwargs)
+            **kwargs,
+        )
 
         self.dequant_dtype = torch.int16 if self.bits == 8 else torch.int8
         self._streaming_enabled = bool(int(os.environ.get("GPTQ_TORCH_STREAMING", "0")))
@@ -130,10 +132,16 @@ class TorchQuantLinear(PackableQuantLinear):
 
         if backend is None:
             # MPS doesn't support inductor.
-            backend = "inductor" if self.list_buffers()[0].device.type != "mps" else "aot_eager"
+            backend = (
+                "inductor"
+                if self.list_buffers()[0].device.type != "mps"
+                else "aot_eager"
+            )
 
         # compile dequantize
-        self.dequantize_weight = torch_compile(self.dequantize_weight, backend=backend, mode=mode, fullgraph=fullgraph)
+        self.dequantize_weight = torch_compile(
+            self.dequantize_weight, backend=backend, mode=mode, fullgraph=fullgraph
+        )
 
         super().optimize()
 
@@ -298,7 +306,10 @@ class TorchQuantLinear(PackableQuantLinear):
         return width
 
     def _stream_decode_qzeros(self):
-        if self._zeros_cache is not None and self._zeros_cache.device == self.qzeros.device:
+        if (
+            self._zeros_cache is not None
+            and self._zeros_cache.device == self.qzeros.device
+        ):
             return self._zeros_cache
 
         zeros = torch.bitwise_right_shift(
@@ -310,7 +321,10 @@ class TorchQuantLinear(PackableQuantLinear):
         return zeros
 
     def _stream_g_idx_long(self):
-        if self._g_idx_long_cache is None or self._g_idx_long_cache.device != self.g_idx.device:
+        if (
+            self._g_idx_long_cache is None
+            or self._g_idx_long_cache.device != self.g_idx.device
+        ):
             self._g_idx_long_cache = self.g_idx.long()
         return self._g_idx_long_cache
 
@@ -370,11 +384,15 @@ class TorchQuantLinear(PackableQuantLinear):
                 return self
             for target in targets:
                 if not isinstance(target, TorchQuantLinear):
-                    raise TypeError("lookahead targets must be TorchQuantLinear modules or None")
+                    raise TypeError(
+                        "lookahead targets must be TorchQuantLinear modules or None"
+                    )
             self._lookahead_next = targets
             return self
 
-        raise TypeError("lookahead target must be TorchQuantLinear, iterable of TorchQuantLinear, or None")
+        raise TypeError(
+            "lookahead target must be TorchQuantLinear, iterable of TorchQuantLinear, or None"
+        )
 
     def _reset_prefetch_state(self):
         for event in self._prefetch_events.values():
@@ -426,13 +444,22 @@ class TorchQuantLinear(PackableQuantLinear):
             return False
         if self.training:
             return False
-        if self.qweight is None or self.qzeros is None or self.scales is None or self.g_idx is None:
+        if (
+            self.qweight is None
+            or self.qzeros is None
+            or self.scales is None
+            or self.g_idx is None
+        ):
             return False
         if self.qweight.device.type != "cuda":
             return False
         if self.bits not in (2, 3, 4, 8):
             return False
-        if not (self.qweight.is_contiguous() and self.qzeros.is_contiguous() and self.scales.is_contiguous()):
+        if not (
+            self.qweight.is_contiguous()
+            and self.qzeros.is_contiguous()
+            and self.scales.is_contiguous()
+        ):
             return False
         # g_idx is stored as int32 tensor; ensure it resides on the same device.
         if self.g_idx.device != self.qweight.device:
@@ -454,9 +481,12 @@ class TorchQuantLinear(PackableQuantLinear):
         )
         return weights
 
+
 def dequantize_model(model: PreTrainedModel):
     for name, module in model.named_modules():
-        if isinstance(module, BaseQuantLinear) and not isinstance(module, TorchQuantLinear):
+        if isinstance(module, BaseQuantLinear) and not isinstance(
+            module, TorchQuantLinear
+        ):
             raise ValueError(
                 "Only models loaded using TorchQuantLinear are supported for dequantization. "
                 "Please load model using backend=BACKEND.TORCH."
@@ -465,13 +495,15 @@ def dequantize_model(model: PreTrainedModel):
         if isinstance(module, TorchQuantLinear):
             # Create a new Linear layer with dequantized weights
             new_module = nn.Linear(module.in_features, module.out_features)
-            new_module.weight = nn.Parameter(module.dequantize_weight().T.detach().to("cpu", torch.float16))
+            new_module.weight = nn.Parameter(
+                module.dequantize_weight().T.detach().to("cpu", torch.float16)
+            )
             new_module.bias = torch.nn.Parameter(module.bias)
 
             # Replace the module in the model
             parent = model
-            if '.' in name:
-                parent_name, module_name = name.rsplit('.', 1)
+            if "." in name:
+                parent_name, module_name = name.rsplit(".", 1)
                 parent = dict(model.named_modules())[parent_name]
             else:
                 module_name = name

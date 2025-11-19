@@ -38,7 +38,9 @@ def _read_env(name, default=None):
 
 def _probe_cmd(args):
     try:
-        out = subprocess.check_output(args, stderr=subprocess.STDOUT, text=True, timeout=5)
+        out = subprocess.check_output(
+            args, stderr=subprocess.STDOUT, text=True, timeout=5
+        )
         return out.strip()
     except Exception:
         return None
@@ -93,6 +95,7 @@ def _detect_rocm_version():
     hip = _probe_cmd(["hipcc", "--version"])
     if hip:
         import re
+
         m = re.search(r"\b([0-9]+\.[0-9]+)\b", hip)
         if m:
             return m.group(1)
@@ -115,7 +118,9 @@ def _detect_cuda_arch_list():
     if env_arch:
         return env_arch
 
-    smi_out = _probe_cmd(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"])
+    smi_out = _probe_cmd(
+        ["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"]
+    )
     if smi_out:
         caps = []
         for line in smi_out.splitlines():
@@ -128,12 +133,15 @@ def _detect_cuda_arch_list():
             except Exception:
                 if cap.isdigit():
                     caps.append(f"{cap}.0")
-        caps = sorted(set(caps), key=lambda x: (int(x.split(".")[0]), int(x.split(".")[1])))
+        caps = sorted(
+            set(caps), key=lambda x: (int(x.split(".")[0]), int(x.split(".")[1]))
+        )
         if caps:
             return ";".join(caps)
 
-    raise Exception("Could not get compute capability from nvidia-smi. Please check nvidia-utils package is installed.")
-
+    raise Exception(
+        "Could not get compute capability from nvidia-smi. Please check nvidia-utils package is installed."
+    )
 
 
 def _parse_arch_list(s: str):
@@ -165,7 +173,10 @@ def _detect_torch_version() -> str:
         if m:
             return m.group(1)
 
-    for cmd in (["pip", "show", "torch"], [sys.executable, "-m", "pip", "show", "torch"]):
+    for cmd in (
+        ["pip", "show", "torch"],
+        [sys.executable, "-m", "pip", "show", "torch"],
+    ):
         out = _probe_cmd(cmd)
         if out:
             m = re.search(r"^Version:\s*([^\s]+)\s*$", out, flags=re.MULTILINE)
@@ -182,11 +193,14 @@ def _detect_torch_version() -> str:
 
     try:
         import importlib.metadata as im  # py3.8+
+
         version = im.version("torch")
         if not version:
             raise Exception("torch not found")
     except Exception:
-        raise Exception("Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1")
+        raise Exception(
+            "Unable to detect torch version via uv/pip/conda/importlib. Please install torch >= 2.7.1"
+        )
 
 
 def _major_minor(v: str) -> str:
@@ -211,7 +225,9 @@ def _version_geq(version: str | None, major: int, minor: int = 0) -> bool:
 def _nvcc_release_version() -> str | None:
     out = _probe_cmd(["nvcc", "--version"])
     if not out:
-        print("NVCC not found: For Ubuntu, run `sudo update-alternatives --config cuda` to fix path.")
+        print(
+            "NVCC not found: For Ubuntu, run `sudo update-alternatives --config cuda` to fix path."
+        )
         return None
     match = re.search(r"release\s+(\d+)\.(\d+)", out)
     if match:
@@ -225,6 +241,7 @@ def _detect_cuda_version() -> str | None:
         return v.strip()
     return _nvcc_release_version()
 
+
 def _detect_nvcc_version() -> str | None:
     return _nvcc_release_version()
 
@@ -235,7 +252,9 @@ def get_version_tag() -> str:
     if ROCM_VERSION:
         return f"rocm{ROCM_VERSION}"
     if not CUDA_VERSION:
-        raise Exception("Trying to compile for CUDA, but no CUDA/ROCm version detected.")
+        raise Exception(
+            "Trying to compile for CUDA, but no CUDA/ROCm version detected."
+        )
     torch_suffix = f"torch{_major_minor(TORCH_VERSION)}"
     CUDA_VERSION_COMPACT = "".join(CUDA_VERSION.split("."))
     base = f"cu{CUDA_VERSION_COMPACT[:3]}"
@@ -246,7 +265,7 @@ def get_version_tag() -> str:
 TORCH_VERSION = _read_env("TORCH_VERSION") or _detect_torch_version()
 CUDA_VERSION = _read_env("CUDA_VERSION") or _detect_cuda_version()
 ROCM_VERSION = _read_env("ROCM_VERSION") or _detect_rocm_version()
-TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST") # get config
+TORCH_CUDA_ARCH_LIST = _read_env("TORCH_CUDA_ARCH_LIST")  # get config
 NVCC_VERSION = _read_env("NVCC_VERSION") or _detect_nvcc_version()
 
 RELEASE_MODE = _bool_env("RELEASE_MODE", False)
@@ -266,7 +285,9 @@ if ROCM_VERSION and not SKIP_ROCM_VERSION_CHECK:
     except Exception:
         pass
 
-CUDA_ARCH_LIST = _detect_cuda_arch_list() if (BUILD_CUDA_EXT_ENABLED and not ROCM_VERSION) else None
+CUDA_ARCH_LIST = (
+    _detect_cuda_arch_list() if (BUILD_CUDA_EXT_ENABLED and not ROCM_VERSION) else None
+)
 
 if not TORCH_CUDA_ARCH_LIST and CUDA_ARCH_LIST:
     archs = _parse_arch_list(CUDA_ARCH_LIST)
@@ -295,7 +316,9 @@ optional_deps = _load_optional_deps()
 # Decide HAS_CUDA_V8 without torch
 HAS_CUDA_V8 = False
 if CUDA_ARCH_LIST:
-    HAS_CUDA_V8 = not ROCM_VERSION and _has_cuda_v8_from_arch_list(_parse_arch_list(CUDA_ARCH_LIST))
+    HAS_CUDA_V8 = not ROCM_VERSION and _has_cuda_v8_from_arch_list(
+        _parse_arch_list(CUDA_ARCH_LIST)
+    )
 else:
     smi = _probe_cmd(["nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader"])
     if smi:
@@ -353,21 +376,31 @@ if BUILD_CUDA_EXT_ENABLED:
 
         if not ROCM_VERSION:
             extra_compile_args["nvcc"] += [
-                "--threads", "8",
+                "--threads",
+                "8",
                 "--optimize=3",
-                "-Xptxas", "-v,-O3,-dlcm=ca",
+                "-Xptxas",
+                "-v,-O3,-dlcm=ca",
                 "-lineinfo",
-                "-Xfatbin", "-compress-all",
+                "-Xfatbin",
+                "-compress-all",
                 "-diag-suppress=179,39,177",
             ]
             if _version_geq(NVCC_VERSION, 12, 8):
                 # Allow instantiations of __global__ templates to live in different TUs; only supported in newer NVCC.
-                extra_compile_args["nvcc"].insert(0, "-static-global-template-stub=false")
+                extra_compile_args["nvcc"].insert(
+                    0, "-static-global-template-stub=false"
+                )
         else:
+
             def _hipify_compile_flags(flags):
                 modified_flags = []
                 for flag in flags:
-                    if flag.startswith("-") and "CUDA" in flag and not flag.startswith("-I"):
+                    if (
+                        flag.startswith("-")
+                        and "CUDA" in flag
+                        and not flag.startswith("-I")
+                    ):
                         parts = flag.split("=", 1)
                         if len(parts) == 2:
                             flag_part, value_part = parts
@@ -378,7 +411,10 @@ if BUILD_CUDA_EXT_ENABLED:
                     else:
                         modified_flags.append(flag)
                 return modified_flags
-            extra_compile_args["nvcc"] = _hipify_compile_flags(extra_compile_args["nvcc"])
+
+            extra_compile_args["nvcc"] = _hipify_compile_flags(
+                extra_compile_args["nvcc"]
+            )
 
         if sys.platform != "win32":
             if not ROCM_VERSION and HAS_CUDA_V8 and BUILD_MARLIN:
@@ -388,16 +424,22 @@ if BUILD_CUDA_EXT_ENABLED:
                 if not marlin_kernel_files:
                     generator_script = marlin_kernel_dir / "generate_kernels.py"
                     if generator_script.exists():
-                        print("Regenerating marlin template instantiations for parallel compilation...")
+                        print(
+                            "Regenerating marlin template instantiations for parallel compilation..."
+                        )
                         subprocess.check_call([sys.executable, str(generator_script)])
-                        marlin_kernel_files = sorted(marlin_kernel_dir.glob("kernel_*.cu"))
+                        marlin_kernel_files = sorted(
+                            marlin_kernel_dir.glob("kernel_*.cu")
+                        )
 
                 if not marlin_kernel_files:
                     raise RuntimeError(
                         "No generated marlin kernel templates detected. Run generate_kernels.py before building."
                     )
 
-                marlin_template_kernel_srcs = [str(path) for path in marlin_kernel_files]
+                marlin_template_kernel_srcs = [
+                    str(path) for path in marlin_kernel_files
+                ]
                 extensions += [
                     cpp_ext.CUDAExtension(
                         "nanomodel_marlin_kernels",
@@ -406,7 +448,8 @@ if BUILD_CUDA_EXT_ENABLED:
                             "nanomodel_ext/marlin/gptq_marlin.cu",
                             "nanomodel_ext/marlin/gptq_marlin_repack.cu",
                             "nanomodel_ext/marlin/awq_marlin_repack.cu",
-                        ] + marlin_template_kernel_srcs,
+                        ]
+                        + marlin_template_kernel_srcs,
                         extra_link_args=extra_link_args,
                         extra_compile_args=extra_compile_args,
                     )
@@ -424,17 +467,21 @@ if BUILD_CUDA_EXT_ENABLED:
                         extra_link_args=extra_link_args,
                         extra_compile_args=extra_compile_args,
                     ),
-                    # cpp_ext.CUDAExtension(
-                    #     "nanomodel_awq_v2_kernels",
-                    #     [
-                    #         "nanomodel_ext/awq/pybind_awq_v2.cpp",
-                    #         "nanomodel_ext/awq/quantization_new/gemv/gemv_cuda.cu",
-                    #         "nanomodel_ext/awq/quantization_new/gemm/gemm_cuda.cu",
-                    #     ],
-                    #     extra_link_args=extra_link_args,
-                    #     extra_compile_args=extra_compile_args,
-                    # )
+
+                    # arch_flags = get_compute_capabilities({80, 86, 89, 90})
+                    # extra_compile_args_v2 = get_extra_compile_args(arch_flags, generator_flags)
+                    cpp_ext.CUDAExtension(
+                        "nanomodel_awq_v2_kernels",
+                        [
+                            "nanomodel_ext/awq/pybind_awq_v2.cpp",
+                            "nanomodel_ext/awq/quantization_new/gemv/gemv_cuda.cu",
+                            "nanomodel_ext/awq/quantization_new/gemm/gemm_cuda.cu",
+                        ],
+                        extra_link_args=extra_link_args,
+                        extra_compile_args=extra_compile_args,
+                    )
                 ]
+
 
 # Cached wheel fetcher
 class CachedWheelsCommand(_bdist_wheel):

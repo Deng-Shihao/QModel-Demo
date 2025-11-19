@@ -13,7 +13,9 @@ log = setup_logger()
 GENERATION_SAMPLING_FIELDS = ("temperature", "top_p")
 
 
-def _sanitize_generation_config(cfg: GenerationConfig, *, drop_sampling_fields: bool = False) -> bool:
+def _sanitize_generation_config(
+    cfg: GenerationConfig, *, drop_sampling_fields: bool = False
+) -> bool:
     changed = False
     if cfg is None:
         return changed
@@ -48,7 +50,9 @@ def _load_sanitized_generation_config(path: str) -> Optional[GenerationConfig]:
 
     cfg = GenerationConfig.from_dict(cleaned, **kwargs)
     if removed:
-        log.info("Model: Removed unsupported sampling fields from `generation_config.json` during load.")
+        log.info(
+            "Model: Removed unsupported sampling fields from `generation_config.json` during load."
+        )
     _sanitize_generation_config(cfg, drop_sampling_fields=True)
     return cfg
 
@@ -62,7 +66,9 @@ def autofix_hf_model_config(model: PreTrainedModel, path: str = None):
             try:
                 cfg = _load_sanitized_generation_config(path)
                 if cfg is None:
-                    cfg = GenerationConfig.from_pretrained(pretrained_model_name=path, do_sample=True)
+                    cfg = GenerationConfig.from_pretrained(
+                        pretrained_model_name=path, do_sample=True
+                    )
                     _sanitize_generation_config(cfg, drop_sampling_fields=True)
                 if cfg != model.generation_config:
                     # migrated pad_token_id to config
@@ -71,8 +77,11 @@ def autofix_hf_model_config(model: PreTrainedModel, path: str = None):
 
                     model.generation_config = cfg
                     log.info(
-                        "Model: Auto-fixed `generation_config` mismatch between model and `generation_config.json`.")
-                    log.info(f"Model: Updated `generation_config`: {model.generation_config}")
+                        "Model: Auto-fixed `generation_config` mismatch between model and `generation_config.json`."
+                    )
+                    log.info(
+                        f"Model: Updated `generation_config`: {model.generation_config}"
+                    )
                 else:
                     pass
                     # logger.info(f"Model: loaded `generation_config` matching `generation_config.json`.")
@@ -90,26 +99,46 @@ def autofix_hf_generation_config(cfg: GenerationConfig):
     # to become exceptions on save().
     if cfg.do_sample is False:
         errors = 0
-        if hasattr(cfg, "temperature") and cfg.temperature is not None and cfg.temperature != 1.0:
+        if (
+            hasattr(cfg, "temperature")
+            and cfg.temperature is not None
+            and cfg.temperature != 1.0
+        ):
             errors += 1
         if hasattr(cfg, "top_p") and cfg.top_p is not None and cfg.top_p != 1.0:
             errors += 1
         if hasattr(cfg, "min_p") and cfg.min_p is not None:
             errors += 1
-        if hasattr(cfg, "typical_p") and cfg.typical_p is not None and cfg.typical_p != 1.0:
+        if (
+            hasattr(cfg, "typical_p")
+            and cfg.typical_p is not None
+            and cfg.typical_p != 1.0
+        ):
             errors += 1
         # contrastive search uses top_k
-        if (hasattr(cfg, "top_k") and cfg.top_k is not None and cfg.top_k != 50) and (hasattr(cfg, "penalty_alpha") and cfg.penalty_alpha is None):
+        if (hasattr(cfg, "top_k") and cfg.top_k is not None and cfg.top_k != 50) and (
+            hasattr(cfg, "penalty_alpha") and cfg.penalty_alpha is None
+        ):
             errors += 1
-        if hasattr(cfg, "epsilon_cutoff") and cfg.epsilon_cutoff is not None and cfg.epsilon_cutoff != 0.0:
+        if (
+            hasattr(cfg, "epsilon_cutoff")
+            and cfg.epsilon_cutoff is not None
+            and cfg.epsilon_cutoff != 0.0
+        ):
             errors += 1
-        if hasattr(cfg, "eta_cutoff") and cfg.eta_cutoff is not None and cfg.eta_cutoff != 0.0:
+        if (
+            hasattr(cfg, "eta_cutoff")
+            and cfg.eta_cutoff is not None
+            and cfg.eta_cutoff != 0.0
+        ):
             errors += 1
 
         # fix wrong do_sample
         if errors > 0:
             cfg.do_sample = True
-            log.info("Model: Auto-Fixed `generation_config` by setting `do_sample=True`.")
+            log.info(
+                "Model: Auto-Fixed `generation_config` by setting `do_sample=True`."
+            )
 
 
 def sanitize_generation_config_file(path: str) -> bool:
@@ -134,6 +163,7 @@ def sanitize_generation_config_file(path: str) -> bool:
             json.dump(data, fp, indent=2)
 
     return changed
+
 
 # load hf model with empty tensors on meta device (zero tensor memory usage)
 def build_shell_model(
@@ -163,10 +193,7 @@ def build_shell_model(
     try:
         with init_empty_weights(include_buffers=True):
             shell = loader.from_config(
-                config,
-                dtype=dtype,
-                trust_remote_code=trust_remote_code,
-                **init_kwargs
+                config, dtype=dtype, trust_remote_code=trust_remote_code, **init_kwargs
             )
     finally:
         pb.close()

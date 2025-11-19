@@ -10,19 +10,23 @@ import accelerate
 import torch
 import transformers
 
-# TODO: Hugging Face or Modelscope
-from huggingface_hub import snapshot_download # (Auto download model when no local)
+# (Auto download model when no local)
+from huggingface_hub import snapshot_download
 
 from packaging.version import InvalidVersion, Version
 from transformers import AutoConfig, AutoTokenizer, PretrainedConfig
 from transformers.modeling_utils import no_init_weights
-from transformers.utils import is_flash_attn_2_available # Support flash_attn ?
+from transformers.utils import is_flash_attn_2_available  # Support flash_attn ?
 from transformers.utils.generic import ContextManagers
 
 from ..quantization import QuantizeConfig
 from ..quantization.config import KERNEL, METHOD
 from ..utils.backend import BACKEND
-from ..utils.importer import auto_select_device, normalize_device_device_map, select_quant_linear
+from ..utils.importer import (
+    auto_select_device,
+    normalize_device_device_map,
+    select_quant_linear,
+)
 from ..utils.logger import setup_logger
 from ..utils.marlin import _validate_marlin_device_support
 from ..utils.model import (
@@ -69,7 +73,9 @@ _OPERATORS = {
 }
 
 
-def compare_versions(installed_version: str, required_version: str, operand: str) -> bool:
+def compare_versions(
+    installed_version: str, required_version: str, operand: str
+) -> bool:
     """Return True when the installed version satisfies the operand constraint."""
     installed = parse_version_string(installed_version)
     required = parse_version_string(required_version)
@@ -89,7 +95,9 @@ def check_versions(model_class, requirements: Optional[Iterable[str]]):
         try:
             installed_version = version(pkg)
         except PackageNotFoundError as exc:
-            raise ValueError(f"{model_class} requires version {req}, but {pkg} is not installed.") from exc
+            raise ValueError(
+                f"{model_class} requires version {req}, but {pkg} is not installed."
+            ) from exc
 
         if not compare_versions(installed_version, version_required, operand):
             raise ValueError(
@@ -129,17 +137,26 @@ def _disable_default_weight_initializers() -> None:
 def _assign_model_seqlen(model: torch.nn.Module, fallback: int = 4096) -> None:
     """Attach `model.seqlen` using config metadata or a conservative fallback."""
     model_config = model.config.to_dict()
-    seq_len_keys = ["max_position_embeddings", "seq_length", "n_positions", "multimodal_max_length"]
+    seq_len_keys = [
+        "max_position_embeddings",
+        "seq_length",
+        "n_positions",
+        "multimodal_max_length",
+    ]
     config_seq_len = find_config_seq_len(model_config, seq_len_keys)
     if config_seq_len is not None:
         model.seqlen = config_seq_len
     else:
-        log.warn("Model: can't determine sequence length from model config; using fallback=%s.", fallback)
+        log.warn(
+            "Model: can't determine sequence length from model config; using fallback=%s.",
+            fallback,
+        )
         model.seqlen = fallback
 
 
 def ModelLoader(cls):
     """Decorator that injects NanoModel-specific loading helpers into transformer loaders."""
+
     @classmethod
     def from_pretrained(
         cls,
@@ -160,12 +177,16 @@ def ModelLoader(cls):
         load_start = time.perf_counter()
 
         if not isinstance(quantize_config, QuantizeConfig):
-            raise AttributeError("`quantize_config` must be passed and be an instance of QuantizeConfig.")
+            raise AttributeError(
+                "`quantize_config` must be passed and be an instance of QuantizeConfig."
+            )
 
         quantize_config.calculate_bits_per_weight()
 
         # Non-quantized weights are staged on CPU regardless of caller preference.
-        if quantize_config.device is not None and (device is not None or device_map is not None):
+        if quantize_config.device is not None and (
+            device is not None or device_map is not None
+        ):
             raise AttributeError(
                 "Passing device and device_map is not allowed when QuantizeConfig.device is set. "
                 "Set QuantizeConfig.device to control quantization placement."
@@ -185,7 +206,9 @@ def ModelLoader(cls):
 
         check_versions(cls, cls.require_pkgs_version)
 
-        model_local_path = get_model_local_path(pretrained_model_id_or_path, **model_init_kwargs)
+        model_local_path = get_model_local_path(
+            pretrained_model_id_or_path, **model_init_kwargs
+        )
 
         _disable_default_weight_initializers()
 
@@ -194,7 +217,10 @@ def ModelLoader(cls):
 
         requested_attn_impl = model_init_kwargs.get("attn_implementation")
         if requested_attn_impl and requested_attn_impl != "auto":
-            log.info("Loader: overriding attn_implementation in config to `%s`", requested_attn_impl)
+            log.info(
+                "Loader: overriding attn_implementation in config to `%s`",
+                requested_attn_impl,
+            )
             config._attn_implementation = requested_attn_impl
 
         # Ensure quantization runs on an explicit device.
@@ -208,9 +234,14 @@ def ModelLoader(cls):
 
         if dtype is None or dtype == "auto" or not isinstance(dtype, torch.dtype):
             # Non-quantized modules should retain their native dtype for calibration.
-            dtype = auto_dtype(config=config, device=quantize_config.device, quant_inference=False)
+            dtype = auto_dtype(
+                config=config, device=quantize_config.device, quant_inference=False
+            )
 
-        if isinstance(dtype, torch.dtype) and getattr(config, "torch_dtype", None) != dtype:
+        if (
+            isinstance(dtype, torch.dtype)
+            and getattr(config, "torch_dtype", None) != dtype
+        ):
             # Align config metadata with the dtype we will materialize weights in.
             config.torch_dtype = dtype
 
@@ -245,7 +276,9 @@ def ModelLoader(cls):
             turtle_model._model_init_kwargs = model_init_kwargs
         else:
             log.info("Loader: loading model directly to CPU without turtle stage.")
-            model = cls.loader.from_pretrained(model_local_path, config=config, **model_init_kwargs)
+            model = cls.loader.from_pretrained(
+                model_local_path, config=config, **model_init_kwargs
+            )
             model._model_init_kwargs = model_init_kwargs
             turtle_model = None
 
@@ -255,7 +288,9 @@ def ModelLoader(cls):
         if turtle_model is not None:
             turtle_model.eval()
 
-        tokenizer = AutoTokenizer.from_pretrained(pretrained_model_id_or_path, trust_remote_code=trust_remote_code)
+        tokenizer = AutoTokenizer.from_pretrained(
+            pretrained_model_id_or_path, trust_remote_code=trust_remote_code
+        )
 
         instance = cls(
             model,
@@ -270,7 +305,9 @@ def ModelLoader(cls):
         timer = getattr(instance, "quant_region_timer", None)
         if timer is not None:
             source_label = instance.model_local_path or str(pretrained_model_id_or_path)
-            timer.record("model_load", time.perf_counter() - load_start, source=source_label)
+            timer.record(
+                "model_load", time.perf_counter() - load_start, source=source_label
+            )
 
         return instance
 
@@ -310,7 +347,11 @@ def ModelLoader(cls):
             os.environ["VLLM_ATTENTION_BACKEND"] = "FLASHINFER"
 
         if backend == BACKEND.TRITON:
-            from ..nn_modules.qlinear.tritonv2 import TRITON_AVAILABLE, TRITON_INSTALL_HINT
+            from ..nn_modules.qlinear.tritonv2 import (
+                TRITON_AVAILABLE,
+                TRITON_INSTALL_HINT,
+            )
+
             if not TRITON_AVAILABLE:
                 raise ValueError(TRITON_INSTALL_HINT)
 
@@ -360,16 +401,21 @@ def ModelLoader(cls):
         if cls.require_dtype:
             dtype = cls.require_dtype
 
-        if dtype is None or dtype == "auto" or not isinstance(dtype, torch.dtype) :
+        if dtype is None or dtype == "auto" or not isinstance(dtype, torch.dtype):
             # TODO FIX ME for `dynamic`, non-quantized modules should be in native type
             dtype = auto_dtype(config=config, device=device, quant_inference=True)
 
-        if isinstance(dtype, torch.dtype) and getattr(config, "torch_dtype", None) != dtype:
+        if (
+            isinstance(dtype, torch.dtype)
+            and getattr(config, "torch_dtype", None) != dtype
+        ):
             # Ensure flash attention kernels see an explicit dtype instead of relying on defaults.
             config.torch_dtype = dtype
 
         # Load quantization metadata stored alongside the checkpoint.
-        qcfg = QuantizeConfig.from_pretrained(model_local_path, **cached_file_kwargs, **kwargs)
+        qcfg = QuantizeConfig.from_pretrained(
+            model_local_path, **cached_file_kwargs, **kwargs
+        )
 
         if qcfg.quant_method == METHOD.AWQ and qcfg.kernel in [KERNEL.GEMV_FAST]:
             # GEMV_FAST only supports torch.float16
@@ -377,15 +423,21 @@ def ModelLoader(cls):
             dtype = torch.float16
 
         qcfg.calculate_bits_per_weight()
-        tokenizer = AutoTokenizer.from_pretrained(model_id_or_path, trust_remote_code=trust_remote_code)
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_id_or_path, trust_remote_code=trust_remote_code
+        )
         if backend == BACKEND.VLLM or backend == BACKEND.SGLANG:
             # Delegate inference to external runtimes; NanoModel wrapper keeps tokenizer/qcfg consistent.
             if backend == BACKEND.VLLM:
                 if qcfg.kernel != KERNEL.GPTQ and qcfg.kernel != KERNEL.GEMM:
-                    raise ValueError(f"{backend} backend only supports FORMAT.GPTQ or FORMAT.GEMM: actual = {qcfg.kernel}")
+                    raise ValueError(
+                        f"{backend} backend only supports FORMAT.GPTQ or FORMAT.GEMM: actual = {qcfg.kernel}"
+                    )
             elif backend == BACKEND.SGLANG:
                 if qcfg.kernel != KERNEL.GPTQ:
-                    raise ValueError(f"{backend} backend only supports FORMAT.GPTQ: actual = {qcfg.kernel}")
+                    raise ValueError(
+                        f"{backend} backend only supports FORMAT.GPTQ: actual = {qcfg.kernel}"
+                    )
 
             if backend == BACKEND.VLLM:
                 from ..utils.vllm import load_model_by_vllm, vllm_generate
@@ -399,7 +451,9 @@ def ModelLoader(cls):
                 model.config = model.llm_engine.model_config
                 model.device = model.llm_engine.vllm_config.device_config.device
 
-                cls.generate = lambda self, **kwargs: vllm_generate(self.model, **kwargs)
+                cls.generate = lambda self, **kwargs: vllm_generate(
+                    self.model, **kwargs
+                )
 
             elif backend == BACKEND.SGLANG:
                 from ..utils.sglang import load_model_by_sglang, sglang_generate
@@ -411,7 +465,9 @@ def ModelLoader(cls):
                     **kwargs,
                 )
                 model.config = hf_config
-                cls.generate = lambda self, **kwargs: sglang_generate(self.model, **kwargs)
+                cls.generate = lambda self, **kwargs: sglang_generate(
+                    self.model, **kwargs
+                )
             return cls(
                 model,
                 quantized=True,
@@ -425,8 +481,13 @@ def ModelLoader(cls):
 
         if qcfg.kernel == KERNEL.MARLIN:
             # format marlin requires marlin kernel
-            if backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and backend != BACKEND.AUTO:
-                raise TypeError(f"FORMAT.MARLIN requires BACKEND.AUTO or BACKEND.MARLIN: actual = `{backend}`.")
+            if (
+                backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16]
+                and backend != BACKEND.AUTO
+            ):
+                raise TypeError(
+                    f"FORMAT.MARLIN requires BACKEND.AUTO or BACKEND.MARLIN: actual = `{backend}`."
+                )
             backend = BACKEND.MARLIN
 
         possible_model_basenames = [
@@ -463,12 +524,14 @@ def ModelLoader(cls):
         init_contexts = [no_init_weights()]
 
         layer_type = ""
-        with (ContextManagers(init_contexts)):
+        with ContextManagers(init_contexts):
             cls.before_model_load(cls, load_quantized_model=True)
 
             if config.architectures:
                 model_class = getattr(transformers, config.architectures[0], None)
-                if model_class is not None and hasattr(model_class, "_supports_flash_attn_2"):
+                if model_class is not None and hasattr(
+                    model_class, "_supports_flash_attn_2"
+                ):
                     supports_flash_attn = model_class._supports_flash_attn_2
                 else:
                     supports_flash_attn = None
@@ -483,7 +546,9 @@ def ModelLoader(cls):
                     args = {ATTN_IMPLEMENTATION: "flash_attention_2"}
                     log.info("Loader: Auto enabling flash attention2")
 
-            model = cls.loader.from_config(config, trust_remote_code=trust_remote_code, dtype=dtype, **args)
+            model = cls.loader.from_config(
+                config, trust_remote_code=trust_remote_code, dtype=dtype, **args
+            )
 
             model.checkpoint_file_name = model_save_name
 
@@ -497,7 +562,9 @@ def ModelLoader(cls):
             ignore_modules = [cls.lm_head] + cls.get_base_modules(model)
             layer_prefixes = tuple(cls.extract_layers_node())
             simple_layer_suffixes = tuple(
-                suffix for group in cls.simple_layer_modules(config, qcfg) for suffix in group
+                suffix
+                for group in cls.simple_layer_modules(config, qcfg)
+                for suffix in group
             )
 
             for name in list(modules.keys()):
@@ -505,9 +572,15 @@ def ModelLoader(cls):
                     # Allow loading of quantized lm_head.
                     continue
 
-                eligible_prefix = any(name.startswith(prefix) for prefix in layer_prefixes)
-                excluded_module = any(name.startswith(ignore_module) for ignore_module in ignore_modules)
-                eligible_suffix = any(name.endswith(suffix) for suffix in simple_layer_suffixes)
+                eligible_prefix = any(
+                    name.startswith(prefix) for prefix in layer_prefixes
+                )
+                excluded_module = any(
+                    name.startswith(ignore_module) for ignore_module in ignore_modules
+                )
+                eligible_suffix = any(
+                    name.endswith(suffix) for suffix in simple_layer_suffixes
+                )
 
                 if not eligible_prefix or excluded_module or not eligible_suffix:
                     if name != cls.lm_head:
@@ -523,7 +596,12 @@ def ModelLoader(cls):
                 device=device,
             )
 
-        if isinstance(device_map, str) and device_map not in {"auto", "balanced", "balanced_low_0", "sequential"}:
+        if isinstance(device_map, str) and device_map not in {
+            "auto",
+            "balanced",
+            "balanced_low_0",
+            "sequential",
+        }:
             raise ValueError(
                 "If passing a string for `device_map`, please choose 'auto', 'balanced', 'balanced_low_0' or "
                 "'sequential'."
@@ -540,12 +618,18 @@ def ModelLoader(cls):
 
             if device is not None and not max_memory and not computed_device_map:
                 torch_device = torch.device(device)
-                if torch_device.type in {"cuda", "xpu"} and torch_device.index is not None:
+                if (
+                    torch_device.type in {"cuda", "xpu"}
+                    and torch_device.index is not None
+                ):
                     computed_device_map = {"": torch_device.index}
                 else:
                     computed_device_map = {"": torch_device.type}
 
-            if not isinstance(computed_device_map, dict) and computed_device_map != "sequential":
+            if (
+                not isinstance(computed_device_map, dict)
+                and computed_device_map != "sequential"
+            ):
                 max_memory = accelerate.utils.get_balanced_memory(
                     model=model,
                     max_memory=max_memory,
@@ -575,24 +659,28 @@ def ModelLoader(cls):
             )
 
             load_checkpoint_in_model = False
-        if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (qcfg.kernel == KERNEL.MARLIN):
+        if backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16] and (
+            qcfg.kernel == KERNEL.MARLIN
+        ):
             if is_sharded:
                 raise ValueError(
                     "Format: The loading of sharded checkpoints with Marlin is currently not supported."
                 )
             if not _validate_marlin_device_support():
                 raise ValueError(
-                    f'Kernel: Marlin kernel does not support this gpu with compute capability of `{torch.cuda.get_device_capability()}`. Please do not use `back=BACKEND.MARLIN`.'
+                    f"Kernel: Marlin kernel does not support this gpu with compute capability of `{torch.cuda.get_device_capability()}`. Please do not use `back=BACKEND.MARLIN`."
                 )
 
             # Validate the model can run in Marlin.
             if dtype != torch.float16:
                 raise ValueError("Marlin kernel requires dtype=torch.float16.")
- 
 
         # If we use marlin or bitblas to load the quantized model, the model is already a converted model,
         # and we no longer need to call load_checkpoint_in_model()
-        if load_checkpoint_in_model and backend not in [BACKEND.MARLIN, BACKEND.MARLIN_FP16]:
+        if load_checkpoint_in_model and backend not in [
+            BACKEND.MARLIN,
+            BACKEND.MARLIN_FP16,
+        ]:
             load_checkpoint_in_model_then_tie_weights(
                 model,
                 dtype=dtype,
@@ -623,7 +711,9 @@ def ModelLoader(cls):
         _assign_model_seqlen(model)
 
         # Any post-initialization that require device information, for example buffers initialization on device.
-        model = nanomodel_post_init(model, use_act_order=qcfg.act_order, quantize_config=qcfg)
+        model = nanomodel_post_init(
+            model, use_act_order=qcfg.act_order, quantize_config=qcfg
+        )
 
         # TODO: eval()
         model.eval()

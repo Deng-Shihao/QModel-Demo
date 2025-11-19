@@ -11,22 +11,26 @@ from torch.nn.modules.conv import _ConvNd
 logger = logging.getLogger("NamedModule")
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S"
+    )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
 
-class NamedModule(torch.nn.Module):
 
-    def __init__(self, module: torch.nn.Module, name: str, full_name:str, layer_index: int) -> None:
+class NamedModule(torch.nn.Module):
+    def __init__(
+        self, module: torch.nn.Module, name: str, full_name: str, layer_index: int
+    ) -> None:
         super().__init__()
 
-        self.module = module # wrapped module
+        self.module = module  # wrapped module
         self.module_dtype = next(module.parameters()).dtype
-        self.name = name # module name
-        self.full_name = full_name # module full name (path) within model
-        self.layer_index = layer_index # layerid in a repeating layer, if in outside layer, this info may be fake
+        self.name = name  # module name
+        self.full_name = full_name  # module full name (path) within model
+        self.layer_index = layer_index  # layerid in a repeating layer, if in outside layer, this info may be fake
 
         # persistent work state for named module (used by some LoopProcessors)
         # store all `processed()` work state/data/result here
@@ -52,12 +56,16 @@ class NamedModule(torch.nn.Module):
             in_features = module.weight.shape[0]
             out_features = module.weight.shape[1]
         else:
-            raise NotImplementedError(f"Unsupported module.module type: `{type(module)}`")
+            raise NotImplementedError(
+                f"Unsupported module.module type: `{type(module)}`"
+            )
 
-        self.state.update({
-            "in_features": in_features,
-            "out_features": out_features,
-        })
+        self.state.update(
+            {
+                "in_features": in_features,
+                "out_features": out_features,
+            }
+        )
 
     def parameters(self, recurse: bool = True):
         return self.module.parameters(recurse=recurse)
@@ -94,6 +102,7 @@ class NamedModule(torch.nn.Module):
                 del self.module._parameters[name]
                 if hasattr(self.module, name):
                     delattr(self.module, name)
+
     # return stats for mo
     # def stats(self) -> Dict[str, float]:
     #     # -1 means no stats have yet to gathered for the stat property
@@ -144,19 +153,27 @@ class NamedModule(torch.nn.Module):
         )
 
     def stream_parameters_to_cpu(self, *, host_pool) -> Dict[str, torch.Tensor]:
-        tensor_map = {name: param for name, param in self.module.named_parameters(recurse=False)}
+        tensor_map = {
+            name: param for name, param in self.module.named_parameters(recurse=False)
+        }
         return self._stream_tensor_dict(
             tensor_map,
             host_pool=host_pool,
-            store_callback=lambda host_map: self.state.setdefault("parameters_cpu", {}).update(host_map),
+            store_callback=lambda host_map: self.state.setdefault(
+                "parameters_cpu", {}
+            ).update(host_map),
         )
 
     def stream_buffers_to_cpu(self, *, host_pool) -> Dict[str, torch.Tensor]:
-        tensor_map = {name: buf for name, buf in self.module.named_buffers(recurse=False)}
+        tensor_map = {
+            name: buf for name, buf in self.module.named_buffers(recurse=False)
+        }
         return self._stream_tensor_dict(
             tensor_map,
             host_pool=host_pool,
-            store_callback=lambda host_map: self.state.setdefault("buffers_cpu", {}).update(host_map),
+            store_callback=lambda host_map: self.state.setdefault(
+                "buffers_cpu", {}
+            ).update(host_map),
         )
 
     def stream_all_to_cpu(self, *, host_pool) -> Dict[str, Dict[str, torch.Tensor]]:
@@ -177,14 +194,20 @@ class NamedModule(torch.nn.Module):
         host_pool,
         store_callback,
     ) -> Dict[str, torch.Tensor]:
-        filtered = {name: tensor for name, tensor in tensors.items() if isinstance(tensor, torch.Tensor)}
+        filtered = {
+            name: tensor
+            for name, tensor in tensors.items()
+            if isinstance(tensor, torch.Tensor)
+        }
         if not filtered:
             return {}
 
         first = next(iter(filtered.values()))
 
         if first.device.type != "cuda" or not torch.cuda.is_available():
-            host_map = {name: tensor.detach().to("cpu") for name, tensor in filtered.items()}
+            host_map = {
+                name: tensor.detach().to("cpu") for name, tensor in filtered.items()
+            }
             with self._state_lock:
                 store_callback(host_map)
             return host_map

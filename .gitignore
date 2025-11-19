@@ -1,6 +1,7 @@
 .DS_Store
-
+offload.md
 quantized_models/*
+uv.lock
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

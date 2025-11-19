@@ -58,16 +58,18 @@ class AwqMarlinQuantLinear(AWQuantLinear):
     }
 
     def __init__(
-            self, bits: int,
-            group_size: int,
-            act_order: bool,
-            sym: bool,
-            in_features: int,
-            out_features: int,
-            bias: bool = False,
-            pack_dtype: torch.dtype = torch.int32,
-            register_buffers=False,
-            **kwargs):
+        self,
+        bits: int,
+        group_size: int,
+        act_order: bool,
+        sym: bool,
+        in_features: int,
+        out_features: int,
+        bias: bool = False,
+        pack_dtype: torch.dtype = torch.int32,
+        register_buffers=False,
+        **kwargs,
+    ):
         if marlin_import_exception is not None:
             raise ValueError(
                 f"Trying to use the marlin backend, but could not import the C++/CUDA dependencies with the following error: {marlin_import_exception}"
@@ -86,7 +88,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
             pack_dtype=pack_dtype,
             backend=kwargs.pop("backend", BACKEND.MARLIN),
             register_buffers=False,
-            **kwargs)
+            **kwargs,
+        )
 
         if register_buffers:
             self.register_parameter(
@@ -97,7 +100,7 @@ class AwqMarlinQuantLinear(AWQuantLinear):
                         self.out_features // self.pack_factor,
                         dtype=torch.int32,
                     ),
-                    requires_grad=False
+                    requires_grad=False,
                 ),
             )
             self.register_parameter(
@@ -108,8 +111,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
                         self.out_features // self.pack_factor,
                         dtype=torch.int32,
                     ),
-                    requires_grad=False
-                )
+                    requires_grad=False,
+                ),
             )
 
             self.register_parameter(
@@ -120,8 +123,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
                         self.out_features,
                         dtype=torch.float16,
                     ),
-                    requires_grad=False
-                )
+                    requires_grad=False,
+                ),
             )
 
             if bias:
@@ -140,8 +143,10 @@ class AwqMarlinQuantLinear(AWQuantLinear):
             self.is_lm_head = kwargs["name"] == kwargs["lm_head_name"]
 
         if self.bits not in self.TYPE_MAP:
-            raise ValueError(f"Unsupported num_bits = {self.bits}. "
-                             f"Supported num_bits = {self.TYPE_MAP.keys()}")
+            raise ValueError(
+                f"Unsupported num_bits = {self.bits}. "
+                f"Supported num_bits = {self.TYPE_MAP.keys()}"
+            )
 
         self.weight_type = self.TYPE_MAP[self.bits]
 
@@ -169,12 +174,19 @@ class AwqMarlinQuantLinear(AWQuantLinear):
                 raise NotImplementedError("Marlin kernel is not supported on ROCm.")
 
             if CUDA_VISIBLE_DEVICES is None:
-                has_cuda_v8 = all(torch.cuda.get_device_capability(i)[0] >= 8 for i in range(torch.cuda.device_count()))
+                has_cuda_v8 = all(
+                    torch.cuda.get_device_capability(i)[0] >= 8
+                    for i in range(torch.cuda.device_count())
+                )
             else:
                 has_cuda_v8 = all(
-                    torch.cuda.get_device_capability(i)[0] >= 8 for i in range(len(CUDA_VISIBLE_DEVICES.split(","))))
+                    torch.cuda.get_device_capability(i)[0] >= 8
+                    for i in range(len(CUDA_VISIBLE_DEVICES.split(",")))
+                )
             if not has_cuda_v8:
-                raise NotImplementedError("Marlin kernel only supports compute capability >= 8.0.")
+                raise NotImplementedError(
+                    "Marlin kernel only supports compute capability >= 8.0."
+                )
 
     def post_init(self):
         device = self.qweight.device
@@ -184,10 +196,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
 
         # Repack weights from AWQ format to marlin format.
         marlin_qweight = nanomodel_marlin_kernels.awq_marlin_repack(
-            self.qweight,
-            self.in_features,
-            self.out_features,
-            self.bits)
+            self.qweight, self.in_features, self.out_features, self.bits
+        )
         replace_parameter(self, "qweight", marlin_qweight)
 
         # Permute scales from AWQ format to marlin format.
@@ -195,7 +205,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
             self.scales,
             size_k=self.in_features,
             size_n=self.out_features,
-            group_size=self.group_size)
+            group_size=self.group_size,
+        )
         replace_parameter(self, "scales", marlin_scales)
 
         # Permute zero-points from AWQ format to marlin format.
@@ -203,7 +214,8 @@ class AwqMarlinQuantLinear(AWQuantLinear):
             self.qzeros,
             size_k=self.in_features // self.group_size,
             size_n=self.out_features,
-            num_bits=self.bits)
+            num_bits=self.bits,
+        )
         replace_parameter(self, "qzeros", marlin_zp)
 
         # Not-used

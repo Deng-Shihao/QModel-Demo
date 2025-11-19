@@ -16,7 +16,9 @@ def unpack_awq(qweight: torch.Tensor, qzeros: torch.Tensor, bits: int):
 
     # unpacking columnwise
     if qzeros is not None:
-        izeros = torch.bitwise_right_shift(qzeros[:, :, None], shifts[None, None, :]).to(
+        izeros = torch.bitwise_right_shift(
+            qzeros[:, :, None], shifts[None, None, :]
+        ).to(
             torch.int8  # smallest dtype available
         )
         izeros = izeros.view(izeros.shape[0], -1)
@@ -41,6 +43,7 @@ def reverse_awq_order(iweights: torch.Tensor, izeros: torch.Tensor, bits: int):
     iweights = iweights[:, reverse_order_tensor]
 
     return iweights, izeros
+
 
 def dequantize_gemm(qweight, qzeros, scales, bits, group_size):
     # Unpack the qweight and qzeros tensors

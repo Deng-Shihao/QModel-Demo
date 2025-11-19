@@ -1,33 +1,115 @@
-# NanoModel
+- A simple-to-use toolkit for model quantification & deployment
 
-## Available NOW !!!
+TODO:
 
-## Installation
+- LoRA - Recover accuracy
+- Benchmark
+- …
 
-```shell
-uv venv # create venv
+## Usage
 
+### Install
+
+---
+
+- uv
+
+```bash
+uv venv # Create a virtual env for project
 uv pip install --upgrade pip setuptools wheel
 
-# CUDA 12.0 Only for  8.9|9.0 (option)
-export TORCH_CUDA_ARCH_LIST="8.9" # setting computer capability 8.9 (nvcc)
+# Install the corresponding PyTorch with CUDA
+# Detail: https://pytorch.org/get-started/locally/
+uv pip install torch torchvision --index-url https://download.pytorch.org/whl/cu130
+uv pip install -r requirements.txt
 
-pip install -v . --no-build-isolation
-
-# Force CUDA compilation CUDA extensions
-# export BUILD_CUDA_EXT=1
-# BUILD_CUDA_EXT=1 pip install -v . --no-build-isolation
-
-# Build .whl bdist_whee
-python setup.py bdist_wheel
-# dist/nanomodel-0.1.0+cu121torch2.5.1-cp310-cp310-linux_x86_64.whl
-
-# Debug for dev
-uv pip install -e .
+uv pip install -v . --no-build-isolation # Build locally
 ```
 
-## Citation
-```shell
+### Quantize with NanoModel
+
+---
+
+```python
+from datasets import load_dataset
+from nanomodel import AutoNanoModel, QuantizeConfig
+from nanomodel.quantization import KERNEL, METHOD # For AWQ quantization
+
+pretrained_model_id = "Qwen/Qwen3-4B-Instruct-2507"
+quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
+
+calibration_dataset = load_dataset(
+    "allenai/c4",
+    data_files="en/c4-train.00001-of-01024.json.gz",
+    split="train",
+).select(range(1024))["text"]
+
+## Default gptq algorithm
+quant_config = QuantizeConfig(bits=4, group_size=128)
+
+## Awq algorithm
+# quant_config = QuantizeConfig(
+#        bits=4,
+#        group_size=128,
+#        quant_method=METHOD.AWQ,  # Switch to METHOD.GPTQ if you prefer GPTQ kernels.
+#        kernel=KERNEL.GEMM,  # Alternative kernels: KERNEL.GEMM for matmul-based inference.
+# )
+
+# Increase the `batch_size` to match GPU/VRAM specifications, thereby accelerating quantisation speed.
+# model.quantize(calibration_dataset, batch_size=2)
+model = AutoNanoModel.load(model_id, quant_config)
+model.save(quant_path)
+```
+
+### Inference
+
+---
+
+- Basic
+
+```python
+from nanomodel import AutoNanoModel
+
+model = nanomodel.load("/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit")
+result = model.generate("LLMs is ")[0] # tokens
+
+print(model.tokenizer.decode(result)) # string output
+```
+
+### Eval
+
+---
+
+```python
+from nanomodel import AutoNanoModel
+from nanomodel.utils.eval import EVAL
+
+model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
+# model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-AWQ-4bit"
+
+# `lm-eval` framework evaluate the model
+lm_eval_data = AutoNanoModel.eval(
+    model_id, framework=EVAL.LM_EVAL, tasks=[EVAL.LM_EVAL.ARC_CHALLENGE]
+)
+
+# evalplus framework evaluate the model
+evalplus_data = AutoNanoModel.eval(
+    model_id, framework=EVAL.EVALPLUS, tasks=[EVAL.EVALPLUS.HUMAN]
+)
+```
+
+### Quantization Method & Feature
+
+---
+
+| Method | Inference Kernel |
+| --- | --- |
+| GPTQ ✅ | Marlin, Triton, Torch |
+| AWQ ✅ | GEMM, Marlin |
+
+### Citation
+
+```python
 # GPTQ
 @article{frantar-gptq,
   title={{GPTQ}: Accurate Post-training Compression for Generative Pretrained Transformers}, 
@@ -44,14 +126,6 @@ uv pip install -e .
   year={2023}
 }
 
-# Group Aware Reordering (GAR)
-@article{gar,
-  title={Dual Precision Quantization for Efficient and Accurate Deep Neural Networks Inference, CVPRW 2025.},
-  author={T. Gafni, A. Karnieli, Y. Hanani},
-  journal={arXiv preprint arXiv:2505.14638},
-  year={2025}
-}
-
 # GPTQ Marlin Kernel
 @article{frantar2024marlin,
   title={MARLIN: Mixed-Precision Auto-Regressive Parallel Inference on Large Language Models},
@@ -60,17 +134,3 @@ uv pip install -e .
   year={2024}
 }
 ```
-
-### update
-gptq.py
-
-Documented and cleaned workspace/cache helpers to clarify device selection and resizing logic, including docstrings for _device_cache_key, _lease_workspace, and related methods (nanomodel/quantization/gptq.py (lines 22-205)).
-Added _quantize_block_vectorized and reused it across the mock/non-grouped paths to remove duplicated clamp/round code while preserving semantics (nanomodel/quantization/gptq.py (lines 233-267), nanomodel/quantization/gptq.py (lines 748-764)).
-Refactored process_batch to delegate reshaping to _reshape_inputs_for_hessian, tightened OOM handling, and added targeted logging/docstrings for easier reasoning about Hessian staging (nanomodel/quantization/gptq.py (lines 269-460)).
-Clarified quantization flow with docstrings, logging cleanups, and explanatory comments around activation ordering, static groups, and Hessian damping (nanomodel/quantization/gptq.py (lines 556-845)).
-Verified syntax with python3 - <<'PY' ... ast.parse(...) ... (py_compile attempted but blocked by sandbox cache permissions).
-
-Next steps: 1) Run ruff check nanomodel/quantization/gptq.py to keep formatting consistent. 2) Execute the existing quantization tests/recipes (e.g., pytest -k gptq or python example/basic_usage.py) to ensure runtime behavior still matches expectations.
-
-
-3) Group-Aware Reordering (GAR): To further mitigate accuracy degradation, we introduce a weight quantization strategy that prioritizes important weights without inference overhead. Notably, GAR is not limited to our specific setting; it is applicable to other quantization schemes, making it a versatile technique for improving the accuracy of quantized models without introducing additional overhead. Ablation studies further confirm its effectiveness.

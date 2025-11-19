@@ -6,8 +6,9 @@ import triton.language as tl
 
 AWQ_TRITON_SUPPORTED_GROUP_SIZES = [-1, 32, 64, 128]
 
+
 def get_same_device_cm(t):
-    if t.device.type == 'xpu':
+    if t.device.type == "xpu":
         return torch.xpu.device(t.device.index)
     else:
         return torch.cuda.device(t.device.index)
@@ -273,6 +274,7 @@ def awq_dequantize_triton(
             triton.cdiv(X, META["BLOCK_SIZE_X"]),
             triton.cdiv(Y, META["BLOCK_SIZE_Y"]),
         )
+
     with get_same_device_cm(qweight):
         awq_dequantize_kernel[grid](
             qweight,

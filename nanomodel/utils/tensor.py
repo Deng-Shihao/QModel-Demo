@@ -6,9 +6,9 @@ import torch
 
 # helper method to get accurate parameter count for a gptq model
 def tensor_parameters(
-        tensor_name: str,  # name of tensor weight in model
-        tensor_shape: torch.Size,  # shape of tensor
-        bits: int,  # gptq bits
+    tensor_name: str,  # name of tensor weight in model
+    tensor_shape: torch.Size,  # shape of tensor
+    bits: int,  # gptq bits
 ) -> int:
     # only .qweight is relevant for `parameters` in gptq model
     if tensor_name.endswith(".qweight"):

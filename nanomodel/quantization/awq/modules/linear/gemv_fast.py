@@ -5,6 +5,7 @@ from nanomodel.quantization.awq.utils.module import try_import
 
 awq_v2_ext, msg = try_import("nanomodel_awq_v2_kernels")
 
+
 def make_divisible(c, divisor):
     return (c + divisor - 1) // divisor
 
@@ -186,7 +187,9 @@ class WQLinear_GEMVFast(torch.nn.Module):
     @torch.inference_mode()
     def forward(self, x):
         if awq_v2_ext is None:
-            raise ModuleNotFoundError("External AWQ V2 kernels are not properly installed." + msg)
+            raise ModuleNotFoundError(
+                "External AWQ V2 kernels are not properly installed." + msg
+            )
         inputs = x
         batch_size, n_tokens, _ = inputs.shape
         if batch_size < 8 and n_tokens == 1:

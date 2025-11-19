@@ -1,18 +1,20 @@
 """Quantize a model on WikiText-2 and report perplexity plus a sample decode."""
+
 import torch
 from datasets import load_dataset
 from transformers import AutoTokenizer
 
 from nanomodel import AutoNanoModel, QuantizeConfig
 
-pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
+pretrained_model_id = "Qwen/Qwen3-4B-Instruct-2507"
+quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
 
 
 def get_wikitext2(tokenizer, nsamples, seqlen):
     """Prepare a tokenized subset of WikiText-2 with minimum length filtering."""
     traindata = load_dataset("wikitext", "wikitext-2-raw-v1", split="train").filter(
-        lambda x: len(x["text"]) >= seqlen)
+        lambda x: len(x["text"]) >= seqlen
+    )
 
     return [tokenizer(example["text"]) for example in traindata.select(range(nsamples))]
 
@@ -37,6 +39,7 @@ def calculate_avg_ppl(model, tokenizer):
     avg = sum(all) / len(all)
 
     return avg
+
 
 def main():
     """Quantize on WikiText-2 data and print generation plus perplexity metrics."""
@@ -68,7 +71,9 @@ def main():
     generated = model.generate(**prompt_inputs)[0]
     print(tokenizer.decode(generated))
 
-    print(f"Quantized Model {quantized_model_id} avg PPL is {calculate_avg_ppl(model, tokenizer)}")
+    print(
+        f"Quantized Model {quantized_model_id} avg PPL is {calculate_avg_ppl(model, tokenizer)}"
+    )
 
 
 if __name__ == "__main__":

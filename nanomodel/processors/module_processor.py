@@ -43,7 +43,12 @@ from ..processors.named_module import NamedModule
 from ..models import BaseNanoModel
 from ..models._const import SUPPORTS_MODULE_TYPES
 
-from ..nn_modules.hooked_linear import STOP_FORWARD_EXCEPTION, HookedLinear, StopForward, replace_module_with_hooked_legacy
+from ..nn_modules.hooked_linear import (
+    STOP_FORWARD_EXCEPTION,
+    HookedLinear,
+    StopForward,
+    replace_module_with_hooked_legacy,
+)
 
 from ..utils.attn_mask import apply_keep_mask_bt, normalize_seq_mask
 from ..utils.ctx import ctx
@@ -57,16 +62,24 @@ from ..utils.processor_helpers import (
     rehome_module_to_device,
     select_forward_devices,
 )
-from ..utils.model import find_modules, get_module, get_module_by_name_prefix, move_to, nested_move_to
+from ..utils.model import (
+    find_modules,
+    get_module,
+    get_module_by_name_prefix,
+    move_to,
+    nested_move_to,
+)
 from ..utils.offload import offload_to_disk
-from ..utils.torch import (CPU, META, timed_gc_collect, torch_sync)
+from ..utils.torch import CPU, META, timed_gc_collect, torch_sync
 from .. import DEVICE_THREAD_POOL
 from .awq_processor import AWQProcessor
 
 logger = logging.getLogger("ModuleProcessor")
 if not logger.handlers:
     handler = logging.StreamHandler()
-    formatter = logging.Formatter("[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S")
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s", "%H:%M:%S"
+    )
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 logger.setLevel(logging.INFO)
@@ -75,6 +88,7 @@ logger.propagate = False
 
 class TqdmProgress:
     """Minimal tqdm-backed progress interface."""
+
     def __init__(
         self,
         sequence,
@@ -173,19 +187,33 @@ class TqdmProgress:
         self._tqdm.refresh()
 
 
-def create_progress(sequence, *, total: Optional[int] = None, desc: Optional[str] = None, unit: str = "steps") -> TqdmProgress:
+def create_progress(
+    sequence,
+    *,
+    total: Optional[int] = None,
+    desc: Optional[str] = None,
+    unit: str = "steps",
+) -> TqdmProgress:
     return TqdmProgress(sequence, total=total, desc=desc, unit=unit)
 
 
 @contextmanager
-def log_time_block(block_name: str, *, module_name: str | None = None, logger: logging.Logger | None = None):
+def log_time_block(
+    block_name: str,
+    *,
+    module_name: str | None = None,
+    logger: logging.Logger | None = None,
+):
     start = time.perf_counter()
     try:
         yield
     finally:
         elapsed = time.perf_counter() - start
         active_logger = logger or logging.getLogger("ModuleProcessor")
-        active_logger.info("[%s] (%s) took %.3fs", block_name, module_name or "-", elapsed)
+        active_logger.info(
+            "[%s] (%s) took %.3fs", block_name, module_name or "-", elapsed
+        )
+
 
 class FinalizeProgressInfo(NamedTuple):
     module_label: Optional[str]
@@ -197,13 +225,14 @@ class StopMainLoop(Exception):
     """Signal that the module loop should abort immediately."""
 
 
-class ModuleProcessor():
+class ModuleProcessor:
     """Drive the per-layer quantisation workflow over one or more devices.
 
     The processors executes work on the shared global :class:`DeviceThreadPool`
     instance so tasks such as module reloading, forward passes, and finalisation
     reuse the same worker threads.
     """
+
     def __init__(self, model: BaseNanoModel, processors: List[BaseProcessor]):
         self.processors = processors
         self.gptq_model = model
@@ -223,13 +252,16 @@ class ModuleProcessor():
             )
         else:
             logger.info(
-                "Disk subsystem write throughput detected at "
-                f"{disk_speed_mb:.1f} MB/s."
+                f"Disk subsystem write throughput detected at {disk_speed_mb:.1f} MB/s."
             )
 
         quant_device_hint = getattr(self.gptq_model.quantize_config, "device", None)
         normalized_quant_device = normalize_device_like(quant_device_hint)
-        quant_devices = select_forward_devices(normalized_quant_device) if normalized_quant_device else [CPU]
+        quant_devices = (
+            select_forward_devices(normalized_quant_device)
+            if normalized_quant_device
+            else [CPU]
+        )
         if not quant_devices:
             quant_devices = [CPU]
 
@@ -269,7 +301,9 @@ class ModuleProcessor():
             return None
 
         try:
-            result = handler(layer_idx=layer_idx, submodule_finalized=submodule_finalized)
+            result = handler(
+                layer_idx=layer_idx, submodule_finalized=submodule_finalized
+            )
         except StopMainLoop:
             raise
         if result is StopMainLoop:
@@ -302,7 +336,9 @@ class ModuleProcessor():
         raise_in_place: bool,
     ) -> None:
         try:
-            self.callbackup(layer_idx=layer_idx, submodule_finalized=submodule_finalized)
+            self.callbackup(
+                layer_idx=layer_idx, submodule_finalized=submodule_finalized
+            )
         except StopMainLoop:
             self._request_loop_stop(None)
             return
@@ -402,7 +438,9 @@ class ModuleProcessor():
 
         return 0
 
-    def _collect_row_counts(self, layer_inputs: Optional[List[List[torch.Tensor]]]) -> List[int]:
+    def _collect_row_counts(
+        self, layer_inputs: Optional[List[List[torch.Tensor]]]
+    ) -> List[int]:
         if not layer_inputs:
             return []
 
@@ -426,7 +464,9 @@ class ModuleProcessor():
             if len(self._quant_devices) <= 1:
                 device = self._quant_devices[0]
             else:
-                device = self._quant_devices[self._quant_device_rr % len(self._quant_devices)]
+                device = self._quant_devices[
+                    self._quant_device_rr % len(self._quant_devices)
+                ]
                 self._quant_device_rr += 1
 
             if device is None:
@@ -457,13 +497,17 @@ class ModuleProcessor():
         module_attr = getattr(task, "module", None)
         if isinstance(module_attr, torch.nn.Module):
             move_to(module_attr, device=target_device)
-            rehome_module_to_device(module_attr, target_device, move_parameters=True, move_buffers=True)
+            rehome_module_to_device(
+                module_attr, target_device, move_parameters=True, move_buffers=True
+            )
             setattr(module_attr, "target_device", target_device)
 
         layer_attr = getattr(task, "layer", None)
         if isinstance(layer_attr, torch.nn.Module):
             move_to(layer_attr, device=target_device)
-            rehome_module_to_device(layer_attr, target_device, move_parameters=True, move_buffers=True)
+            rehome_module_to_device(
+                layer_attr, target_device, move_parameters=True, move_buffers=True
+            )
             setattr(layer_attr, "target_device", target_device)
 
         quantizer = getattr(task, "quantizer", None)
@@ -477,7 +521,11 @@ class ModuleProcessor():
         for attr_name in tensor_attrs:
             tensor_value = getattr(task, attr_name, None)
             if isinstance(tensor_value, torch.Tensor):
-                setattr(task, attr_name, tensor_value.to(device=target_device, non_blocking=True))
+                setattr(
+                    task,
+                    attr_name,
+                    tensor_value.to(device=target_device, non_blocking=True),
+                )
 
         if hasattr(task, "dev"):
             task.dev = target_device
@@ -488,10 +536,14 @@ class ModuleProcessor():
         named_module: NamedModule,
         fallback_device: torch.device,
     ) -> torch.device:
-        target_device = self._assign_quant_device_for_module(named_module, fallback_device=fallback_device)
+        target_device = self._assign_quant_device_for_module(
+            named_module, fallback_device=fallback_device
+        )
 
         move_to(named_module.module, device=target_device)
-        rehome_module_to_device(named_module.module, target_device, move_parameters=True, move_buffers=True)
+        rehome_module_to_device(
+            named_module.module, target_device, move_parameters=True, move_buffers=True
+        )
 
         setattr(named_module, "target_device", target_device)
         setattr(named_module.module, "target_device", target_device)
@@ -597,13 +649,19 @@ class ModuleProcessor():
         outputs: List[List[torch.Tensor]] = []
         prev_kv = shared_kv_cache_dict.get(layer_index - 1) if reuse_kv else None
         total_batches = self._resolve_batch_total(processor.num_batches, layer_inputs)
-        batch_row_counts = progress_rows_per_batch or self._collect_row_counts(layer_inputs)
+        batch_row_counts = progress_rows_per_batch or self._collect_row_counts(
+            layer_inputs
+        )
         batch_row_counts = list(batch_row_counts)
         if len(batch_row_counts) > total_batches:
             batch_row_counts = batch_row_counts[:total_batches]
         elif len(batch_row_counts) < total_batches:
             batch_row_counts.extend([0] * (total_batches - len(batch_row_counts)))
-        total_rows = progress_total_rows if progress_total_rows is not None else sum(batch_row_counts)
+        total_rows = (
+            progress_total_rows
+            if progress_total_rows is not None
+            else sum(batch_row_counts)
+        )
         if total_rows <= 0 and total_batches > 0:
             total_rows = total_batches
         total_rows = max(total_rows, 1)
@@ -613,14 +671,25 @@ class ModuleProcessor():
         for batch_idx in range(total_batches):
             processor._set_current_batch_index(batch_idx)
             try:
-                layer_input = [move_to(inp, device=cur_layer_device) for inp in layer_inputs[batch_idx]]
+                layer_input = [
+                    move_to(inp, device=cur_layer_device)
+                    for inp in layer_inputs[batch_idx]
+                ]
 
                 raw_mask = attention_masks[batch_idx]
-                attn_tensor = raw_mask if raw_mask is None else move_to(raw_mask, device=cur_layer_device)
+                attn_tensor = (
+                    raw_mask
+                    if raw_mask is None
+                    else move_to(raw_mask, device=cur_layer_device)
+                )
 
                 keep_mask = None
                 if attn_tensor is not None:
-                    seq_len = layer_input[0].shape[1] if (len(layer_input) > 0 and layer_input[0].dim() >= 2) else None
+                    seq_len = (
+                        layer_input[0].shape[1]
+                        if (len(layer_input) > 0 and layer_input[0].dim() >= 2)
+                        else None
+                    )
                     keep_mask = normalize_seq_mask(attn_tensor, seq_len=seq_len)
                 self._set_processor_mask(processor, keep_mask)
 
@@ -631,15 +700,23 @@ class ModuleProcessor():
                 if position_ids:
                     pos = position_ids[batch_idx]
                     if pos is not None:
-                        additional_inputs["position_ids"] = move_to(pos, device=cur_layer_device)
+                        additional_inputs["position_ids"] = move_to(
+                            pos, device=cur_layer_device
+                        )
 
                 for key, value in layer_input_kwargs[batch_idx].items():
-                    additional_inputs[key] = nested_move_to(value, device=cur_layer_device)
+                    additional_inputs[key] = nested_move_to(
+                        value, device=cur_layer_device
+                    )
 
                 if reuse_kv and prev_kv is not None:
-                    additional_inputs["kv_last_layer"] = nested_move_to(prev_kv, device=cur_layer_device)
+                    additional_inputs["kv_last_layer"] = nested_move_to(
+                        prev_kv, device=cur_layer_device
+                    )
 
-                rehome_module_to_device(module, cur_layer_device, move_parameters=True, move_buffers=True)
+                rehome_module_to_device(
+                    module, cur_layer_device, move_parameters=True, move_buffers=True
+                )
 
                 module_output = None
                 try:
@@ -662,13 +739,25 @@ class ModuleProcessor():
                     shared_kv_cache_dict[layer_index] = module_output[-1]
 
                 if need_outputs and module_output is not None:
-                    primary = module_output[0] if isinstance(module_output, tuple) else module_output
+                    primary = (
+                        module_output[0]
+                        if isinstance(module_output, tuple)
+                        else module_output
+                    )
                     primary = move_to(primary, device=cur_layer_device)
                     outputs.append([primary])
 
-                rows_for_batch = batch_row_counts[batch_idx] if batch_idx < len(batch_row_counts) else 0
+                rows_for_batch = (
+                    batch_row_counts[batch_idx]
+                    if batch_idx < len(batch_row_counts)
+                    else 0
+                )
                 if rows_for_batch <= 0:
-                    rows_for_batch = self._batch_row_count(layer_inputs[batch_idx]) if layer_inputs and batch_idx < len(layer_inputs) else 1
+                    rows_for_batch = (
+                        self._batch_row_count(layer_inputs[batch_idx])
+                        if layer_inputs and batch_idx < len(layer_inputs)
+                        else 1
+                    )
                     rows_for_batch = max(rows_for_batch, 1)
 
                 processed_rows = min(processed_rows + rows_for_batch, total_rows)
@@ -717,13 +806,19 @@ class ModuleProcessor():
         results: Dict[int, torch.Tensor | tuple | None] = {}
 
         total_batches = self._resolve_batch_total(processor.num_batches, layer_inputs)
-        batch_row_counts = progress_rows_per_batch or self._collect_row_counts(layer_inputs)
+        batch_row_counts = progress_rows_per_batch or self._collect_row_counts(
+            layer_inputs
+        )
         batch_row_counts = list(batch_row_counts)
         if len(batch_row_counts) > total_batches:
             batch_row_counts = batch_row_counts[:total_batches]
         elif len(batch_row_counts) < total_batches:
             batch_row_counts.extend([0] * (total_batches - len(batch_row_counts)))
-        total_rows = progress_total_rows if progress_total_rows is not None else sum(batch_row_counts)
+        total_rows = (
+            progress_total_rows
+            if progress_total_rows is not None
+            else sum(batch_row_counts)
+        )
         if total_rows <= 0 and total_batches > 0:
             total_rows = total_batches
         total_rows = max(total_rows, 1)
@@ -791,12 +886,26 @@ class ModuleProcessor():
                 batch_idx, module_output, kv_next = fut.result()
                 if need_outputs and module_output is not None:
                     results[batch_idx] = module_output
-                if reuse_kv and kv_next is not None and shared_kv_cache_dict.get(layer_index) is None:
-                    shared_kv_cache_dict[layer_index] = nested_move_to(kv_next, device=cur_layer_device)
+                if (
+                    reuse_kv
+                    and kv_next is not None
+                    and shared_kv_cache_dict.get(layer_index) is None
+                ):
+                    shared_kv_cache_dict[layer_index] = nested_move_to(
+                        kv_next, device=cur_layer_device
+                    )
 
-                rows_for_batch = batch_row_counts[batch_idx] if batch_idx < len(batch_row_counts) else 0
+                rows_for_batch = (
+                    batch_row_counts[batch_idx]
+                    if batch_idx < len(batch_row_counts)
+                    else 0
+                )
                 if rows_for_batch <= 0:
-                    rows_for_batch = self._batch_row_count(layer_inputs[batch_idx]) if layer_inputs and batch_idx < len(layer_inputs) else 1
+                    rows_for_batch = (
+                        self._batch_row_count(layer_inputs[batch_idx])
+                        if layer_inputs and batch_idx < len(layer_inputs)
+                        else 1
+                    )
                     rows_for_batch = max(rows_for_batch, 1)
 
                 processed_rows = min(processed_rows + rows_for_batch, total_rows)
@@ -819,7 +928,9 @@ class ModuleProcessor():
         for idx in range(total_batches):
             module_output = results.get(idx)
             if module_output is None:
-                raise RuntimeError("Forward batch returned no output; data-parallel execution produced empty result.")
+                raise RuntimeError(
+                    "Forward batch returned no output; data-parallel execution produced empty result."
+                )
             if isinstance(module_output, tuple):
                 primary = module_output[0]
             else:
@@ -829,7 +940,9 @@ class ModuleProcessor():
 
         return ordered_outputs
 
-    def _masked_hook_wrapper(self, processor: BaseProcessor, inner_hook, hook_source: str):
+    def _masked_hook_wrapper(
+        self, processor: BaseProcessor, inner_hook, hook_source: str
+    ):
         def hook(module, inputs, output):
             keep = self._get_processor_mask(processor)
 
@@ -839,7 +952,11 @@ class ModuleProcessor():
             # Mask first tensor-like input if it's [B, S, ...]
             new_inputs = inputs
             try:
-                if isinstance(inputs, (tuple, list)) and len(inputs) > 0 and torch.is_tensor(inputs[0]):
+                if (
+                    isinstance(inputs, (tuple, list))
+                    and len(inputs) > 0
+                    and torch.is_tensor(inputs[0])
+                ):
                     x = inputs[0]
                     if keep is not None and x.dim() >= 3:
                         xk = apply_keep_mask_bt(x, keep)
@@ -861,7 +978,7 @@ class ModuleProcessor():
                         if isinstance(output, tuple):
                             new_output = (yk,) + tuple(output[1:])
                         else:
-                            new_output = [yk] + list(output[1:] )
+                            new_output = [yk] + list(output[1:])
                 elif torch.is_tensor(output) and keep is not None and output.dim() >= 3:
                     new_output = apply_keep_mask_bt(output, keep)
             except Exception:
@@ -875,6 +992,7 @@ class ModuleProcessor():
                         time.perf_counter() - start,
                         source=hook_source,
                     )
+
         return hook
 
     def cache_inputs(self, layers, calibration_data, use_cache):
@@ -888,7 +1006,9 @@ class ModuleProcessor():
             first_layer = layers[0]
             layer_label = getattr(first_layer, "full_name", None)
             if layer_label is None:
-                layer_label = getattr(getattr(first_layer, "__class__", None), "__name__", None)
+                layer_label = getattr(
+                    getattr(first_layer, "__class__", None), "__name__", None
+                )
             if layer_label is None:
                 layer_label = type(first_layer).__name__
             capture_source = f"cache_inputs:{layer_label}"
@@ -935,7 +1055,7 @@ class ModuleProcessor():
             if pos_ids is not None:
                 position_ids.append(move_to(pos_ids, device=data_device))
             one_kwargs = {}
-            for (k, v) in kwargs.items():  # make sure other arguments also be captured
+            for k, v in kwargs.items():  # make sure other arguments also be captured
                 if k not in ["hidden_states", "attention_mask", "position_ids"]:
                     one_kwargs[k] = nested_move_to(v, device=data_device)
             layer_input_kwargs.append(one_kwargs)
@@ -960,7 +1080,9 @@ class ModuleProcessor():
                 continue
 
             m_device = get_device(module)
-            ori_outside_layer_module_devices[module_name] = CPU if m_device == META else m_device
+            ori_outside_layer_module_devices[module_name] = (
+                CPU if m_device == META else m_device
+            )
             if module is not None:
                 self.gptq_model.shell_module_materialize(
                     target_submodule=module,
@@ -980,13 +1102,21 @@ class ModuleProcessor():
                 if self.gptq_model.ATTENTION_MASKS_REQUIRED_FOR_INPUT:
                     data_device = self.gptq_model.quantize_config.device
                 else:
-                    data_device = self.gptq_model.quantize_config.device if k == "pixel_values" else cur_layer_device
+                    data_device = (
+                        self.gptq_model.quantize_config.device
+                        if k == "pixel_values"
+                        else cur_layer_device
+                    )
                 if isinstance(v, list):
                     for index in range(len(v)):
                         if len(v[index].shape) == 1:
                             v[index] = v[index].unsqueeze(0)
-                        v[index] = move_to(v[index].to(self.gptq_model.model.visual_tokenizer.dtype) if is_ovis else v[index],
-                                                  device=data_device)
+                        v[index] = move_to(
+                            v[index].to(self.gptq_model.model.visual_tokenizer.dtype)
+                            if is_ovis
+                            else v[index],
+                            device=data_device,
+                        )
                 else:
                     if len(v.shape) == 1:
                         v = v.unsqueeze(0)
@@ -997,11 +1127,15 @@ class ModuleProcessor():
 
                 # Ensure initial caches (like RoPE) are created on the quant device
                 with ctx(
-                    DEVICE_THREAD_POOL.read_lock(self.gptq_model.quantize_config.device),
+                    DEVICE_THREAD_POOL.read_lock(
+                        self.gptq_model.quantize_config.device
+                    ),
                     device_ctx(self.gptq_model.quantize_config.device),
                 ):
                     if self.gptq_model.INPUT_EMBEDDING_EXTRA_ARGS:
-                        self.gptq_model.model.generate(**example, **self.gptq_model.INPUT_EMBEDDING_EXTRA_ARGS)
+                        self.gptq_model.model.generate(
+                            **example, **self.gptq_model.INPUT_EMBEDDING_EXTRA_ARGS
+                        )
                     else:
                         self.gptq_model.model(**example, use_cache=use_cache)
             except StopForward:
@@ -1030,36 +1164,72 @@ class ModuleProcessor():
     @torch.inference_mode()
     def loop(self, fail_safe: bool = False, **kwargs):
         if self.gptq_model.quantize_config.lm_head:
-            if self.gptq_model.model.config.tie_word_embeddings and hasattr(self.gptq_model.model.model, "_tied_weights_keys"):
+            if self.gptq_model.model.config.tie_word_embeddings and hasattr(
+                self.gptq_model.model.model, "_tied_weights_keys"
+            ):
                 tied_keys = self.gptq_model.model._tied_weights_keys
                 for item in tied_keys:
                     if self.gptq_model.lm_head in item:
-                        raise NotImplementedError("quantization of `lm_head` layer with `tied_weights=True` model state is not supported. Please check model has `tied_weights=False`.")
+                        raise NotImplementedError(
+                            "quantization of `lm_head` layer with `tied_weights=True` model state is not supported. Please check model has `tied_weights=False`."
+                        )
 
-            lm_head_module = get_module(self.gptq_model.model, key=self.gptq_model.lm_head)
+            lm_head_module = get_module(
+                self.gptq_model.model, key=self.gptq_model.lm_head
+            )
             if get_module(self.gptq_model.model, key=self.gptq_model.lm_head) is None:
-                raise ValueError(f"could not find layer {self.gptq_model.lm_head} in the model, exit...")
+                raise ValueError(
+                    f"could not find layer {self.gptq_model.lm_head} in the model, exit..."
+                )
 
             if not isinstance(lm_head_module, tuple(SUPPORTS_MODULE_TYPES)):
-                raise NotImplementedError(f"This type({type(lm_head_module)}) of lm_head quantization is currently not "
-                                          f"supported. SUPPORTS_MODULE_TYPES is {SUPPORTS_MODULE_TYPES}")
+                raise NotImplementedError(
+                    f"This type({type(lm_head_module)}) of lm_head quantization is currently not "
+                    f"supported. SUPPORTS_MODULE_TYPES is {SUPPORTS_MODULE_TYPES}"
+                )
 
-            lm_head_quant_config = {"bits": 8, "group_size": 32, "sym": True, "act_order": False, "mse": 2.4}
+            lm_head_quant_config = {
+                "bits": 8,
+                "group_size": 32,
+                "sym": True,
+                "act_order": False,
+                "mse": 2.4,
+            }
             if self.gptq_model.quantize_config.dynamic is None:
-                self.gptq_model.quantize_config.dynamic = {self.gptq_model.lm_head: lm_head_quant_config}
-            elif self.gptq_model.quantize_config.dynamic_get(self.gptq_model.lm_head, default=None) is None:
-                self.gptq_model.quantize_config.dynamic[self.gptq_model.lm_head] = lm_head_quant_config
+                self.gptq_model.quantize_config.dynamic = {
+                    self.gptq_model.lm_head: lm_head_quant_config
+                }
+            elif (
+                self.gptq_model.quantize_config.dynamic_get(
+                    self.gptq_model.lm_head, default=None
+                )
+                is None
+            ):
+                self.gptq_model.quantize_config.dynamic[self.gptq_model.lm_head] = (
+                    lm_head_quant_config
+                )
 
-        forward_pass_use_cache = self.gptq_model.model.config.use_cache if hasattr(self.gptq_model.model.config, "use_cache") else False
+        forward_pass_use_cache = (
+            self.gptq_model.model.config.use_cache
+            if hasattr(self.gptq_model.model.config, "use_cache")
+            else False
+        )
         self.gptq_model.model.config.use_cache = False
-        layers, layers_prefix = get_module_by_name_prefix(self.gptq_model.model, self.gptq_model.extract_layers_node())
+        layers, layers_prefix = get_module_by_name_prefix(
+            self.gptq_model.model, self.gptq_model.extract_layers_node()
+        )
         region_timer = getattr(self.gptq_model, "quant_region_timer", None)
 
         for p_index, processor in enumerate(self.processors):
             if not processor.verify_calibration_dataset(p_index):
-                if (isinstance(processor, GPTQProcessor) and self.gptq_model.quantize_config.v2):
+                if (
+                    isinstance(processor, GPTQProcessor)
+                    and self.gptq_model.quantize_config.v2
+                ):
                     prev_processor = self.processors[p_index - 1]
-                    processor.set_calibration_dataset(prev_processor.calibration_dataset)
+                    processor.set_calibration_dataset(
+                        prev_processor.calibration_dataset
+                    )
                     # If calibration_dataset is None or Empty, the input_cache of the previous processor is used.
                     processor.receive_input_cache(prev_processor.inputs_cache)
                 elif isinstance(processor, DequantizeProcessor):
@@ -1069,9 +1239,11 @@ class ModuleProcessor():
 
                 continue
 
-            input_cache = self.cache_inputs(layers=layers,
-                                            calibration_data=processor.calibration_dataset,
-                                            use_cache=False)
+            input_cache = self.cache_inputs(
+                layers=layers,
+                calibration_data=processor.calibration_dataset,
+                use_cache=False,
+            )
             processor.receive_input_cache(input_cache)
 
         # release calibration_dataset
@@ -1081,7 +1253,10 @@ class ModuleProcessor():
         if region_timer is not None:
             region_timer.flush()
 
-        layer_modules = self.gptq_model.simple_layer_modules(model_config=self.gptq_model.model.config, quantize_config=self.gptq_model.quantize_config)
+        layer_modules = self.gptq_model.simple_layer_modules(
+            model_config=self.gptq_model.model.config,
+            quantize_config=self.gptq_model.quantize_config,
+        )
 
         # true-sequential will replay the quantized activations after each subset has been quantized to be used for next subset quantization
         # this should always be true for gptq unless you want lower but misleading error_loss that is misleading and will lead to lower post-quantized model
@@ -1089,7 +1264,9 @@ class ModuleProcessor():
             layer_modules = [sum(layer_modules, [])]
 
         layer_count = len(layers)
-        total_layers = layer_count + 1 if self.gptq_model.quantize_config.lm_head else layer_count
+        total_layers = (
+            layer_count + 1 if self.gptq_model.quantize_config.lm_head else layer_count
+        )
         pb = (
             create_progress(total_layers, unit="layer")
             .manual()
@@ -1102,13 +1279,17 @@ class ModuleProcessor():
 
         shared_kv_cache_dict = {}
 
-        replace_module_with_hooked_legacy(self.gptq_model.model, quant_lm_head=self.gptq_model.quantize_config.lm_head)
+        replace_module_with_hooked_legacy(
+            self.gptq_model.model, quant_lm_head=self.gptq_model.quantize_config.lm_head
+        )
 
         if self.gptq_model.quantize_config.lm_head:
-            lm_head_module = get_module(self.gptq_model.model, key=self.gptq_model.lm_head)
+            lm_head_module = get_module(
+                self.gptq_model.model, key=self.gptq_model.lm_head
+            )
             if lm_head_module and isinstance(lm_head_module, torch.nn.Linear):
                 hooked_lm_head = HookedLinear.from_linear(lm_head_module)
-                module_path = self.gptq_model.lm_head.split('.')
+                module_path = self.gptq_model.lm_head.split(".")
                 parent = self.gptq_model.model
                 for part in module_path[:-1]:
                     parent = getattr(parent, part)
@@ -1128,7 +1309,10 @@ class ModuleProcessor():
 
             pb.title(layer_title).subtitle("").draw()
 
-            if module.__class__.__name__.lower() == "MllamaCrossAttentionDecoderLayer".lower():
+            if (
+                module.__class__.__name__.lower()
+                == "MllamaCrossAttentionDecoderLayer".lower()
+            ):
                 # TODO FIXME: currently we not support quantizing cross attention layer (pixel_values)
                 continue
 
@@ -1142,13 +1326,17 @@ class ModuleProcessor():
                 layer_descriptor = str(layer_index)
 
             cur_layer_device = get_device(module)
-            full = find_modules(module, name=self.gptq_model.lm_head if is_lm_head_module else "")
+            full = find_modules(
+                module, name=self.gptq_model.lm_head if is_lm_head_module else ""
+            )
 
             for p_index, processor in enumerate(self.processors):
                 processor.log_call_count = 0  # reset
                 processor.collect_memory_info(layer_index)
 
-                modules = [[self.gptq_model.lm_head]] if is_lm_head_module else layer_modules
+                modules = (
+                    [[self.gptq_model.lm_head]] if is_lm_head_module else layer_modules
+                )
 
                 # for NativeProcessor we process one time forward on all grouped module subsets
                 if processor.fwd_all_modules_in_single_pass:
@@ -1159,16 +1347,23 @@ class ModuleProcessor():
                 if isinstance(processor, AWQProcessor):
                     named_childs = dict()
                     for index, names in enumerate(modules):
-                        named_modules = self.crate_named_modules(full=full,
-                                                                 is_lm_head_module=is_lm_head_module,
-                                                                 layer_index=layer_index, layers_prefix=layers_prefix,
-                                                                 names=names,
-                                                                 processor=processor,
-                                                                 fail_safe=fail_safe)
+                        named_modules = self.crate_named_modules(
+                            full=full,
+                            is_lm_head_module=is_lm_head_module,
+                            layer_index=layer_index,
+                            layers_prefix=layers_prefix,
+                            names=names,
+                            processor=processor,
+                            fail_safe=fail_safe,
+                        )
                         named_childs.update(named_modules)
 
                     lock_ctx = nullcontext()
-                    device_for_ctx = cur_layer_device if getattr(cur_layer_device, 'type', None) != 'meta' else None
+                    device_for_ctx = (
+                        cur_layer_device
+                        if getattr(cur_layer_device, "type", None) != "meta"
+                        else None
+                    )
                     if device_for_ctx is not None:
                         lock_ctx = DEVICE_THREAD_POOL.read_lock(cur_layer_device)
                     with ctx(lock_ctx, device_ctx(device_for_ctx)):
@@ -1188,7 +1383,9 @@ class ModuleProcessor():
 
                 layer_inputs = processor.inputs_cache.layer_inputs
                 if is_lm_head_module:
-                    layer_inputs = self.gptq_model.lm_head_pre_quantize_generate_hook(layer_inputs)
+                    layer_inputs = self.gptq_model.lm_head_pre_quantize_generate_hook(
+                        layer_inputs
+                    )
                 layer_input_kwargs = processor.inputs_cache.layer_input_kwargs
                 position_ids = processor.inputs_cache.position_ids
                 attention_masks = processor.inputs_cache.attention_masks
@@ -1196,11 +1393,15 @@ class ModuleProcessor():
                 processed_subset = {}
 
                 for index, names in enumerate(modules):
-                    subset = self.crate_named_modules(full=full, is_lm_head_module=is_lm_head_module,
-                                                      layer_index=layer_index, layers_prefix=layers_prefix,
-                                                      names=names,
-                                                      processor=processor,
-                                                      fail_safe=fail_safe)
+                    subset = self.crate_named_modules(
+                        full=full,
+                        is_lm_head_module=is_lm_head_module,
+                        layer_index=layer_index,
+                        layers_prefix=layers_prefix,
+                        names=names,
+                        processor=processor,
+                        fail_safe=fail_safe,
+                    )
 
                     if len(subset) == 0:
                         continue
@@ -1216,14 +1417,18 @@ class ModuleProcessor():
                         forward_row_counts = [1] * batch_count
                     if len(forward_row_counts) > batch_count:
                         forward_row_counts = forward_row_counts[:batch_count]
-                    forward_total_rows = sum(forward_row_counts) if forward_row_counts else batch_count
+                    forward_total_rows = (
+                        sum(forward_row_counts) if forward_row_counts else batch_count
+                    )
                     forward_total_rows = max(forward_total_rows, 1)
                     if len(forward_row_counts) < batch_count:
-                        forward_row_counts.extend([1] * (batch_count - len(forward_row_counts)))
+                        forward_row_counts.extend(
+                            [1] * (batch_count - len(forward_row_counts))
+                        )
 
                     subset_size = len(subset)
                     for idx, (name, m) in enumerate(subset.items()):
-                        is_last = (idx == subset_size - 1)
+                        is_last = idx == subset_size - 1
                         hook_source = getattr(m, "full_name", None)
                         if hook_source is None:
                             hook_source = getattr(m, "name", name)
@@ -1231,21 +1436,29 @@ class ModuleProcessor():
                             hook_source = str(name)
 
                         # Wrap the processor hook with masking
-                        if hasattr(subset[name], 'forward_hook'):
+                        if hasattr(subset[name], "forward_hook"):
                             original_hook = processor.pre_process_fwd_hook(name)
-                            subset[name].forward_hook = self._masked_hook_wrapper(processor, original_hook, hook_source)
+                            subset[name].forward_hook = self._masked_hook_wrapper(
+                                processor, original_hook, hook_source
+                            )
                             if is_last and processor.fwd_after_process:
                                 subset[name].forward_hook_last = True
                         else:
                             # Older registration path
                             original_hook = processor.pre_process_fwd_hook(name)
-                            handle.append(subset[name].register_forward_hook(
-                                self._masked_hook_wrapper(processor, original_hook, hook_source)
-                            ))
+                            handle.append(
+                                subset[name].register_forward_hook(
+                                    self._masked_hook_wrapper(
+                                        processor, original_hook, hook_source
+                                    )
+                                )
+                            )
 
                     # ---- Start Pre-Quantized Forward ----
                     fwd_start = time.perf_counter()
-                    forward_source = f"{layer_descriptor}:subset{index + 1}/{subset_total}"
+                    forward_source = (
+                        f"{layer_descriptor}:subset{index + 1}/{subset_total}"
+                    )
 
                     need_outputs = not processor.fwd_after_process
                     reuse_kv = bool(getattr(module, "reuse_kv", False))
@@ -1265,7 +1478,7 @@ class ModuleProcessor():
                     # Drain any background work so the forward spike does not race pooled tasks.
                     # DEVICE_THREAD_POOL.wait()
                     # try to cleanup recent objects before forward
-                    #timed_gc_collect(1)
+                    # timed_gc_collect(1)
 
                     try:
                         forward_outputs = self._run_forward_batches(
@@ -1310,7 +1523,7 @@ class ModuleProcessor():
                         h.remove()
 
                     for name in subset:
-                        if hasattr(subset[name], 'forward_hook'):
+                        if hasattr(subset[name], "forward_hook"):
                             subset[name].forward_hook = None
                             subset[name].forward_hook_last = False
 
@@ -1319,7 +1532,9 @@ class ModuleProcessor():
                     if isinstance(processor, GPTQProcessor):
                         for name in subset:
                             if processor.tasks[name].fwd_counter == 0:
-                                logger.error(f"`{name}` was not invoked, if it is a MoE module, it may lack sufficient calibration data routed to it.")
+                                logger.error(
+                                    f"`{name}` was not invoked, if it is a MoE module, it may lack sufficient calibration data routed to it."
+                                )
                                 moe_skip_modules.append(name)
 
                         if not fail_safe:
@@ -1356,11 +1571,17 @@ class ModuleProcessor():
                         nm: NamedModule,
                         expected_device: torch.device,
                     ):
-                        module_label = getattr(nm, "full_name", getattr(nm, "name", repr(nm)))
+                        module_label = getattr(
+                            nm, "full_name", getattr(nm, "name", repr(nm))
+                        )
                         module_ref = nm.module if isinstance(nm, NamedModule) else nm
                         module_weight = getattr(module_ref, "weight", None)
                         if module_weight is not None and expected_device is not None:
-                            target_device = expected_device if isinstance(expected_device, torch.device) else torch.device(expected_device)
+                            target_device = (
+                                expected_device
+                                if isinstance(expected_device, torch.device)
+                                else torch.device(expected_device)
+                            )
                             actual_device = get_device(module_weight)
                             assert actual_device == target_device, (
                                 f"Device mismatch for '{module_label}' process task: "
@@ -1384,7 +1605,9 @@ class ModuleProcessor():
                     for name, m in subset.items():
                         tgt_dev = quant_target_devices.get(name, cur_layer_device)
                         futures.append(
-                            DEVICE_THREAD_POOL.submit(tgt_dev, _process_on_worker, processor, m, tgt_dev)
+                            DEVICE_THREAD_POOL.submit(
+                                tgt_dev, _process_on_worker, processor, m, tgt_dev
+                            )
                         )
 
                     for fut in futures:
@@ -1406,10 +1629,16 @@ class ModuleProcessor():
                         replay_row_counts = [1] * replay_batch_count
                     if len(replay_row_counts) > replay_batch_count:
                         replay_row_counts = replay_row_counts[:replay_batch_count]
-                    replay_total_rows = sum(replay_row_counts) if replay_row_counts else replay_batch_count
+                    replay_total_rows = (
+                        sum(replay_row_counts)
+                        if replay_row_counts
+                        else replay_batch_count
+                    )
                     replay_total_rows = max(replay_total_rows, 1)
                     if len(replay_row_counts) < replay_batch_count:
-                        replay_row_counts.extend([1] * (replay_batch_count - len(replay_row_counts)))
+                        replay_row_counts.extend(
+                            [1] * (replay_batch_count - len(replay_row_counts))
+                        )
                     replay_msg = (
                         "Forward replay "
                         f"(layer=`{layer_descriptor}`, batches={replay_batch_count}, rows={replay_total_rows})"
@@ -1425,10 +1654,12 @@ class ModuleProcessor():
                     # Forward replay shares the same VRAM spike; block until the pool drains first.
                     # DEVICE_THREAD_POOL.wait()
                     # try to cleanup recent objects before forward
-                    #timed_gc_collect(1)
+                    # timed_gc_collect(1)
 
                     replay_start = time.perf_counter()
-                    replay_source = f"{layer_descriptor}:subset{index + 1}/{subset_total}"
+                    replay_source = (
+                        f"{layer_descriptor}:subset{index + 1}/{subset_total}"
+                    )
 
                     try:
                         layer_outputs = self._run_forward_batches(
@@ -1476,7 +1707,9 @@ class ModuleProcessor():
                         else:
                             inner_module = finalized
 
-                        if inner_module is not None and hasattr(inner_module, "target_device"):
+                        if inner_module is not None and hasattr(
+                            inner_module, "target_device"
+                        ):
                             setattr(inner_module, "target_device", CPU)
 
                     if region_timer is not None:
@@ -1497,7 +1730,11 @@ class ModuleProcessor():
 
                     for reverse_p in reversed(self.processors):
                         for module in processed_subset.values():
-                            actual_module = module.module if isinstance(module, NamedModule) else module
+                            actual_module = (
+                                module.module
+                                if isinstance(module, NamedModule)
+                                else module
+                            )
 
                             get_device_new(
                                 actual_module,
@@ -1506,14 +1743,20 @@ class ModuleProcessor():
                                 expected=CPU,
                             )
                             with self._quant_device_lock:
-                                key = getattr(module, "full_name", getattr(module, "name", None))
+                                key = getattr(
+                                    module, "full_name", getattr(module, "name", None)
+                                )
                                 if key is not None:
                                     self._module_device_map[key] = CPU
 
                             target_dev = CPU
-                            module_label = getattr(module, "full_name", getattr(module, "name", ""))
+                            module_label = getattr(
+                                module, "full_name", getattr(module, "name", "")
+                            )
                             layer_idx = getattr(module, "layer_index", None)
-                            finalize_tasks.append((reverse_p, module, module_label, target_dev, layer_idx))
+                            finalize_tasks.append(
+                                (reverse_p, module, module_label, target_dev, layer_idx)
+                            )
 
                     finalize_count = len(finalize_tasks)
                     finalize_futures = []
@@ -1524,9 +1767,15 @@ class ModuleProcessor():
                     )
 
                     @torch.inference_mode()
-                    def _finalize_on_worker(process, module, idx, total, module_label, layer_idx):
-                        resolved_label = module_label or getattr(module, "full_name", getattr(module, "name", ""))
-                        start = time.perf_counter() if region_timer is not None else None
+                    def _finalize_on_worker(
+                        process, module, idx, total, module_label, layer_idx
+                    ):
+                        resolved_label = module_label or getattr(
+                            module, "full_name", getattr(module, "name", "")
+                        )
+                        start = (
+                            time.perf_counter() if region_timer is not None else None
+                        )
                         try:
                             with log_time_block(
                                 "submodule_finalize",
@@ -1537,17 +1786,31 @@ class ModuleProcessor():
 
                             # Disk offload (lifecycle TODO note preserved)
                             if isinstance(process, (GPTQProcessor, AWQProcessor)):
-                                quant_config = getattr(self.gptq_model, "quantize_config", None)
-                                if quant_config and getattr(quant_config, "offload_to_disk", False):
-                                    offload_path = getattr(quant_config, "offload_to_disk_path", None)
+                                quant_config = getattr(
+                                    self.gptq_model, "quantize_config", None
+                                )
+                                if quant_config and getattr(
+                                    quant_config, "offload_to_disk", False
+                                ):
+                                    offload_path = getattr(
+                                        quant_config, "offload_to_disk_path", None
+                                    )
                                     if offload_path:
-                                        module_full_name = getattr(module, "full_name", None)
+                                        module_full_name = getattr(
+                                            module, "full_name", None
+                                        )
                                         target_module = (
-                                            self.gptq_model.model.get_submodule(module_full_name)
+                                            self.gptq_model.model.get_submodule(
+                                                module_full_name
+                                            )
                                             if module_full_name
                                             else module
                                         )
-                                        offload_start = time.perf_counter() if region_timer is not None else None
+                                        offload_start = (
+                                            time.perf_counter()
+                                            if region_timer is not None
+                                            else None
+                                        )
                                         with log_time_block(
                                             "disk_offload",
                                             logger=logger,
@@ -1558,7 +1821,10 @@ class ModuleProcessor():
                                                 module=target_module,
                                                 disk_path=offload_path,
                                             )
-                                        if region_timer is not None and offload_start is not None:
+                                        if (
+                                            region_timer is not None
+                                            and offload_start is not None
+                                        ):
                                             region_timer.record(
                                                 "submodule_finalize_offload",
                                                 time.perf_counter() - offload_start,
@@ -1577,14 +1843,24 @@ class ModuleProcessor():
                                     source=resolved_label,
                                 )
 
-                        process_name = process.name() if process is not None else "<processor>"
-                        return FinalizeProgressInfo(module_label, process_name, layer_idx)
+                        process_name = (
+                            process.name() if process is not None else "<processor>"
+                        )
+                        return FinalizeProgressInfo(
+                            module_label, process_name, layer_idx
+                        )
 
                         # pb.subtitle(
                         #     f"{process.name()}: layer:{layer_idx} Finalized {idx}/{total} {module_label}"
                         # ).draw()
 
-                    for index, (process, module, module_label, target_dev, layer_idx) in enumerate(finalize_tasks, start=1):
+                    for index, (
+                        process,
+                        module,
+                        module_label,
+                        target_dev,
+                        layer_idx,
+                    ) in enumerate(finalize_tasks, start=1):
                         future = DEVICE_THREAD_POOL.submit(
                             target_dev,
                             _finalize_on_worker,
@@ -1595,7 +1871,9 @@ class ModuleProcessor():
                             module_label,
                             layer_idx,
                         )
-                        finalize_futures.append((future, index, module_label, process, layer_idx))
+                        finalize_futures.append(
+                            (future, index, module_label, process, layer_idx)
+                        )
 
                     finalize_futures_snapshot = list(finalize_futures)
 
@@ -1620,7 +1898,9 @@ class ModuleProcessor():
 
                         layer_heading = "Layer ?"
                         if known_layers:
-                            sample_layers = ", ".join(str(idx) for idx in known_layers[:3])
+                            sample_layers = ", ".join(
+                                str(idx) for idx in known_layers[:3]
+                            )
                             if len(known_layers) > 3:
                                 sample_layers += ", …"
                             suffix = ", ?" if includes_unknown else ""
@@ -1645,7 +1925,9 @@ class ModuleProcessor():
                                 try:
                                     result = future.result()
                                 except BaseException as exc:
-                                    logger.exception("Submodule finalize task raised an exception")
+                                    logger.exception(
+                                        "Submodule finalize task raised an exception"
+                                    )
                                     self._request_loop_stop(exc)
                                     return
 
@@ -1660,7 +1942,11 @@ class ModuleProcessor():
                                     process_name = "<processor>"
                                     layer_idx = None
 
-                                layer_label = f"Layer {layer_idx}" if layer_idx is not None else "Layer ?"
+                                layer_label = (
+                                    f"Layer {layer_idx}"
+                                    if layer_idx is not None
+                                    else "Layer ?"
+                                )
                                 display_module = module_label or "<unnamed>"
                                 subtitle = f"{process_name}: {display_module}"
 
@@ -1740,7 +2026,9 @@ class ModuleProcessor():
                     logger.info(module_log)
                 reverse_p.log_plotly()
 
-                finalize_start = time.perf_counter() if region_timer is not None else None
+                finalize_start = (
+                    time.perf_counter() if region_timer is not None else None
+                )
                 try:
                     reverse_p.finalize(model=self.gptq_model, **kwargs)
                 finally:
@@ -1764,7 +2052,16 @@ class ModuleProcessor():
 
         return total_log
 
-    def crate_named_modules(self, full, is_lm_head_module, layer_index, layers_prefix, names, processor, fail_safe) -> Dict[str, NamedModule]:
+    def crate_named_modules(
+        self,
+        full,
+        is_lm_head_module,
+        layer_index,
+        layers_prefix,
+        names,
+        processor,
+        fail_safe,
+    ) -> Dict[str, NamedModule]:
         is_awq_quant = isinstance(processor, AWQProcessor)
         subset = {}
         for n in names:
@@ -1773,15 +2070,25 @@ class ModuleProcessor():
             # some modules have layer_modules that are dynamic based on config
             # ref: deepseek v2/v3/r1
             elif self.gptq_model.layer_modules_strict:
-                raise ValueError(f"layer module item `{n}` not found in model, please check your model config.")
+                raise ValueError(
+                    f"layer module item `{n}` not found in model, please check your model config."
+                )
         skipped_modules = []
         for name in subset:
-            layer_name = self.gptq_model.lm_head if is_lm_head_module else f"{layers_prefix}.{layer_index}.{name}"
+            layer_name = (
+                self.gptq_model.lm_head
+                if is_lm_head_module
+                else f"{layers_prefix}.{layer_index}.{name}"
+            )
 
             # gptq task is created and stored inside processor
             if not isinstance(subset[name], NamedModule):
-                named_module = NamedModule(subset[name], name=name, full_name=layer_name,
-                                           layer_index=layer_index)
+                named_module = NamedModule(
+                    subset[name],
+                    name=name,
+                    full_name=layer_name,
+                    layer_index=layer_index,
+                )
 
                 subset[name] = named_module
                 full[name] = named_module

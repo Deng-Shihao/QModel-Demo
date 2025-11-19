@@ -11,7 +11,6 @@ except ImportError:
     triton_available = False
 
 
-
 def get_module_by_name_suffix(model, module_name: str):
     for name, module in model.named_modules():
         if name.endswith(module_name):

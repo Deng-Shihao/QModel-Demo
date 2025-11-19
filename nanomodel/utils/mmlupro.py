@@ -13,12 +13,30 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from ..utils.logger import setup_logger
 
 
-choices = ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"]
+choices = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K",
+    "L",
+    "M",
+    "N",
+    "O",
+    "P",
+]
 max_model_length = 4096
 max_new_tokens = 2048
 stop_string = "Question:"
 
 log = setup_logger()
+
 
 def load_mmlu_pro():
     dataset = load_dataset("TIGER-Lab/MMLU-Pro")
@@ -66,8 +84,9 @@ def format_cot_example(example, including_answer=True):
     for i, opt in enumerate(options):
         prompt += "{}. {}\n".format(choices[i], opt)
     if including_answer:
-        cot_content = example["cot_content"].replace("A: Let's think step by step.",
-                                                     "Answer: Let's think step by step.")
+        cot_content = example["cot_content"].replace(
+            "A: Let's think step by step.", "Answer: Let's think step by step."
+        )
         prompt += cot_content + "\n\n"
     else:
         prompt += "Answer: Let's think step by step."
@@ -78,7 +97,7 @@ def generate_cot_prompt(val_df, curr, k):
     prompt = "The following are multiple choice questions (with answers) about {$}. Think step by step and then finish your answer with 'the answer is (X)' where X is the correct letter choice.\n\n\n"
     subject = curr["category"]
     val_df = select_by_category(val_df, subject)
-    val_df = val_df[: k]
+    val_df = val_df[:k]
     prompt = prompt.replace("{$}", subject) + "\n"
     for example in val_df:
         prompt += format_cot_example(example, including_answer=True)
@@ -97,7 +116,7 @@ def extract_answer(text):
 
 
 def extract_again(text):
-    match = re.search(r'.*[aA]nswer:\s*([A-J])', text)
+    match = re.search(r".*[aA]nswer:\s*([A-J])", text)
     if match:
         return match.group(1)
     else:
@@ -121,7 +140,14 @@ def batch_inference(model, tokenizer, inference_batchs, batch_size):
     pb = log.pb(dataloader).title("Inference Progress:")
 
     for batch in pb:
-        input_tensor = tokenizer(batch, return_tensors="pt", padding=True, truncation=True, max_length=max_model_length, padding_side='left').to(model.device)
+        input_tensor = tokenizer(
+            batch,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_model_length,
+            padding_side="left",
+        ).to(model.device)
         with torch.inference_mode():
             outputs = model.generate(
                 input_ids=input_tensor["input_ids"],
@@ -129,15 +155,18 @@ def batch_inference(model, tokenizer, inference_batchs, batch_size):
                 do_sample=False,
                 temperature=0.0,
                 max_new_tokens=max_new_tokens,
-                stop_strings=[stop_string]
+                stop_strings=[stop_string],
             )
 
         generated_texts = tokenizer.batch_decode(
-            outputs[:, input_tensor["input_ids"].shape[1]:],
+            outputs[:, input_tensor["input_ids"].shape[1] :],
             skip_special_tokens=True,
         )
 
-        results = [generated_text.replace(stop_string, "").strip() for generated_text in generated_texts]
+        results = [
+            generated_text.replace(stop_string, "").strip()
+            for generated_text in generated_texts
+        ]
 
         for generated_text in results:
             response_batch.append(generated_text)
@@ -168,7 +197,9 @@ def save_res(res, output_path):
 
 
 @torch.inference_mode()
-def eval_cot(subject, model, tokenizer, val_df, test_df, output_path, ntrain, batch_size):
+def eval_cot(
+    subject, model, tokenizer, val_df, test_df, output_path, ntrain, batch_size
+):
     global choices
     log.info("evaluating " + subject)
     inference_batches = []
@@ -187,27 +218,35 @@ def eval_cot(subject, model, tokenizer, val_df, test_df, output_path, ntrain, ba
             k -= 1
         inference_batches.append(prompt)
 
-    pred_batch, response_batch = batch_inference(model, tokenizer, inference_batches, batch_size)
+    pred_batch, response_batch = batch_inference(
+        model, tokenizer, inference_batches, batch_size
+    )
     res = []
     for j, curr in enumerate(test_df):
         curr["pred"] = pred_batch[j]
         curr["model_outputs"] = response_batch[j]
         res.append(curr)
     accu, corr, wrong = save_res(res, output_path)
-    log.info("this batch accu is: {}, corr: {}, wrong: {}\n".format(str(accu), str(corr), str(wrong)))
+    log.info(
+        "this batch accu is: {}, corr: {}, wrong: {}\n".format(
+            str(accu), str(corr), str(wrong)
+        )
+    )
 
     accu, corr, wrong = save_res(res, output_path)
     return accu, corr, wrong
 
 
-def mmlupro(model: PreTrainedModel,
-            tokenizer: PreTrainedTokenizerBase,
-            ntrain: int = 5,
-            selected_subjects: str = "all",
-            save_dir: str = "results",
-            global_record_file: str="eval_record_collection.csv",
-            batch_size: int = 1,
-            seed: int = 12345):
+def mmlupro(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    ntrain: int = 5,
+    selected_subjects: str = "all",
+    save_dir: str = "results",
+    global_record_file: str = "eval_record_collection.csv",
+    batch_size: int = 1,
+    seed: int = 12345,
+):
     random.seed(seed)
     os.makedirs(save_dir, exist_ok=True)
     model_name = os.path.basename(model.config.name_or_path)
@@ -216,7 +255,7 @@ def mmlupro(model: PreTrainedModel,
     )
     file_prefix = "-".join(args_generate_path(model_name, selected_subjects))
     timestamp = time.time()
-    time_str = time.strftime('%m-%d_%H-%M', time.localtime(timestamp))
+    time_str = time.strftime("%m-%d_%H-%M", time.localtime(timestamp))
     file_name = f"{file_prefix}_{time_str}_summary.txt"
     summary_path = os.path.join(save_dir, "summary", file_name)
     os.makedirs(os.path.join(save_dir, "summary"), exist_ok=True)
@@ -243,7 +282,7 @@ def mmlupro(model: PreTrainedModel,
     sta_dict = {}
     selected_subjects = sorted(selected_subjects)
 
-    with open(os.path.join(summary_path), 'a') as f:
+    with open(os.path.join(summary_path), "a") as f:
         f.write("\n------category level sta------\n")
 
     for subject in selected_subjects:
@@ -255,18 +294,28 @@ def mmlupro(model: PreTrainedModel,
 
         # FIXME: mmlu_pro doesn't have auto-batch, must be integer
         if batch_size == "auto":
-            batch_size = 4 # if you oom, reduce batch
-            log.warn("MMLU_PRO: batch size `auto` detected. Fixed to static: batch_size = 4. If you oom, reduce this value in mmlupro.py")
+            batch_size = 4  # if you oom, reduce batch
+            log.warn(
+                "MMLU_PRO: batch size `auto` detected. Fixed to static: batch_size = 4. If you oom, reduce this value in mmlupro.py"
+            )
 
-        acc, corr_count, wrong_count = eval_cot(subject, model, tokenizer, val_df, test_df, output_path, ntrain, batch_size)
+        acc, corr_count, wrong_count = eval_cot(
+            subject, model, tokenizer, val_df, test_df, output_path, ntrain, batch_size
+        )
 
-        log.info(f"subject: {subject}, acc: {acc}, corr_count: {corr_count}, wrong_count: {wrong_count}")
+        log.info(
+            f"subject: {subject}, acc: {acc}, corr_count: {corr_count}, wrong_count: {wrong_count}"
+        )
 
         sta_dict[subject]["corr"] = corr_count
         sta_dict[subject]["wrong"] = wrong_count
         sta_dict[subject]["accu"] = acc
-        with open(os.path.join(summary_path), 'a') as f:
-            f.write("Average accuracy {:.4f} - {}\n".format(sta_dict[subject]["accu"], subject))
+        with open(os.path.join(summary_path), "a") as f:
+            f.write(
+                "Average accuracy {:.4f} - {}\n".format(
+                    sta_dict[subject]["accu"], subject
+                )
+            )
 
     total_corr, total_wrong = 0.0, 0.0
     for k, v in sta_dict.items():
@@ -275,18 +324,20 @@ def mmlupro(model: PreTrainedModel,
     total_accu = total_corr / (total_corr + total_wrong + 0.000001)
     sta_dict["total"] = {"corr": total_corr, "wrong": total_wrong, "accu": total_accu}
 
-    with open(os.path.join(summary_path), 'a') as f:
+    with open(os.path.join(summary_path), "a") as f:
         f.write("\n------average acc sta------\n")
         weighted_acc = total_accu
         f.write("Average accuracy: {:.4f}\n".format(weighted_acc))
 
-    with open(global_record_file, 'a', newline='') as file:
+    with open(global_record_file, "a", newline="") as file:
         writer = csv.writer(file)
-        record = args_generate_path(model_name, selected_subjects) + [time_str, weighted_acc]
+        record = args_generate_path(model_name, selected_subjects) + [
+            time_str,
+            weighted_acc,
+        ]
         writer.writerow(record)
 
     with open(os.path.join(summary_path), "r", encoding="utf-8") as file:
         summary = file.read()
 
     return summary
-

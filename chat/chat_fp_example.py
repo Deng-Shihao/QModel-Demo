@@ -1,21 +1,28 @@
-"""Interactive chat session powered by a quantized NanoModel checkpoint."""
+"""Interactive chat loop using unquantized transformers weights."""
+
 import logging
 import os
 import time
 from typing import Dict, List, Optional
 
-from transformers import AutoTokenizer
-
-from nanomodel import AutoNanoModel, get_best_device
-
 import torch
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Environment configuration for predictable CUDA ordering and expandable allocator
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-PRETRAINED_MODEL_ID = "Qwen/Qwen3-1.7B"
-QUANTIZED_MODEL_ID = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
+PRETRAINED_MODEL_ID = "Qwen3-4B-Instruct-2507"
+
+
+def get_default_device() -> torch.device:
+    """Pick the best available accelerator, falling back to CPU."""
+    if torch.cuda.is_available():
+        return torch.device("cuda")
+    if getattr(torch.backends, "mps", None) and torch.backends.mps.is_available():
+        return torch.device("mps")
+    return torch.device("cpu")
+
 
 def format_bytes(num_bytes: int) -> str:
     """Convert raw byte counts into a human readable string."""
@@ -62,9 +69,10 @@ def build_chat_prompt(tokenizer: AutoTokenizer, messages: List[Dict[str, str]]) 
     when available to keep model-specific system formatting intact.
     """
     if hasattr(tokenizer, "apply_chat_template"):
-        return tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        return tokenizer.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
 
-    # Fallback prompt if the tokenizer does not ship a chat template.
     conversation = []
     for message in messages:
         role = message["role"].capitalize()
@@ -74,20 +82,24 @@ def build_chat_prompt(tokenizer: AutoTokenizer, messages: List[Dict[str, str]]) 
 
 
 def chat():
-    """Run an interactive REPL loop that tracks latency and memory usage."""
+    """Run an interactive chat session with a full-precision model."""
     logging.getLogger("NanoModel").info("Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(PRETRAINED_MODEL_ID, use_fast=True)
 
-    device = get_best_device()
-    logging.getLogger("NanoModel").info("Loading quantized model...")
-    model = AutoNanoModel.load(QUANTIZED_MODEL_ID, device=device)
-    model_device = model.device if isinstance(model.device, torch.device) else torch.device(model.device)
+    device = get_default_device()
+    logging.getLogger("NanoModel").info(
+        "Loading full-precision model with transformers..."
+    )
+    model = AutoModelForCausalLM.from_pretrained(PRETRAINED_MODEL_ID)
+    model.to(device)
+    model.eval()
+    model_device = device
 
     if model_device.type == "cuda":
         torch.cuda.reset_peak_memory_stats(model_device)
 
     chat_history: List[Dict[str, str]] = []
-    print("Interactive chat is ready. Type 'exit' or 'quit' to stop.")
+    print("Interactive chat (full precision) is ready. Type 'exit' or 'quit' to stop.")
 
     while True:
         try:
@@ -120,14 +132,19 @@ def chat():
         }
 
         gen_start = time.perf_counter()
-        output_ids = model.generate(**inputs, **generate_kwargs)
+        with torch.no_grad():
+            output_ids = model.generate(**inputs, **generate_kwargs)
         gen_duration = time.perf_counter() - gen_start
 
-        new_tokens = output_ids[0][inputs["input_ids"].shape[-1]:]
-        assistant_text = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
+        new_tokens = output_ids[0][inputs["input_ids"].shape[-1] :]
+        assistant_text = tokenizer.decode(
+            new_tokens.cpu(), skip_special_tokens=True
+        ).strip()
         generated_tokens = new_tokens.shape[-1]
         tokens_per_second = (
-            generated_tokens / gen_duration if gen_duration > 0 and generated_tokens > 0 else 0.0
+            generated_tokens / gen_duration
+            if gen_duration > 0 and generated_tokens > 0
+            else 0.0
         )
 
         if not assistant_text:
@@ -137,7 +154,6 @@ def chat():
         print(f"Assistant: {assistant_text}")
 
         memory_stats = collect_memory_stats(model_device)
-
         total_duration = time.perf_counter() - turn_start
         if memory_stats:
             stats_str = ", ".join(

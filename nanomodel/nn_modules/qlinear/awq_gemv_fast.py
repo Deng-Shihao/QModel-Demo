@@ -12,6 +12,7 @@ log = setup_logger()
 
 awq_v2_ext, msg = try_import("nanomodel_awq_v2_kernels")
 
+
 class AwqGEMVFastQuantLinear(AWQuantLinear):
     SUPPORTS_BITS = [4]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128]
@@ -57,7 +58,8 @@ class AwqGEMVFastQuantLinear(AWQuantLinear):
             pack_dtype=pack_dtype,
             backend=backend,
             register_buffers=False,
-            **kwargs)
+            **kwargs,
+        )
 
         self.split_k_iters = 8
         self.interleave = 4
@@ -69,12 +71,19 @@ class AwqGEMVFastQuantLinear(AWQuantLinear):
         if register_buffers:
             self.register_buffer(
                 "qweight",
-                torch.zeros((out_features // self.interleave, in_features // self.pack_factor * self.interleave), dtype=self.pack_dtype),
+                torch.zeros(
+                    (
+                        out_features // self.interleave,
+                        in_features // self.pack_factor * self.interleave,
+                    ),
+                    dtype=self.pack_dtype,
+                ),
             )
             self.register_buffer(
                 "qzeros",
                 torch.zeros(
-                    calculate_zeros_width(in_features, self.group_size) * int32_pack_factor,
+                    calculate_zeros_width(in_features, self.group_size)
+                    * int32_pack_factor,
                     out_features,
                     dtype=torch.float16,
                 ),
@@ -82,14 +91,17 @@ class AwqGEMVFastQuantLinear(AWQuantLinear):
             self.register_buffer(
                 "scales",
                 torch.zeros(
-                    calculate_zeros_width(in_features, self.group_size) * int32_pack_factor,
+                    calculate_zeros_width(in_features, self.group_size)
+                    * int32_pack_factor,
                     out_features,
                     dtype=torch.float16,
                 ),
             )
 
             if bias:
-                self.register_buffer("bias", torch.zeros(out_features, dtype=torch.float16))
+                self.register_buffer(
+                    "bias", torch.zeros(out_features, dtype=torch.float16)
+                )
 
     def post_init(self):
         # if self.padded_infeatures != self.in_features:
@@ -106,7 +118,9 @@ class AwqGEMVFastQuantLinear(AWQuantLinear):
 
     def forward(self, x: torch.Tensor):
         if awq_v2_ext is None:
-            raise ModuleNotFoundError("External AWQ V2 kernels are not properly installed." + msg)
+            raise ModuleNotFoundError(
+                "External AWQ V2 kernels are not properly installed." + msg
+            )
 
         inputs = x
         batch_size, n_tokens, _ = inputs.shape
@@ -140,5 +154,6 @@ class AwqGEMVFastQuantLinear(AWQuantLinear):
                 self.group_size,
             )
         )
+
 
 __all__ = ["AwqGEMVFastQuantLinear"]

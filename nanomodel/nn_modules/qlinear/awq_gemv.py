@@ -12,6 +12,7 @@ log = setup_logger()
 
 awq_ext, msg = try_import("nanomodel_awq_kernels")
 
+
 class AwqGEMVQuantLinear(AWQuantLinear):
     SUPPORTS_BITS = [4]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128]
@@ -57,7 +58,8 @@ class AwqGEMVQuantLinear(AWQuantLinear):
             pack_dtype=pack_dtype,
             backend=backend,
             register_buffers=False,
-            **kwargs)
+            **kwargs,
+        )
 
         self.split_k_iters = 8
 
@@ -66,7 +68,10 @@ class AwqGEMVQuantLinear(AWQuantLinear):
         if register_buffers:
             self.register_buffer(
                 "qweight",
-                torch.zeros((out_features, in_features // self.pack_factor), dtype=self.pack_dtype),
+                torch.zeros(
+                    (out_features, in_features // self.pack_factor),
+                    dtype=self.pack_dtype,
+                ),
             )
             self.register_buffer(
                 "qzeros",
@@ -80,13 +85,16 @@ class AwqGEMVQuantLinear(AWQuantLinear):
                 "scales",
                 torch.zeros(
                     out_features,
-                    calculate_zeros_width(in_features, self.group_size) * self.pack_factor,
+                    calculate_zeros_width(in_features, self.group_size)
+                    * self.pack_factor,
                     dtype=torch.float16,
                 ),
             )
 
             if bias:
-                self.register_buffer("bias", torch.zeros(out_features, dtype=torch.float16))
+                self.register_buffer(
+                    "bias", torch.zeros(out_features, dtype=torch.float16)
+                )
 
     def post_init(self):
         # if self.padded_infeatures != self.in_features:
@@ -119,7 +127,9 @@ class AwqGEMVQuantLinear(AWQuantLinear):
 
     def forward(self, x: torch.Tensor):
         if awq_ext is None:
-            raise ModuleNotFoundError("External AWQ kernels are not properly installed." + msg)
+            raise ModuleNotFoundError(
+                "External AWQ kernels are not properly installed." + msg
+            )
 
         out_shape = x.shape[:-1] + (self.out_features,)
         inputs = x.reshape(-1, x.shape[-1]).contiguous()
@@ -161,5 +171,6 @@ class AwqGEMVQuantLinear(AWQuantLinear):
                 self.group_size,
             )
         )
+
 
 __all__ = ["AwqGEMVQuantLinear"]

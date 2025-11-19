@@ -130,7 +130,8 @@ def validate_cuda_support(raise_exception: bool = False) -> bool:
 
     # Query each GPU since heterogeneous systems may mix capability levels.
     has_required_capability = any(
-        torch.cuda.get_device_capability(index)[0] >= _CUDA_MINIMUM_MAJOR for index in range(device_count)
+        torch.cuda.get_device_capability(index)[0] >= _CUDA_MINIMUM_MAJOR
+        for index in range(device_count)
     )
     if not has_required_capability:
         if raise_exception:
@@ -171,6 +172,7 @@ def get_best_device(backend: BACKEND = BACKEND.AUTO) -> torch.device:
             return torch_device
 
     return CPU
+
 
 EXPERT_INDEX_PLACEHOLDER = "{expert_index}"
 

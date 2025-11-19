@@ -24,12 +24,12 @@ def terminal_size(fallback=(80, 24)):
     """
     # columns, lines are the working values
     try:
-        columns = int(os.environ['COLUMNS'])
+        columns = int(os.environ["COLUMNS"])
     except (KeyError, ValueError):
         columns = 0
 
     try:
-        lines = int(os.environ['LINES'])
+        lines = int(os.environ["LINES"])
     except (KeyError, ValueError):
         lines = 0
 

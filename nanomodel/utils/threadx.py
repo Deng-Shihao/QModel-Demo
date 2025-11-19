@@ -30,6 +30,7 @@ DeviceLike = Union[str, int, torch.device]
 # We keep these helpers small and side-effect free—only feature checks—so we can
 # query once and rely on final results without redundant availability if-ladders.
 
+
 def _mps_available() -> bool:
     return (
         hasattr(torch, "backends")
@@ -49,7 +50,9 @@ TORCH_XPU_EMPTY_CACHE: Optional[Callable[[], None]] = None
 TORCH_MPS_EMPTY_CACHE: Optional[Callable[[], None]] = None
 
 try:
-    TORCH_CUDA_EMPTY_CACHE = getattr(torch.cuda, "empty_cache", None) if hasattr(torch, "cuda") else None
+    TORCH_CUDA_EMPTY_CACHE = (
+        getattr(torch.cuda, "empty_cache", None) if hasattr(torch, "cuda") else None
+    )
     if TORCH_CUDA_EMPTY_CACHE is not None and not callable(TORCH_CUDA_EMPTY_CACHE):
         TORCH_CUDA_EMPTY_CACHE = None
 except Exception:
@@ -57,14 +60,18 @@ except Exception:
     TORCH_CUDA_EMPTY_CACHE = None
 
 try:
-    TORCH_XPU_EMPTY_CACHE = getattr(torch.xpu, "empty_cache", None) if hasattr(torch, "xpu") else None
+    TORCH_XPU_EMPTY_CACHE = (
+        getattr(torch.xpu, "empty_cache", None) if hasattr(torch, "xpu") else None
+    )
     if TORCH_XPU_EMPTY_CACHE is not None and not callable(TORCH_XPU_EMPTY_CACHE):
         TORCH_XPU_EMPTY_CACHE = None
 except Exception:
     TORCH_XPU_EMPTY_CACHE = None
 
 try:
-    TORCH_MPS_EMPTY_CACHE = getattr(torch.mps, "empty_cache", None) if hasattr(torch, "mps") else None
+    TORCH_MPS_EMPTY_CACHE = (
+        getattr(torch.mps, "empty_cache", None) if hasattr(torch, "mps") else None
+    )
     if TORCH_MPS_EMPTY_CACHE is not None and not callable(TORCH_MPS_EMPTY_CACHE):
         TORCH_MPS_EMPTY_CACHE = None
 except Exception:
@@ -72,6 +79,7 @@ except Exception:
 
 
 # --------------------------- Device coercion & context helpers ---------------------------
+
 
 def _coerce_device(d: DeviceLike) -> torch.device:
     """
@@ -138,6 +146,7 @@ def _pop_public_kwarg(kwargs: Dict[str, Any], public_name: str, private_name: st
 # but when a writer is waiting we block new readers, ensuring GC (writer) can
 # eventually acquire exclusivity even under task pressure.
 
+
 class _RWLock:
     """
     Reader-writer lock with writer preference.
@@ -147,6 +156,7 @@ class _RWLock:
     - When a writer is waiting, new readers will block.
     - Writer is re-entrant for its owning thread.
     """
+
     def __init__(self):
         self._cond = threading.Condition()
         self._readers = 0
@@ -224,19 +234,23 @@ class _LockGroup(contextlib.AbstractContextManager):
     Acquire multiple device **write** locks in deterministic order to avoid deadlocks.
     Helpful for GC passes or any multi-device exclusive operation.
     """
+
     def __init__(self, ordered_pairs: List[tuple[str, _RWLock]]):
         self._pairs = ordered_pairs
 
     def __enter__(self):
         for name, lk in self._pairs:
-            if DEBUG_ON: log.debug(f"_LockGroup: acquiring write lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_LockGroup: acquiring write lock for {name}")
             lk.acquire_write()
-            if DEBUG_ON: log.debug(f"_LockGroup: acquired write lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_LockGroup: acquired write lock for {name}")
         return self
 
     def __exit__(self, exc_type, exc, tb):
         for name, lk in reversed(self._pairs):
-            if DEBUG_ON: log.debug(f"_LockGroup: releasing write lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_LockGroup: releasing write lock for {name}")
             lk.release_write()
         return False
 
@@ -246,19 +260,23 @@ class _ReadLockGroup(contextlib.AbstractContextManager):
     Acquire multiple device **read** locks in deterministic order.
     Useful for multi-device snapshots or read-only, consistent views.
     """
+
     def __init__(self, ordered_pairs: List[tuple[str, _RWLock]]):
         self._pairs = ordered_pairs
 
     def __enter__(self):
         for name, lk in self._pairs:
-            if DEBUG_ON: log.debug(f"_ReadLockGroup: acquiring read lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_ReadLockGroup: acquiring read lock for {name}")
             lk.acquire_read()
-            if DEBUG_ON: log.debug(f"_ReadLockGroup: acquired read lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_ReadLockGroup: acquired read lock for {name}")
         return self
 
     def __exit__(self, exc_type, exc, tb):
         for name, lk in reversed(self._pairs):
-            if DEBUG_ON: log.debug(f"_ReadLockGroup: releasing read lock for {name}")
+            if DEBUG_ON:
+                log.debug(f"_ReadLockGroup: releasing read lock for {name}")
             lk.release_read()
         return False
 
@@ -270,6 +288,7 @@ class _WaitAndLock(contextlib.AbstractContextManager):
     which inherently waits for in-flight readers (tasks) to drain.
     On exit: releases locks.
     """
+
     def __init__(self, pairs: List[tuple[str, _RWLock]]):
         self._pairs = pairs
         self._group = _LockGroup(pairs)
@@ -286,6 +305,7 @@ class _WaitAndLock(contextlib.AbstractContextManager):
 # executed under the device’s read lock; GC acquires the writer lock to keep
 # memory management steps from interleaving with tasks.
 
+
 class _DeviceWorker:
     """
     Single worker thread bound to one device.
@@ -295,6 +315,7 @@ class _DeviceWorker:
     - Tasks run within a device-scoped reader lock to prevent interleaving
       with GC passes (which need a write lock).
     """
+
     def __init__(
         self,
         device: torch.device,
@@ -317,9 +338,15 @@ class _DeviceWorker:
         if key_override is not None:
             self.key = key_override
         else:
-            self.key = f"{device.type}:{device.index}" if device.index is not None else device.type
+            self.key = (
+                f"{device.type}:{device.index}"
+                if device.index is not None
+                else device.type
+            )
         self.name = name or f"DPWorker-{self.key}"
-        self._q: "queue.Queue[Tuple[bool, Callable[..., Any], tuple, dict, Future]]" = queue.Queue()
+        self._q: "queue.Queue[Tuple[bool, Callable[..., Any], tuple, dict, Future]]" = (
+            queue.Queue()
+        )
         self._stop = threading.Event()
 
         self._inference_mode = inference_mode
@@ -327,7 +354,8 @@ class _DeviceWorker:
         self._affinity_applied = False
         self._thread = threading.Thread(target=self._run, name=self.name, daemon=True)
         self._thread.start()
-        if DEBUG_ON: log.debug(f"Spawned worker '{self.name}' for {self.key}")
+        if DEBUG_ON:
+            log.debug(f"Spawned worker '{self.name}' for {self.key}")
 
     def submit(self, fn: Callable[..., Any], /, *args, **kwargs) -> Future:
         """
@@ -335,7 +363,8 @@ class _DeviceWorker:
         """
         fut = Future()
         self._q.put((True, fn, args, kwargs, fut))
-        if DEBUG_ON: log.debug(f"{self.name}: task enqueued; qsize={self._q.qsize()}")
+        if DEBUG_ON:
+            log.debug(f"{self.name}: task enqueued; qsize={self._q.qsize()}")
         return fut
 
     def stop(self):
@@ -345,13 +374,15 @@ class _DeviceWorker:
         """
         self._stop.set()
         self._q.put((False, lambda: None, (), {}, Future()))
-        if DEBUG_ON: log.debug(f"{self.name}: stop requested; sentinel queued")
+        if DEBUG_ON:
+            log.debug(f"{self.name}: stop requested; sentinel queued")
 
     def join(self):
         """
         Join the worker thread; for graceful shutdowns and tests.
         """
-        if DEBUG_ON: log.debug(f"{self.name}: joining thread")
+        if DEBUG_ON:
+            log.debug(f"{self.name}: joining thread")
         self._thread.join()
 
     def _apply_cpu_affinity(self) -> None:
@@ -367,7 +398,7 @@ class _DeviceWorker:
         try:
             os.sched_setaffinity(0, {int(self._target_cpu_core)})
             self._affinity_applied = True
-            #if DEBUG_ON:
+            # if DEBUG_ON:
             log.debug(f"{self.name}: pinned to CPU core {self._target_cpu_core}")
         except PermissionError as exc:
             log.warn(
@@ -416,19 +447,29 @@ class _DeviceWorker:
             is_task, fn, args, kwargs, fut = self._q.get()
             try:
                 if not is_task:
-                    if DEBUG_ON: log.debug(f"{self.name}: received sentinel; exiting")
+                    if DEBUG_ON:
+                        log.debug(f"{self.name}: received sentinel; exiting")
                     break
-                if DEBUG_ON: log.debug(f"{self.name}: task begin; qsize={self._q.qsize()}")
+                if DEBUG_ON:
+                    log.debug(f"{self.name}: task begin; qsize={self._q.qsize()}")
 
                 event = kwargs.pop("cuda_event", None)
                 override_inference = _pop_public_kwarg(
                     kwargs, "inference_mode", "_threadx_inference_mode"
                 )
-                use_inference = self._inference_mode if override_inference is None else bool(override_inference)
+                use_inference = (
+                    self._inference_mode
+                    if override_inference is None
+                    else bool(override_inference)
+                )
 
                 # Tasks take a **read** lock so janitor's write lock can't interleave
                 with ctx(self.rwlock.reader(), _device_ctx(self.device)):
-                    inference_ctx = torch.inference_mode() if use_inference else contextlib.nullcontext()
+                    inference_ctx = (
+                        torch.inference_mode()
+                        if use_inference
+                        else contextlib.nullcontext()
+                    )
                     with inference_ctx:
                         if event is not None and self.device.type == "cuda":
                             event.synchronize()
@@ -438,25 +479,30 @@ class _DeviceWorker:
                 self._on_task_finished(self.key)
                 if not fut.cancelled():
                     fut.set_result(result)
-                if DEBUG_ON: log.debug(f"{self.name}: task done")
+                if DEBUG_ON:
+                    log.debug(f"{self.name}: task done")
             except BaseException as exc:
                 # Even on exception we must decrement inflight and update totals.
                 self._on_task_finished(self.key)
                 if not fut.cancelled():
                     fut.set_exception(exc)
-                if DEBUG_ON: log.debug(f"{self.name}: task exception: {exc!r}")
+                if DEBUG_ON:
+                    log.debug(f"{self.name}: task exception: {exc!r}")
                 self._abort_process(exc)
             finally:
                 self._q.task_done()
         try:
             self._on_worker_exit(self.key, self)
         finally:
-            if DEBUG_ON: log.debug(f"{self.name}: exited")
+            if DEBUG_ON:
+                log.debug(f"{self.name}: exited")
 
     def _abort_process(self, exc: BaseException) -> None:
         """Dump the stack trace and terminate the interpreter without cleanup."""
         try:
-            traceback.print_exception(type(exc), exc, exc.__traceback__, file=sys.stderr)
+            traceback.print_exception(
+                type(exc), exc, exc.__traceback__, file=sys.stderr
+            )
             sys.stderr.flush()
         except Exception:
             pass
@@ -488,17 +534,27 @@ class _SyncWorker:
         self._inference_mode = inference_mode
         self.name = f"DPWorker-{key}#sync"
 
-    def submit(self, fn: Callable[..., Any], /, *args, cuda_event=None, **kwargs) -> Future:
+    def submit(
+        self, fn: Callable[..., Any], /, *args, cuda_event=None, **kwargs
+    ) -> Future:
         fut = Future()
         try:
             event = cuda_event
             override_inference = _pop_public_kwarg(
                 kwargs, "inference_mode", "_threadx_inference_mode"
             )
-            use_inference = self._inference_mode if override_inference is None else bool(override_inference)
+            use_inference = (
+                self._inference_mode
+                if override_inference is None
+                else bool(override_inference)
+            )
             with ctx(self.rwlock.reader(), _device_ctx(self.device)):
                 # with tctl.threadpool_limits(limits=1):
-                inference_ctx = torch.inference_mode() if use_inference else contextlib.nullcontext()
+                inference_ctx = (
+                    torch.inference_mode()
+                    if use_inference
+                    else contextlib.nullcontext()
+                )
                 with inference_ctx:
                     if event is not None and self.device.type == "cuda":
                         event.synchronize()
@@ -526,6 +582,7 @@ class _SyncWorker:
 # - Runs a janitor background thread that performs periodic empty_cache() under
 #   exclusive writer locks, coalescing triggers via a short debounce window.
 
+
 class DeviceThreadPool:
     """
     Multi-device thread pool with:
@@ -550,8 +607,10 @@ class DeviceThreadPool:
         include_cpu: bool = True,
         inference_mode: bool = False,
         warmups: Optional[Dict[str, Callable[[torch.device], None]]] = None,
-        empty_cache_every_n: int = 50,     # <=0 disables janitor
-        workers: Optional[Dict[str, int]] = None,  # e.g. {'cpu':4, 'cuda:per':1, 'cuda:0':3}
+        empty_cache_every_n: int = 50,  # <=0 disables janitor
+        workers: Optional[
+            Dict[str, int]
+        ] = None,  # e.g. {'cpu':4, 'cuda:per':1, 'cuda:0':3}
         gc_debounce_seconds: float = 0.02,  # absorb bursty triggers before GC
         pin_cpu_workers: bool = False,
         pin_accelerator_workers: bool = False,
@@ -644,7 +703,9 @@ class DeviceThreadPool:
             try:
                 count = int(raw_count)
             except (TypeError, ValueError) as exc:
-                raise ValueError(f"Worker count for '{raw_key}' must be an integer (got {raw_count!r})") from exc
+                raise ValueError(
+                    f"Worker count for '{raw_key}' must be an integer (got {raw_count!r})"
+                ) from exc
             if alias_info is None:
                 base_workers[raw_key] = count
             else:
@@ -691,7 +752,9 @@ class DeviceThreadPool:
             group: List[_DeviceWorker] = []
             for wid in range(int(max(1, n_workers))):
                 cpu_core = affinity_plan.get((key, wid))
-                worker = self._spawn_worker(dev, key, name=f"DPWorker-{key}#{wid}", cpu_core=cpu_core)
+                worker = self._spawn_worker(
+                    dev, key, name=f"DPWorker-{key}#{wid}", cpu_core=cpu_core
+                )
                 group.append(worker)
             self._worker_groups[key] = group
             self._dispatch_rr[key] = 0
@@ -700,10 +763,14 @@ class DeviceThreadPool:
 
         for v_key, (parent_key, limit) in virtual_workers.items():
             if limit < 1:
-                raise ValueError(f"Virtual pool '{v_key}' requires at least one worker (got {limit})")
+                raise ValueError(
+                    f"Virtual pool '{v_key}' requires at least one worker (got {limit})"
+                )
             parent_dev = self._devices_by_key.get(parent_key)
             if parent_dev is None:
-                raise ValueError(f"Virtual pool '{v_key}' references unknown parent '{parent_key}'")
+                raise ValueError(
+                    f"Virtual pool '{v_key}' references unknown parent '{parent_key}'"
+                )
             if parent_dev.type == "cuda" and parent_dev.index is None:
                 raise ValueError(
                     f"Virtual pool '{v_key}' requires an indexed CUDA parent device (e.g. '{v_key}:cuda:0'); got '{parent_key}'"
@@ -724,7 +791,9 @@ class DeviceThreadPool:
 
             alias_group: List[_DeviceWorker] = []
             for wid in range(limit):
-                worker = self._spawn_worker(parent_dev, v_key, name=f"DPWorker-{v_key}#{wid}")
+                worker = self._spawn_worker(
+                    parent_dev, v_key, name=f"DPWorker-{v_key}#{wid}"
+                )
                 alias_group.append(worker)
             self._worker_groups[v_key] = alias_group
             self._dispatch_rr[v_key] = 0
@@ -741,14 +810,17 @@ class DeviceThreadPool:
 
         # Start janitor if enabled and there exists at least one accelerator.
         if self._empty_cache_every_n > 0 and any(
-            self._devices_by_key[k].type in ("cuda", "xpu", "mps") for k in self._ordered_keys
+            self._devices_by_key[k].type in ("cuda", "xpu", "mps")
+            for k in self._ordered_keys
         ):
             self._janitor = threading.Thread(
                 target=self._janitor_loop, name="DP-Janitor", daemon=True
             )
             self._janitor.start()
             if DEBUG_ON:
-                log.debug(f"DP-Janitor thread started (debounce={self._gc_debounce_s:.3f}s, threshold={self._empty_cache_every_n})")
+                log.debug(
+                    f"DP-Janitor thread started (debounce={self._gc_debounce_s:.3f}s, threshold={self._empty_cache_every_n})"
+                )
         else:
             if DEBUG_ON:
                 log.debug("DP-Janitor disabled (no accelerators or threshold <= 0)")
@@ -878,7 +950,9 @@ class DeviceThreadPool:
 
         return plan
 
-    def _resolve_worker_warmup(self, dev: torch.device, key: str) -> Optional[Callable[[torch.device], None]]:
+    def _resolve_worker_warmup(
+        self, dev: torch.device, key: str
+    ) -> Optional[Callable[[torch.device], None]]:
         mapping = self._worker_warmups
         if not mapping:
             return None
@@ -938,7 +1012,8 @@ class DeviceThreadPool:
                 else:
                     self._dispatch_rr[key] = 0
             self._refresh_serial_worker_locked(key)
-        if DEBUG_ON: log.debug(f"Worker '{worker.name}' exited for {key}")
+        if DEBUG_ON:
+            log.debug(f"Worker '{worker.name}' exited for {key}")
 
     # --------------- Public Work API ---------------
 
@@ -961,7 +1036,8 @@ class DeviceThreadPool:
         if cuda_event is not None and dev.type != "cuda":
             raise ValueError("cuda_event is only valid for CUDA devices")
 
-        if DEBUG_ON: log.debug(f"submit: device={key} fn={getattr(fn, '__name__', repr(fn))}")
+        if DEBUG_ON:
+            log.debug(f"submit: device={key} fn={getattr(fn, '__name__', repr(fn))}")
         # Mark in-flight before enqueue to avoid races with wait().
         self._mark_scheduled(key)
         try:
@@ -1006,7 +1082,10 @@ class DeviceThreadPool:
         if worker is None:
             raise ValueError(f"No serial worker available for device '{key}'")
 
-        if DEBUG_ON: log.debug(f"submit_serial: device={key} fn={getattr(fn, '__name__', repr(fn))}")
+        if DEBUG_ON:
+            log.debug(
+                f"submit_serial: device={key} fn={getattr(fn, '__name__', repr(fn))}"
+            )
         self._mark_scheduled(key)
         try:
             return worker.submit(fn, *args, cuda_event=cuda_event, **kwargs)
@@ -1047,7 +1126,8 @@ class DeviceThreadPool:
 
         # Stop janitor first so it won't grab locks while workers wind down.
         if self._janitor is not None and wait:
-            if DEBUG_ON: log.debug("Joining DP-Janitor thread…")
+            if DEBUG_ON:
+                log.debug("Joining DP-Janitor thread…")
             self._janitor.join()
 
         # Issue stop to every worker from the snapshots (no mutation hazards).
@@ -1061,7 +1141,8 @@ class DeviceThreadPool:
                 for w in snapshot:
                     w.join()
 
-        if DEBUG_ON: log.debug("DeviceThreadPool shutdown complete")
+        if DEBUG_ON:
+            log.debug("DeviceThreadPool shutdown complete")
 
     @contextlib.contextmanager
     def no_auto_gc(self):
@@ -1182,38 +1263,59 @@ class DeviceThreadPool:
                 Drain inflight for the given keys, then acquire writer locks
                 in canonical order; release on exit.
                 """
-                def __init__(self, outer: DeviceThreadPool, pairs_local: List[tuple[str, _RWLock]], keys_local: List[str]):
+
+                def __init__(
+                    self,
+                    outer: DeviceThreadPool,
+                    pairs_local: List[tuple[str, _RWLock]],
+                    keys_local: List[str],
+                ):
                     self._outer = outer
                     self._pairs = pairs_local
                     self._keys = keys_local
                     self._group = _LockGroup(pairs_local)
 
                 def __enter__(self):
-                    if DEBUG_ON: log.debug(f"wait(lock=True) drain start: keys={self._keys}")
+                    if DEBUG_ON:
+                        log.debug(f"wait(lock=True) drain start: keys={self._keys}")
                     for kk in self._keys:
                         cv = self._outer._inflight_cv[kk]
                         with cv:
                             while self._outer._inflight[kk] > 0:
-                                if DEBUG_ON: log.debug(f"wait(lock=True) blocking on inflight[{kk}]={self._outer._inflight[kk]}")
+                                if DEBUG_ON:
+                                    log.debug(
+                                        f"wait(lock=True) blocking on inflight[{kk}]={self._outer._inflight[kk]}"
+                                    )
                                 cv.wait()
-                    if DEBUG_ON: log.debug(f"wait(lock=True) acquire writer locks: keys={self._keys}")
+                    if DEBUG_ON:
+                        log.debug(
+                            f"wait(lock=True) acquire writer locks: keys={self._keys}"
+                        )
                     return self._group.__enter__()
 
                 def __exit__(self, exc_type, exc, tb):
-                    if DEBUG_ON: log.debug(f"wait(lock=True) releasing writer locks: keys={self._keys}")
+                    if DEBUG_ON:
+                        log.debug(
+                            f"wait(lock=True) releasing writer locks: keys={self._keys}"
+                        )
                     return self._group.__exit__(exc_type, exc, tb)
 
             return _WaitThenLock(self, pairs, keys)
 
         # Simple drain (no locks)
-        if DEBUG_ON: log.debug(f"wait(lock=False) drain start: keys={keys}")
+        if DEBUG_ON:
+            log.debug(f"wait(lock=False) drain start: keys={keys}")
         for k in keys:
             cv = self._inflight_cv[k]
             with cv:
                 while self._inflight[k] > 0:
-                    if DEBUG_ON: log.debug(f"wait(lock=False) blocking on inflight[{k}]={self._inflight[k]}")
+                    if DEBUG_ON:
+                        log.debug(
+                            f"wait(lock=False) blocking on inflight[{k}]={self._inflight[k]}"
+                        )
                     cv.wait()
-        if DEBUG_ON: log.debug(f"wait(lock=False) drain done: keys={keys}")
+        if DEBUG_ON:
+            log.debug(f"wait(lock=False) drain done: keys={keys}")
         return None
 
     # --------------- Public Stats API ---------------
@@ -1290,7 +1392,9 @@ class DeviceThreadPool:
 
         self._serial_workers[key] = group[0]
 
-    def _resolve_workers_for_device(self, dev: torch.device, table: Dict[str, int]) -> int:
+    def _resolve_workers_for_device(
+        self, dev: torch.device, table: Dict[str, int]
+    ) -> int:
         """
         Resolve worker count from policy table:
           - exact key (e.g. 'cuda:0') overrides
@@ -1356,7 +1460,9 @@ class DeviceThreadPool:
                         seen.add(k)
         return keys
 
-    def _resolve_scope_to_keys(self, scope: Optional[Union[str, DeviceLike, Iterable[DeviceLike]]] = None) -> List[str]:
+    def _resolve_scope_to_keys(
+        self, scope: Optional[Union[str, DeviceLike, Iterable[DeviceLike]]] = None
+    ) -> List[str]:
         """
         Helper for wait()/lock(): expand a scope into concrete device keys.
         """
@@ -1375,7 +1481,8 @@ class DeviceThreadPool:
         cv = self._inflight_cv[key]
         with cv:
             self._inflight[key] = self._inflight.get(key, 0) + 1
-            if DEBUG_ON: log.debug(f"inflight[{key}] ++ -> {self._inflight[key]}")
+            if DEBUG_ON:
+                log.debug(f"inflight[{key}] ++ -> {self._inflight[key]}")
 
     def _mark_finished(self, key: str) -> None:
         """
@@ -1386,10 +1493,14 @@ class DeviceThreadPool:
         with cv:
             new_val = self._inflight.get(key, 0) - 1
             if new_val < 0:
-                if DEBUG_ON: log.debug(f"WARNING: inflight[{key}] underflow ({new_val}); clamping to 0")
+                if DEBUG_ON:
+                    log.debug(
+                        f"WARNING: inflight[{key}] underflow ({new_val}); clamping to 0"
+                    )
                 new_val = 0
             self._inflight[key] = new_val
-            if DEBUG_ON: log.debug(f"inflight[{key}] -- -> {self._inflight[key]}")
+            if DEBUG_ON:
+                log.debug(f"inflight[{key}] -- -> {self._inflight[key]}")
             if self._inflight[key] == 0:
                 cv.notify_all()
 
@@ -1410,7 +1521,9 @@ class DeviceThreadPool:
                 if n % self._empty_cache_every_n == 0:
                     trigger_gc = True
                     if DEBUG_ON:
-                        log.debug(f"GC trigger set by {key}: per_device_done={n} threshold={self._empty_cache_every_n} total_done={self._total_done}")
+                        log.debug(
+                            f"GC trigger set by {key}: per_device_done={n} threshold={self._empty_cache_every_n} total_done={self._total_done}"
+                        )
         if trigger_gc:
             self._gc_event.set()
 
@@ -1467,7 +1580,9 @@ class DeviceThreadPool:
             with cv:
                 inflight[k] = int(self._inflight[k])
 
-        workers = {k: len(self._worker_groups.get(k, [])) for k in self._devices_by_key.keys()}
+        workers = {
+            k: len(self._worker_groups.get(k, [])) for k in self._devices_by_key.keys()
+        }
 
         meta: Dict[str, Dict[str, str]] = {}
         for k, dev in self._devices_by_key.items():
@@ -1495,8 +1610,15 @@ class DeviceThreadPool:
         Pretty-print a GC state table; used only when someone wants to log it.
         """
         headers = [
-            "Device", "Type", "Index", "Workers", "Inflight",
-            "Done", "Threshold", "NextGC", "Accel"
+            "Device",
+            "Type",
+            "Index",
+            "Workers",
+            "Inflight",
+            "Done",
+            "Threshold",
+            "NextGC",
+            "Accel",
         ]
         rows: List[List[str]] = []
         thr = snap["threshold"]
@@ -1512,19 +1634,41 @@ class DeviceThreadPool:
                 nextgc = "now" if rem == 0 and done > 0 else str(rem)
             else:
                 nextgc = "-"
-            rows.append([k, t, idx, str(w), str(infl), str(done), str(thr) if thr > 0 else "-", nextgc, accel])
+            rows.append(
+                [
+                    k,
+                    t,
+                    idx,
+                    str(w),
+                    str(infl),
+                    str(done),
+                    str(thr) if thr > 0 else "-",
+                    nextgc,
+                    accel,
+                ]
+            )
 
         table_main = self._ansi_table(headers, rows)
 
-        totals_headers = ["Total Workers", "Total Inflight", "Total Done", "GC Passes", "Since Last GC (s)"]
-        since = "-" if self._last_gc_ts is None else f"{time.time() - self._last_gc_ts:.3f}"
-        totals_rows = [[
-            str(sum(len(v) for v in self._worker_groups.values())),
-            str(snap["total_inflight"]),
-            str(snap["total_done"]),
-            str(snap["gc_passes"]),
-            since,
-        ]]
+        totals_headers = [
+            "Total Workers",
+            "Total Inflight",
+            "Total Done",
+            "GC Passes",
+            "Since Last GC (s)",
+        ]
+        since = (
+            "-" if self._last_gc_ts is None else f"{time.time() - self._last_gc_ts:.3f}"
+        )
+        totals_rows = [
+            [
+                str(sum(len(v) for v in self._worker_groups.values())),
+                str(snap["total_inflight"]),
+                str(snap["total_done"]),
+                str(snap["gc_passes"]),
+                since,
+            ]
+        ]
         table_totals = self._ansi_table(totals_headers, totals_rows)
         return table_main + "\n" + table_totals
 
@@ -1555,8 +1699,14 @@ class DeviceThreadPool:
                 with torch.xpu.device(dev.index):
                     torch.xpu.synchronize()
         # MPS
-        has_mps_device = any(self._devices_by_key[k].type == "mps" for k in self._ordered_keys)
-        if has_mps_device and hasattr(torch, "mps") and hasattr(torch.mps, "synchronize"):
+        has_mps_device = any(
+            self._devices_by_key[k].type == "mps" for k in self._ordered_keys
+        )
+        if (
+            has_mps_device
+            and hasattr(torch, "mps")
+            and hasattr(torch.mps, "synchronize")
+        ):
             torch.mps.synchronize()
 
     def _should_run_gc_from_snapshot(self, snap: Dict[str, Any]) -> bool:
@@ -1623,14 +1773,19 @@ class DeviceThreadPool:
             # Debounce window: absorb additional triggers before deciding.
             if self._gc_debounce_s > 0:
                 t_end = time.time() + self._gc_debounce_s
-                if DEBUG_ON: log.debug(f"DP-Janitor: debounce window start ({self._gc_debounce_s:.3f}s)")
+                if DEBUG_ON:
+                    log.debug(
+                        f"DP-Janitor: debounce window start ({self._gc_debounce_s:.3f}s)"
+                    )
                 while time.time() < t_end:
                     if self._stop_event.is_set():
-                        if DEBUG_ON: log.debug("DP-Janitor: stop during debounce; exiting")
+                        if DEBUG_ON:
+                            log.debug("DP-Janitor: stop during debounce; exiting")
                         return
                     self._gc_event.wait(timeout=max(0.0, t_end - time.time()))
                     self._gc_event.clear()
-                if DEBUG_ON: log.debug("DP-Janitor: debounce window end")
+                if DEBUG_ON:
+                    log.debug("DP-Janitor: debounce window end")
 
             with self._auto_gc_disable_cv:
                 while self._auto_gc_disable_count > 0 and not self._stop_event.is_set():
@@ -1638,14 +1793,19 @@ class DeviceThreadPool:
                         log.debug("DP-Janitor: auto-GC disabled; waiting…")
                     self._auto_gc_disable_cv.wait()
                 if self._stop_event.is_set():
-                    if DEBUG_ON: log.debug("DP-Janitor: stop event set during auto-GC wait; exiting")
+                    if DEBUG_ON:
+                        log.debug(
+                            "DP-Janitor: stop event set during auto-GC wait; exiting"
+                        )
                     break
 
             # Snapshot & decision
             try:
                 pre = self._collect_state_snapshot()
                 if DEBUG_ON:
-                    log.debug(f"DP-Janitor: pre-snapshot taken: total_done={pre['total_done']}, threshold={pre['threshold']}, inflight={pre['inflight']}")
+                    log.debug(
+                        f"DP-Janitor: pre-snapshot taken: total_done={pre['total_done']}, threshold={pre['threshold']}, inflight={pre['inflight']}"
+                    )
                     log.debug("GC trigger received; evaluating whether to run…")
             except Exception as e:
                 # Fallback snapshot (unlikely path; logging should not crash janitor)
@@ -1655,11 +1815,20 @@ class DeviceThreadPool:
                     pass
                 pre = {
                     "devices": list(self._devices_by_key.keys()),
-                    "per_done": {k: self._per_device_done.get(k, 0) for k in self._devices_by_key.keys()},
+                    "per_done": {
+                        k: self._per_device_done.get(k, 0)
+                        for k in self._devices_by_key.keys()
+                    },
                     "threshold": self._empty_cache_every_n,
-                    "meta": {k: {"type": self._devices_by_key[k].type} for k in self._devices_by_key.keys()},
+                    "meta": {
+                        k: {"type": self._devices_by_key[k].type}
+                        for k in self._devices_by_key.keys()
+                    },
                     "inflight": dict.fromkeys(self._devices_by_key.keys(), 0),
-                    "workers": {k: len(self._worker_groups.get(k, [])) for k in self._devices_by_key.keys()},
+                    "workers": {
+                        k: len(self._worker_groups.get(k, []))
+                        for k in self._devices_by_key.keys()
+                    },
                     "total_inflight": 0,
                     "total_workers": sum(len(v) for v in self._worker_groups.values()),
                     "gc_passes": self._gc_passes,
@@ -1669,7 +1838,10 @@ class DeviceThreadPool:
                 }
 
             if not self._should_run_gc_from_snapshot(pre):
-                if DEBUG_ON: log.debug("DP-Janitor: skip GC (no device progressed by threshold since last pass)")
+                if DEBUG_ON:
+                    log.debug(
+                        "DP-Janitor: skip GC (no device progressed by threshold since last pass)"
+                    )
                 continue
 
             t0 = time.time()
@@ -1683,32 +1855,50 @@ class DeviceThreadPool:
                     continue
 
                 lk = self._locks[key]
-                if DEBUG_ON: log.debug(f"DP-Janitor: attempting writer lock for {key}")
+                if DEBUG_ON:
+                    log.debug(f"DP-Janitor: attempting writer lock for {key}")
                 with lk.writer():
-                    if DEBUG_ON: log.debug(f"DP-Janitor: acquired writer lock for {key}")
+                    if DEBUG_ON:
+                        log.debug(f"DP-Janitor: acquired writer lock for {key}")
 
                     if dev.type == "cuda":
-                        live = getattr(torch.cuda, "empty_cache", None) if hasattr(torch, "cuda") else None
+                        live = (
+                            getattr(torch.cuda, "empty_cache", None)
+                            if hasattr(torch, "cuda")
+                            else None
+                        )
                         use_fn = live if callable(live) else TORCH_CUDA_EMPTY_CACHE
                         if DEBUG_ON:
                             src = "live" if use_fn is live else "hardcopy"
-                            log.debug(f"DP-Janitor: empty_cache(cuda) using {src} on {key}")
+                            log.debug(
+                                f"DP-Janitor: empty_cache(cuda) using {src} on {key}"
+                            )
                         if use_fn is not None:
                             with torch.cuda.device(dev.index):
                                 use_fn()
 
                     elif dev.type == "xpu":
-                        live = getattr(torch.xpu, "empty_cache", None) if hasattr(torch, "xpu") else None
+                        live = (
+                            getattr(torch.xpu, "empty_cache", None)
+                            if hasattr(torch, "xpu")
+                            else None
+                        )
                         use_fn = live if callable(live) else TORCH_XPU_EMPTY_CACHE
                         if DEBUG_ON:
                             src = "live" if use_fn is live else "hardcopy"
-                            log.debug(f"DP-Janitor: empty_cache(xpu) using {src} on {key}")
+                            log.debug(
+                                f"DP-Janitor: empty_cache(xpu) using {src} on {key}"
+                            )
                         if use_fn is not None:
                             with torch.xpu.device(dev.index):
                                 use_fn()
 
                     elif dev.type == "mps":
-                        live = getattr(torch.mps, "empty_cache", None) if hasattr(torch, "mps") else None
+                        live = (
+                            getattr(torch.mps, "empty_cache", None)
+                            if hasattr(torch, "mps")
+                            else None
+                        )
                         use_fn = live if callable(live) else TORCH_MPS_EMPTY_CACHE
                         if DEBUG_ON:
                             src = "live" if use_fn is live else "hardcopy"
@@ -1725,7 +1915,10 @@ class DeviceThreadPool:
                 post = self._collect_state_snapshot()
                 self._update_gc_watermarks(post)
                 log.info(f"GC completed in {t1 - t0:.3f}s (pass #{self._gc_passes}).")
-                if DEBUG_ON: log.debug(f"DP-Janitor: post-snapshot: inflight={post['inflight']} per_done={post['per_done']}")
+                if DEBUG_ON:
+                    log.debug(
+                        f"DP-Janitor: post-snapshot: inflight={post['inflight']} per_done={post['per_done']}"
+                    )
             except Exception as e:
                 try:
                     log.warn(f"Failed to render GC post-snapshot: {e!r}")
@@ -1755,6 +1948,8 @@ class DeviceThreadPool:
                 with torch.xpu.device(dev.index):
                     TORCH_XPU_EMPTY_CACHE()
         if TORCH_MPS_EMPTY_CACHE is not None:
-            has_mps_device = any(self._devices_by_key[k].type == "mps" for k in self._ordered_keys)
+            has_mps_device = any(
+                self._devices_by_key[k].type == "mps" for k in self._ordered_keys
+            )
             if has_mps_device:
                 TORCH_MPS_EMPTY_CACHE()

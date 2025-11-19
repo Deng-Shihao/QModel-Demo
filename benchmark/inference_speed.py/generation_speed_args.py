@@ -17,6 +17,7 @@ logger = setup_logger(__name__)
 
 random.seed(0)
 
+
 class CustomizedMinNewTokensLogitsProcessor(LogitsProcessor):
     def __init__(
         self,
@@ -27,7 +28,9 @@ class CustomizedMinNewTokensLogitsProcessor(LogitsProcessor):
         self.min_new_tokens = min_new_tokens or 0
         self.current_step = 0
 
-    def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor) -> torch.FloatTensor:
+    def __call__(
+        self, input_ids: torch.LongTensor, scores: torch.FloatTensor
+    ) -> torch.FloatTensor:
         self.current_step += 1
 
         if self._skip_process():
@@ -36,7 +39,9 @@ class CustomizedMinNewTokensLogitsProcessor(LogitsProcessor):
         if any(each is not None for each in [self.eos_token_id]):
             banned_mask = torch.zeros_like(scores).to(scores.device)
             if self.eos_token_id and self.current_step <= self.min_new_tokens:
-                banned_mask = self._fill_banned_mask(input_ids, banned_mask, {1: [[self.eos_token_id]]})
+                banned_mask = self._fill_banned_mask(
+                    input_ids, banned_mask, {1: [[self.eos_token_id]]}
+                )
             scores = scores.masked_fill(banned_mask.bool(), -float("inf"))
 
         return scores
@@ -65,20 +70,26 @@ class CustomizedMinNewTokensLogitsProcessor(LogitsProcessor):
                     dim=-1,
                 )
                 for idx in range(hit_masks.shape[0]):
-                    selected_token_ids = torch.masked_select(token_ids[..., -1], hit_masks[idx])
+                    selected_token_ids = torch.masked_select(
+                        token_ids[..., -1], hit_masks[idx]
+                    )
                     if len(selected_token_ids):
                         banned_mask[idx, selected_token_ids] = 1
         return banned_mask
 
 
 def load_data(tokenizer, n_samples, max_new_tokens):
-    data_dict = load_dataset("ModelCloud/alpaca-data-cleaned", data_files="alpaca_data_cleaned.json", split="train")
+    data_dict = load_dataset(
+        "ModelCloud/alpaca-data-cleaned",
+        data_files="alpaca_data_cleaned.json",
+        split="train",
+    )
 
     datas = [
         {
-            'input': item['input'],
-            'output': item['output'],
-            'instruction': item['instruction']
+            "input": item["input"],
+            "output": item["output"],
+            "instruction": item["instruction"],
         }
         for item in data_dict
     ]
@@ -104,13 +115,18 @@ def load_data(tokenizer, n_samples, max_new_tokens):
             else:
                 prompt = f"Instruction:\n{istr}\nOutput:\n"
                 text = prompt + opt
-            if len(tokenizer(prompt)["input_ids"]) >= tokenizer.model_max_length - max_new_tokens:
+            if (
+                len(tokenizer(prompt)["input_ids"])
+                >= tokenizer.model_max_length - max_new_tokens
+            ):
                 continue
 
             tokenized_data = tokenizer(text)
 
             input_ids.append(tokenized_data["input_ids"][: tokenizer.model_max_length])
-            attention_mask.append(tokenized_data["attention_mask"][: tokenizer.model_max_length])
+            attention_mask.append(
+                tokenized_data["attention_mask"][: tokenizer.model_max_length]
+            )
             prompts.append(prompt)
             texts.append(text)
 
@@ -191,7 +207,9 @@ def benchmark_generation_speed(model, tokenizer, examples, generation_config):
             input_ids=input_ids.unsqueeze(0),
             generation_config=generation_config,
             logits_processor=[
-                CustomizedMinNewTokensLogitsProcessor(generation_config.max_new_tokens, tokenizer.eos_token_id)
+                CustomizedMinNewTokensLogitsProcessor(
+                    generation_config.max_new_tokens, tokenizer.eos_token_id
+                )
             ],
         )
         end = time.time()
@@ -200,7 +218,11 @@ def benchmark_generation_speed(model, tokenizer, examples, generation_config):
         num_generated_tokens = 0
         for output_ids in outputs_ids:
             num_generated_tokens += len(
-                [token_id for token_id in output_ids[len(input_ids) :] if token_id != tokenizer.pad_token_id]
+                [
+                    token_id
+                    for token_id in output_ids[len(input_ids) :]
+                    if token_id != tokenizer.pad_token_id
+                ]
             )
         num_generated_tokens_list.append(num_generated_tokens)
 
@@ -210,6 +232,7 @@ def benchmark_generation_speed(model, tokenizer, examples, generation_config):
         f"generated {total_tokens} tokens using {total_seconds:.3f} seconds, "
         f"generation speed: {total_tokens / total_seconds:.3f} tokens/s"
     )
+
 
 def main():
     parser = ArgumentParser()
@@ -276,6 +299,7 @@ def main():
 
     logger.info("benchmark generation speed")
     benchmark_generation_speed(model, tokenizer, examples, generation_config)
+
 
 if __name__ == "__main__":
     main()

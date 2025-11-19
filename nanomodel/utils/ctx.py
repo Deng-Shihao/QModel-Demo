@@ -27,4 +27,3 @@ def ctx(*contexts: ContextArg) -> Iterator[Any | tuple[Any, ...] | None]:
             yield entered[0]
         else:
             yield tuple(entered)
-

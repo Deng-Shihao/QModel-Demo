@@ -14,10 +14,10 @@ def extract_vision_info(conversations: list[dict] | list[list[dict]]) -> list[di
             if isinstance(message["content"], list):
                 for ele in message["content"]:
                     if (
-                            "image" in ele
-                            or "image_url" in ele
-                            or "video" in ele
-                            or ele["type"] in ("image", "image_url", "video")
+                        "image" in ele
+                        or "image_url" in ele
+                        or "video" in ele
+                        or ele["type"] in ("image", "image_url", "video")
                     ):
                         vision_infos.append(ele)
     return vision_infos
@@ -43,5 +43,7 @@ def fetch_image(ele: dict[str, str | Image.Image]) -> Image.Image:
     else:
         image_obj = Image.open(image)
     if image_obj is None:
-        raise ValueError(f"Unrecognized image input, support local path, http url, base64 and PIL.Image, got {image}")
+        raise ValueError(
+            f"Unrecognized image input, support local path, http url, base64 and PIL.Image, got {image}"
+        )
     return image_obj

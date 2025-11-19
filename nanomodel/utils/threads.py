@@ -8,11 +8,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 class AsyncManager:
     """Single-queue async offloader. Submit only callables (fn or lambda)."""
+
     def __init__(self, name="asyncmanager-", threads: int = 1):
         assert threads > 0
         self._exec = ThreadPoolExecutor(max_workers=threads, thread_name_prefix=name)
         self._lock = threading.Lock()
-        self._futures = set()         # all in-flight futures
+        self._futures = set()  # all in-flight futures
         self._last_future = None
 
     def _discard_future(self, f: cf.Future) -> None:
@@ -63,9 +64,13 @@ class AsyncManager:
             if remaining == 0.0:
                 # Give a final short poll so we raise a TimeoutError consistently
                 remaining = 0.0
-            done, not_done = cf.wait(pending, timeout=remaining, return_when=cf.ALL_COMPLETED)
+            done, not_done = cf.wait(
+                pending, timeout=remaining, return_when=cf.ALL_COMPLETED
+            )
             if not_done:
-                raise TimeoutError(f"{len(not_done)} task(s) not finished before timeout")
+                raise TimeoutError(
+                    f"{len(not_done)} task(s) not finished before timeout"
+                )
 
     def shutdown(self, wait=True, cancel_pending=False):
         """

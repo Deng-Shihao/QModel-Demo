@@ -7,13 +7,14 @@ import torch
 from torch import nn as nn
 
 from ..models._const import CPU, CUDA_0
+
 try:
     import psutil  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
     psutil = None
 
 
-_BYTES_IN_GIB = 1024 ** 3
+_BYTES_IN_GIB = 1024**3
 
 
 def _bytes_to_gib(value: float | int) -> float:
@@ -98,13 +99,16 @@ def _gpu_memory_used_bytes(device: torch.device) -> int:
         allocated = torch.cuda.memory_allocated(idx)
     except RuntimeError:
         return 0
-    reserved = torch.cuda.memory_reserved(idx) if hasattr(torch.cuda, "memory_reserved") else 0
+    reserved = (
+        torch.cuda.memory_reserved(idx) if hasattr(torch.cuda, "memory_reserved") else 0
+    )
     return int(max(allocated, reserved))
 
 
 # unit: GiB
 def get_gpu_usage_memory():
     return _bytes_to_gib(_gpu_memory_used_bytes(CUDA_0))
+
 
 # unit: GiB
 def get_cpu_usage_memory():
@@ -120,6 +124,7 @@ def get_cpu_concurrency() -> int:
     concurrency = os.cpu_count() or 1
     return max(1, concurrency)
 
+
 def get_device(obj: torch.Tensor | nn.Module) -> torch.device:
     if isinstance(obj, torch.Tensor):
         return obj.device
@@ -132,6 +137,7 @@ def get_device(obj: torch.Tensor | nn.Module) -> torch.device:
         return buffers[0].device
     else:
         return CPU
+
 
 def get_device_new(
     obj: torch.Tensor | nn.Module,
@@ -160,6 +166,7 @@ def get_device_new(
             - Tensor: its own device
             - Module: the first parameter device, else first buffer device, else CPU
     """
+
     # --- Helper to normalize an "expected" device to (type, index) ---
     def _normalize_expected(exp: Optional[Union[str, torch.device]]):
         if exp is None:
@@ -197,7 +204,8 @@ def get_device_new(
         if exp_type is not None:
             # Check against expected device TYPE (and optionally INDEX)
             mismatches = [
-                d for d in devices
+                d
+                for d in devices
                 if d.type != exp_type or (check_index and d.index != exp_index)
             ]
             if mismatches:
@@ -210,7 +218,7 @@ def get_device_new(
                 )
         else:
             # Ensure uniformity across all devices (by type, and optionally index)
-            unique = { _key(d) for d in devices }
+            unique = {_key(d) for d in devices}
             if len(unique) > 1:
                 # Summarize what we actually found
                 summary = ", ".join(sorted(f"{t}:{i}" for (t, i) in unique))

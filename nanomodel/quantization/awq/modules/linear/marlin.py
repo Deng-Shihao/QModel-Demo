@@ -7,6 +7,7 @@ from nanomodel.quantization.awq.utils.module import try_import
 
 marlin_cuda, msg = try_import("marlin_cuda")
 
+
 def _get_perms():
     perm = []
     for i in range(32):
@@ -177,7 +178,9 @@ class WQLinear_Marlin(nn.Module):
             "Use marlin_post_init() on the whole model."
         )
         if marlin_cuda is None:
-            raise ModuleNotFoundError("External Marlin kernels are not properly installed." + msg)
+            raise ModuleNotFoundError(
+                "External Marlin kernels are not properly installed." + msg
+            )
 
         out_shape = x.shape[:-1] + (self.out_features,)
 

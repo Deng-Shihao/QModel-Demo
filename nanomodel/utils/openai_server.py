@@ -15,6 +15,7 @@ except ModuleNotFoundError as exception:
         "Please install via `pip install nanomodel[openai] --no-build-isolation`.",
     )
 
+
 class OpenAiServer:
     def __init__(self, model):
         self.uvicorn_server = None
@@ -49,9 +50,8 @@ class OpenAiServer:
         async def create_completion(request: OpenAiRequest):
             try:
                 inputs_tensor = self.tokenizer.apply_chat_template(
-                    request.messages,
-                    add_generation_prompt=True,
-                    return_tensors='pt').to(self.model.device)
+                    request.messages, add_generation_prompt=True, return_tensors="pt"
+                ).to(self.model.device)
 
                 do_sample = True if request.temperature != 0.0 else False
                 with torch.inference_mode():
@@ -63,11 +63,11 @@ class OpenAiServer:
                         num_return_sequences=request.n,
                         eos_token_id=self.tokenizer.eos_token_id,
                         stop_strings=request.stop,
-                        do_sample=do_sample
+                        do_sample=do_sample,
                     )
 
                 generated_texts = self.tokenizer.batch_decode(
-                    outputs[:, inputs_tensor.size(-1):],
+                    outputs[:, inputs_tensor.size(-1) :],
                     skip_special_tokens=True,
                 )
 
@@ -83,7 +83,7 @@ class OpenAiServer:
                     id=f"{uuid.uuid4()}",
                     created=int(time.time()),
                     model=self.model_id_or_path,
-                    choices=choices
+                    choices=choices,
                 )
                 return response
             except Exception as e:
@@ -108,10 +108,14 @@ class OpenAiServer:
         if async_mode:
             thread = threading.Thread(target=run_server, daemon=False)
             thread.start()
-            print(f"NanoModel OpenAi Server has started asynchronously at http://{host}:{port}.")
+            print(
+                f"NanoModel OpenAi Server has started asynchronously at http://{host}:{port}."
+            )
         else:
             run_server()
-            print(f"NanoModel OpenAi Server has started synchronously at http://{host}:{port}.")
+            print(
+                f"NanoModel OpenAi Server has started synchronously at http://{host}:{port}."
+            )
 
     def shutdown(self):
         if self.uvicorn_server is not None:
@@ -122,5 +126,7 @@ class OpenAiServer:
         start_time = time.time()
         while not self.uvicorn_server.started:
             if time.time() - start_time > timeout:
-                raise TimeoutError("NanoModel OpenAi server failed to start within the specified time.")
+                raise TimeoutError(
+                    "NanoModel OpenAi server failed to start within the specified time."
+                )
             time.sleep(check_interval)

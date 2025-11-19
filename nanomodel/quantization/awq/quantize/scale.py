@@ -22,7 +22,13 @@ from nanomodel.quantization.awq.utils.module import get_op_by_name, set_op_by_na
 from nanomodel.quantization.awq.utils.utils import get_best_device
 
 
-allowed_norms = [nn.LayerNorm, LlamaRMSNorm, GemmaRMSNorm, Gemma2RMSNorm, CohereLayerNorm]
+allowed_norms = [
+    nn.LayerNorm,
+    LlamaRMSNorm,
+    GemmaRMSNorm,
+    Gemma2RMSNorm,
+    CohereLayerNorm,
+]
 allowed_act_fns = [
     nn.GELU,
     BloomGelu,

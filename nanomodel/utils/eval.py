@@ -75,10 +75,12 @@ class EVAL:
             attr = getattr(cls, name)
             if isinstance(attr, type) and issubclass(attr, Enum):
                 full_names.extend(cls.get_full_name(member) for member in attr)
-        return ', '.join(full_names)
+        return ", ".join(full_names)
 
     @classmethod
-    def get_task_groups_from_tasks(cls, tasks: Union[str, List[str]]) -> Dict[Type[Enum], List[str]]:
+    def get_task_groups_from_tasks(
+        cls, tasks: Union[str, List[str]]
+    ) -> Dict[Type[Enum], List[str]]:
         """Group tasks by their evaluation framework.
 
         Args:
@@ -122,34 +124,46 @@ class EVAL:
 
 
 def evalplus(
-        model,
-        dataset: str,
-        batch: int = 1,
-        trust_remote_code: bool = False,
-        output_file: Optional[str] = None,
-        backend: str = 'nanomodel'
+    model,
+    dataset: str,
+    batch: int = 1,
+    trust_remote_code: bool = False,
+    output_file: Optional[str] = None,
+    backend: str = "nanomodel",
 ):
     patch_evalplus(model)
 
     try:
         from evalplus.evaluate import evaluate
     except BaseException:
-        raise ValueError("evalplus is not installed. Please install via `pip install nanomodel[evalplus]`.")
+        raise ValueError(
+            "evalplus is not installed. Please install via `pip install nanomodel[evalplus]`."
+        )
 
     assert dataset in ["humaneval", "mbpp"], f"Invalid dataset {dataset}"
 
-    evaluate(dataset=dataset, model=model, backend=backend, bs=batch, trust_remote_code=trust_remote_code, output_file=output_file,
-             greedy=True)
+    evaluate(
+        dataset=dataset,
+        model=model,
+        backend=backend,
+        bs=batch,
+        trust_remote_code=trust_remote_code,
+        output_file=output_file,
+        greedy=True,
+    )
 
     if output_file is None:
-        output_file = model.strip("./").replace("/", "--") + "_nanomodel_temp_0.0_eval_results.json"
+        output_file = (
+            model.strip("./").replace("/", "--")
+            + "_nanomodel_temp_0.0_eval_results.json"
+        )
         output_file = os.path.join("evalplus_results", dataset, output_file)
 
     if not os.path.exists(output_file):
         raise FileNotFoundError(f"No such file: {output_file}")
 
     try:
-        with open(output_file, 'r') as file:
+        with open(output_file, "r") as file:
             data = json.load(file)
     except json.JSONDecodeError:
         raise ValueError(f"Failed to decode JSON: {output_file}")
@@ -174,4 +188,3 @@ def evalplus_make_table(results):
     print("|-------------|------------|--------------------|")
     for task, metrics in results.items():
         print(f"| {task} | {metrics['base tests']} | {metrics['base + extra tests']} |")
-

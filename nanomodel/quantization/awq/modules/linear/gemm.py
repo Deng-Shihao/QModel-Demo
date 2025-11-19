@@ -15,13 +15,17 @@ awq_ext, msg = try_import("nanomodel_awq_kernels")
 user_has_been_warned = False
 
 try:
-    from nanomodel.quantization.awq.modules.triton.gemm import awq_dequantize_triton, awq_gemm_triton
+    from nanomodel.quantization.awq.modules.triton.gemm import (
+        awq_dequantize_triton,
+        awq_gemm_triton,
+    )
 
     # covers CUDA, ROCm and XPU. If we can import triton, then we can use it.
     TRITON_AVAILABLE = True
 
 except ImportError:
     TRITON_AVAILABLE = False
+
 
 # Adapted from https://github.com/compressa-ai/AutoAWQ/tree/dev
 class WQLinearMMFunction(Function):
@@ -68,7 +72,11 @@ class WQLinearMMFunction(Function):
                 out = torch.matmul(x, out.to(x.dtype))
             else:
                 out = awq_gemm_triton(
-                    x.reshape(-1, x.shape[-1]), qweight, scales, qzeros, split_k_iters=8,
+                    x.reshape(-1, x.shape[-1]),
+                    qweight,
+                    scales,
+                    qzeros,
+                    split_k_iters=8,
                 )
 
         else:
@@ -104,17 +112,20 @@ class WQLinearMMFunction(Function):
                 qweight, scales, qzeros, 1, 0, 0, False
             ).to(grad_output.dtype)
         else:
-            weights = awq_dequantize_triton(
-                qweight, scales, qzeros
-            ).to(grad_output.dtype)
+            weights = awq_dequantize_triton(qweight, scales, qzeros).to(
+                grad_output.dtype
+            )
 
         if ctx.needs_input_grad[0]:
             # 3D matmul using torch.bmm: https://pytorch.org/docs/stable/generated/torch.bmm.html#torch.bmm
             # to propagate gradient across all batch sizes.
             batch_size = grad_output.shape[0]
-            grad_input = grad_output.bmm(weights.transpose(0, 1).unsqueeze(0).repeat(batch_size, 1, 1))
+            grad_input = grad_output.bmm(
+                weights.transpose(0, 1).unsqueeze(0).repeat(batch_size, 1, 1)
+            )
 
         return grad_input, None, None, None, None, None, None, None
+
 
 class WQLinear_GEMM(nn.Module):
     def __init__(

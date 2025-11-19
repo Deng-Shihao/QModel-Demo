@@ -28,9 +28,11 @@ _SMALL_MODULE_OFFLOAD_BYTES = 4 * 1024  # Skip disk writes for <4KB payloads
 def _fake_clear_device_cache(garbage_collection=False):
     pass
 
+
 # keep original
 ACCELERATE_CLEAR_DEVICE_CACHE = accelerate.utils.modeling.clear_device_cache
 accelerate.utils.modeling.clear_device_cache = _fake_clear_device_cache
+
 
 def get_module_fullname(model: torch.nn.Module, module: torch.nn.Module) -> str:
     for name, mod in model.named_modules():
@@ -39,6 +41,7 @@ def get_module_fullname(model: torch.nn.Module, module: torch.nn.Module) -> str:
 
     name = module.full_name if module is NamedModule else ""
     raise Exception(f"module not found in model: name = {name}, module = {module}")
+
 
 def set_submodule(root: torch.nn.Module, path: str, new_mod: torch.nn.Module) -> None:
     parts = path.split(".")
@@ -54,6 +57,7 @@ def get_submodule(root: torch.nn.Module, path: str) -> torch.nn.Module:
         m = getattr(m, part)
     return m
 
+
 def is_meta_module(m: nn.Module) -> bool:
     for p in m.parameters(recurse=True):
         if getattr(p, "is_meta", False) or (hasattr(p, "device") and p.device is META):
@@ -62,6 +66,7 @@ def is_meta_module(m: nn.Module) -> bool:
         if hasattr(b, "device") and b.device is META:
             return True
     return False
+
 
 _OFFLOAD_LOCK = Lock()
 
@@ -122,16 +127,20 @@ def _bundle_module_state_dict(module: nn.Module, offload_dir: str) -> dict:
     return index
 
 
-def offload_to_disk(module: List[str] | nn.Module, model: nn.Module, disk_path: str = "."):
-    #with _OFFLOAD_LOCK:
+def offload_to_disk(
+    module: List[str] | nn.Module, model: nn.Module, disk_path: str = "."
+):
+    # with _OFFLOAD_LOCK:
     _offload_to_disk_impl(module=module, model=model, disk_path=disk_path)
 
 
-def _offload_to_disk_impl(module: List[str] | nn.Module, model: nn.Module, disk_path: str = "."):
+def _offload_to_disk_impl(
+    module: List[str] | nn.Module, model: nn.Module, disk_path: str = "."
+):
     assert module is not None
     assert model is not None
 
-    #with _lock:
+    # with _lock:
     if isinstance(module, List):
         for name in module:
             m = get_submodule(model, name)
@@ -152,17 +161,19 @@ def _offload_to_disk_impl(module: List[str] | nn.Module, model: nn.Module, disk_
 
         _offload_disk(module=module, name=full_name, disk_path=disk_path)
 
-    if hasattr(module, "config") and getattr(module.config,
-                                             "tie_word_embeddings", False):
+    if hasattr(module, "config") and getattr(
+        module.config, "tie_word_embeddings", False
+    ):
         module.tie_weights()  # makes lm_head.weight point to embed_tokens.weight again after offload
 
     # print("offload_disk: list item tree")
-            # print_module_tree(module)
+    # print_module_tree(module)
 
 
 # Serialize accelerate's disk hook mutations across threads.
-#_OFFLOAD_SAFE = ThreadSafe(sys.modules[__name__])
-#offload_to_disk = _OFFLOAD_SAFE.offload_to_disk
+# _OFFLOAD_SAFE = ThreadSafe(sys.modules[__name__])
+# offload_to_disk = _OFFLOAD_SAFE.offload_to_disk
+
 
 def _offload_disk(module: nn.Module, name: str, disk_path: str = "."):
     if is_meta_module(module):
@@ -176,7 +187,7 @@ def _offload_disk(module: nn.Module, name: str, disk_path: str = "."):
     # print(f"device_map base_modules: {device_map}")
 
     # skip modules that have no parameters and no buffers since they can't be offloaded
-    has_params  = any(p.numel() > 0 for p in module.parameters(recurse=False))
+    has_params = any(p.numel() > 0 for p in module.parameters(recurse=False))
     has_buffers = any(b.numel() > 0 for b in module.buffers(recurse=False))
     if not has_params and not has_buffers:
         return
@@ -208,8 +219,11 @@ def _offload_disk(module: nn.Module, name: str, disk_path: str = "."):
     # print("offload_disk: list item tree")
     # print_module_tree(module)
 
+
 # undo offload
-def _iter_leaf_tensors(mod: nn.Module, *, include_buffers: bool) -> Iterable[Tuple[str, torch.Tensor, bool]]:
+def _iter_leaf_tensors(
+    mod: nn.Module, *, include_buffers: bool
+) -> Iterable[Tuple[str, torch.Tensor, bool]]:
     """Yield (name, tensor, is_param) for direct children (no recurse) to preserve module attribute names."""
     for n, p in mod.named_parameters(recurse=False):
         yield n, p, True
@@ -225,13 +239,21 @@ def _maybe_align(mod: nn.Module, device: torch.device):
     so we can clone them out as real tensors. If not offloaded, this is a no-op.
     """
     if has_offloaded_params(mod):  # public check
-        with align_module_device(mod, execution_device=device):  # public context manager
+        with align_module_device(
+            mod, execution_device=device
+        ):  # public context manager
             yield
     else:
         yield
 
 
-def _clone_into_parameter(t: torch.Tensor, *, device: torch.device, dtype: Optional[torch.dtype], requires_grad: bool) -> nn.Parameter:
+def _clone_into_parameter(
+    t: torch.Tensor,
+    *,
+    device: torch.device,
+    dtype: Optional[torch.dtype],
+    requires_grad: bool,
+) -> nn.Parameter:
     target = t
     if dtype is not None and target.dtype != dtype:
         target = target.to(dtype)
@@ -242,7 +264,9 @@ def _clone_into_parameter(t: torch.Tensor, *, device: torch.device, dtype: Optio
     return nn.Parameter(target, requires_grad=requires_grad)
 
 
-def _clone_into_buffer(t: torch.Tensor, *, device: torch.device, dtype: Optional[torch.dtype]) -> torch.Tensor:
+def _clone_into_buffer(
+    t: torch.Tensor, *, device: torch.device, dtype: Optional[torch.dtype]
+) -> torch.Tensor:
     target = t
     if dtype is not None and target.dtype != dtype:
         target = target.to(dtype)
@@ -274,7 +298,9 @@ def _possible_offload_dirs_from_hook(mod: nn.Module) -> Set[str]:
     return dirs
 
 
-def _restore_leaves_from_weights_map(mod: nn.Module, device: torch.device, dtype: Optional[torch.dtype]) -> bool:
+def _restore_leaves_from_weights_map(
+    mod: nn.Module, device: torch.device, dtype: Optional[torch.dtype]
+) -> bool:
     """
     Fast path: if this version of Accelerate exposes a per-module weights_map (as observed in
     multiple stacks), directly read tensors by name instead of going through a forward-time preloader.
@@ -299,7 +325,9 @@ def _restore_leaves_from_weights_map(mod: nn.Module, device: torch.device, dtype
         return False
 
     with torch.inference_mode():
-        for name, tensor, is_param in list(_iter_leaf_tensors(mod, include_buffers=True)):
+        for name, tensor, is_param in list(
+            _iter_leaf_tensors(mod, include_buffers=True)
+        ):
             is_meta = getattr(tensor, "is_meta", False) or tensor.device is META
             if not is_meta:
                 continue  # already materialized
@@ -310,7 +338,9 @@ def _restore_leaves_from_weights_map(mod: nn.Module, device: torch.device, dtype
                 continue
 
             if is_param:
-                new_p = _clone_into_parameter(src, device=device, dtype=dtype, requires_grad=tensor.requires_grad)
+                new_p = _clone_into_parameter(
+                    src, device=device, dtype=dtype, requires_grad=tensor.requires_grad
+                )
                 setattr(mod, name, new_p)
             else:
                 new_b = _clone_into_buffer(src, device=device, dtype=dtype)
@@ -344,7 +374,7 @@ def undo_offload_to_disk(
     Returns:
         The same `module`, now “de-offloaded”.
     """
-    #with _lock:
+    # with _lock:
     # Track candidate offload dirs if user asks to delete them later.
     offload_dirs: Set[str] = set()
 
@@ -365,8 +395,10 @@ def undo_offload_to_disk(
             # Fallback path: ask Accelerate to align this submodule to the execution device,
             # then clone+rebind leaves so they become regular, hook-free tensors.
             with _maybe_align(sub, device=device):
-                for name, tensor, is_param in list(_iter_leaf_tensors(sub, include_buffers=include_buffers)):
-                    is_meta = (getattr(tensor, "is_meta", False) or tensor.device is META)
+                for name, tensor, is_param in list(
+                    _iter_leaf_tensors(sub, include_buffers=include_buffers)
+                ):
+                    is_meta = getattr(tensor, "is_meta", False) or tensor.device is META
                     if not is_meta:
                         # Still clone if the hook attached a tensor view that would be re-offloaded later.
                         # Safer to always break links to hook-managed storages.
@@ -376,18 +408,25 @@ def undo_offload_to_disk(
                         src = tensor
 
                     if is_param:
-                        new_p = _clone_into_parameter(src, device=device, dtype=dtype, requires_grad=tensor.requires_grad)
+                        new_p = _clone_into_parameter(
+                            src,
+                            device=device,
+                            dtype=dtype,
+                            requires_grad=tensor.requires_grad,
+                        )
                         setattr(sub, name, new_p)
                     else:
                         new_b = _clone_into_buffer(src, device=device, dtype=dtype)
                         setattr(sub, name, new_b)
 
         # 2) Remove all Accelerate hooks so future forwards won't offload again.
-        remove_hook_from_submodules(module)      # public API
+        remove_hook_from_submodules(module)  # public API
         remove_hook_from_module(module, recurse=False)  # ensure root is also clean
 
         # 3) Tie embedding if module is model and enabled/tied
-        if hasattr(module, "config") and getattr(module.config, "tie_word_embeddings", False):
+        if hasattr(module, "config") and getattr(
+            module.config, "tie_word_embeddings", False
+        ):
             module.tie_weights()  # makes lm_head.weight point to embed_tokens.weight again after undo_offload
 
         # 4) Optionally delete offload folders.

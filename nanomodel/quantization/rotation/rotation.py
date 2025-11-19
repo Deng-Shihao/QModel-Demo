@@ -14,7 +14,7 @@ log = setup_logger()
 
 
 def fuse_ln_linear(
-        layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]
+    layernorm: torch.nn.Module, linear_layers: typing.Iterable[torch.nn.Linear]
 ) -> None:
     """
     fuse the linear operations in Layernorm into the adjacent linear blocks.
@@ -42,8 +42,13 @@ def reset_ln(ln):
     ln.weight.data = torch.ones_like(W_norm)
 
 
-def fuse_layer_norms(model: PreTrainedModel, pre_lm_head_norm_module_name: str, layers_node: str, lm_head_name: str):
-    layers , _ = get_module_by_name_prefix(model, layers_node)
+def fuse_layer_norms(
+    model: PreTrainedModel,
+    pre_lm_head_norm_module_name: str,
+    layers_node: str,
+    lm_head_name: str,
+):
+    layers, _ = get_module_by_name_prefix(model, layers_node)
 
     # Fuse the linear operations in Layernorm into the adjacent linear blocks.
     for layer in layers:
@@ -62,7 +67,9 @@ def fuse_layer_norms(model: PreTrainedModel, pre_lm_head_norm_module_name: str, 
         reset_ln(layer.post_attention_layernorm)
         reset_ln(layer.input_layernorm)
 
-    pre_head_layernorm, _ = get_module_by_name_prefix(model, pre_lm_head_norm_module_name)
+    pre_head_layernorm, _ = get_module_by_name_prefix(
+        model, pre_lm_head_norm_module_name
+    )
     lm_head, _ = get_module_by_name_prefix(model, lm_head_name)
 
     fuse_ln_linear(pre_head_layernorm, [lm_head])
@@ -168,12 +175,16 @@ def rotate_ov_proj(layer, head_num, head_dim):
 
 
 @torch.inference_mode()
-def rotate_model(model: PreTrainedModel, rotate_mode: str, device: torch.device, lm_head_name: str,
-                 layers_node: str, Q=None):
+def rotate_model(
+    model: PreTrainedModel,
+    rotate_mode: str,
+    device: torch.device,
+    lm_head_name: str,
+    layers_node: str,
+    Q=None,
+):
     Q = (
-        get_orthogonal_matrix(
-            model.config.hidden_size, rotate_mode, device
-        )
+        get_orthogonal_matrix(model.config.hidden_size, rotate_mode, device)
         if Q is None
         else Q
     )
@@ -185,7 +196,7 @@ def rotate_model(model: PreTrainedModel, rotate_mode: str, device: torch.device,
     rotate_embeddings(model, Q, device)
     rotate_head(model, Q, device, lm_head_name)
     torch_empty_cache()
-    layers , _ = get_module_by_name_prefix(model, layers_node)
+    layers, _ = get_module_by_name_prefix(model, layers_node)
 
     for idx, layer in enumerate(log.pb(layers).title("Rotating")):
         rotate_attention_inputs(layer, Q, device)

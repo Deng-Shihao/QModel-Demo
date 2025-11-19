@@ -70,7 +70,11 @@ def _cuda_memory_used_bytes(index: int) -> Optional[int]:
     except Exception:
         try:
             allocated = torch.cuda.memory_allocated(index)
-            reserved = torch.cuda.memory_reserved(index) if hasattr(torch.cuda, "memory_reserved") else 0
+            reserved = (
+                torch.cuda.memory_reserved(index)
+                if hasattr(torch.cuda, "memory_reserved")
+                else 0
+            )
             return int(max(allocated, reserved))
         except Exception:
             return None
@@ -121,7 +125,9 @@ class Device:
             try:
                 index = int(index_str)
             except ValueError as exc:
-                raise RuntimeError(f"Invalid device identifier `{self.device_id}`.") from exc
+                raise RuntimeError(
+                    f"Invalid device identifier `{self.device_id}`."
+                ) from exc
         else:
             device_type = self.device_id
             index = 0

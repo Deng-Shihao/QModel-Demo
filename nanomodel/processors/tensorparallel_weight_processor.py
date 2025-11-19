@@ -49,6 +49,7 @@ class TensorParallelWeightProcessor(BaseProcessor):
 
     def pre_process_fwd_hook(self, name: str):
         """Returns a forward hook. This processor doesn't need to inspect activations."""
+
         def _noop(module, inputs, output):
             return None
 
@@ -89,16 +90,19 @@ class TensorParallelWeightProcessor(BaseProcessor):
     def _compute_padding(self, named_module: NamedModule) -> Dict[str, int]:
         """Calculates the number of columns to pad for tensor-parallel compatibility."""
         _, columns = get_number_of_rows_and_cols(named_module)
-        
+
         # Calculate how many columns we need to add to make the total divisible by the target multiple.
         # Example: columns=100, target=8. 100 % 8 = 4. (8 - 4) % 8 = 4. We need to pad 4 columns.
         # Example: columns=128, target=8. 128 % 8 = 0. (8 - 0) % 8 = 0. No padding needed.
-        pad_cols = (self._target_multiple - (columns % self._target_multiple)) % self._target_multiple
+        pad_cols = (
+            self._target_multiple - (columns % self._target_multiple)
+        ) % self._target_multiple
 
         return {
             "pad_cols": pad_cols,
             "target_multiple": self._target_multiple,
             "original_columns": columns,
         }
+
 
 __all__ = ["TensorParallelWeightProcessor"]

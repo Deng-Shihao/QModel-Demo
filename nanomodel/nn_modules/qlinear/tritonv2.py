@@ -25,13 +25,17 @@ try:
 
     # GIL=0 is tested with Triton 3.4.0 and it works
     if has_gil_disabled() and triton_v < version.parse("3.4.0"):
-        raise Exception("GIL is disabled and not compatible with current Triton. Please upgrade to Triton >= 3.4.0")
+        raise Exception(
+            "GIL is disabled and not compatible with current Triton. Please upgrade to Triton >= 3.4.0"
+        )
 
     TRITON_AVAILABLE = True
 except BaseException:
     TRITON_AVAILABLE = False
+
     class TritonModuleMixin:
         pass
+
 
 TRITON_INSTALL_HINT = "Trying to use the triton backend, but it could not be imported. Please install triton by 'pip install nanomodel[triton] --no-build-isolation'"
 TRITON_XPU_INSTALL_HINT = "Trying to use the triton backend and xpu device, but it could not be imported. Please install triton by [intel-xpu-backend-for-triton](https://github.com/intel/intel-xpu-backend-for-triton)"
@@ -50,7 +54,9 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
     SUPPORTS_IN_FEATURES_DIVISIBLE_BY = [32]
     SUPPORTS_OUT_FEATURES_DIVISIBLE_BY = [32]
 
-    SUPPORTS_DEVICES = [DEVICE.CUDA] # Intel XPU can use Triton but this has been validated
+    SUPPORTS_DEVICES = [
+        DEVICE.CUDA
+    ]  # Intel XPU can use Triton but this has been validated
     SUPPORTS_PLATFORM = [PLATFORM.LINUX, PLATFORM.WIN32]
     SUPPORTS_PACK_DTYPES = [torch.int32, torch.int16, torch.int8]
 
@@ -95,7 +101,8 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
             pack_dtype=pack_dtype,
             backend=kwargs.pop("backend", BACKEND.TRITON),
             register_buffers=register_buffers,
-            **kwargs)
+            **kwargs,
+        )
 
         # if self.group_size != self.in_features:
         #     self.padded_infeatures = self.in_features + (-self.in_features % self.group_size)
@@ -107,7 +114,7 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
         if not TRITON_AVAILABLE:
             return False, ValueError(TRITON_INSTALL_HINT)
 
-        device = args.get('device')
+        device = args.get("device")
 
         if device == DEVICE.XPU and not triton_xpu_available():
             return False, ValueError(TRITON_XPU_INSTALL_HINT)
@@ -155,16 +162,18 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
 
 __all__ = ["TritonV2QuantLinear"]
 
+
 # test triton on XPU to ensure special Intel/Triton is installed as we cannot check based on triton package meta data
 def triton_test_add(x: torch.Tensor, y: torch.Tensor):
     # don't put it on top-level to avoid crash if triton was not installed
     @triton.jit
-    def add_kernel(x_ptr,  # *Pointer* to first input vector.
-                   y_ptr,  # *Pointer* to second input vector.
-                   output_ptr,  # *Pointer* to output vector.
-                   n_elements,  # Size of the vector.
-                   BLOCK_SIZE: tl.constexpr,  # Number of elements each program should process.
-                   ):
+    def add_kernel(
+        x_ptr,  # *Pointer* to first input vector.
+        y_ptr,  # *Pointer* to second input vector.
+        output_ptr,  # *Pointer* to output vector.
+        n_elements,  # Size of the vector.
+        BLOCK_SIZE: tl.constexpr,  # Number of elements each program should process.
+    ):
         pid = tl.program_id(axis=0)
         block_start = pid * BLOCK_SIZE
         offsets = block_start + tl.arange(0, BLOCK_SIZE)
@@ -172,10 +181,13 @@ def triton_test_add(x: torch.Tensor, y: torch.Tensor):
         x = tl.load(x_ptr + offsets, mask=mask)
         y = tl.load(y_ptr + offsets, mask=mask)
         output = x + y  # noqa: F841
+
     output = torch.empty_like(x)
     n_elements = output.numel()
+
     def grid(meta):
-        return (triton.cdiv(n_elements, meta['BLOCK_SIZE']), )
+        return (triton.cdiv(n_elements, meta["BLOCK_SIZE"]),)
+
     add_kernel[grid](x, y, output, n_elements, BLOCK_SIZE=1024)
     return output
 
@@ -184,12 +196,11 @@ def triton_xpu_available():
     if not TRITON_AVAILABLE:
         return False
     size = 1024
-    x = torch.rand(size, device='xpu:0')
-    y = torch.rand(size, device='xpu:0')
+    x = torch.rand(size, device="xpu:0")
+    y = torch.rand(size, device="xpu:0")
 
     try:
         triton_test_add(x, y)
         return True
     except Exception:
         return False
-

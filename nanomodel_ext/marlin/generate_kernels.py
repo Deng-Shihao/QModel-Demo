@@ -15,28 +15,32 @@ namespace MARLIN_NAMESPACE_NAME {
 
 FILE_TAIL = "}\n"
 
-TEMPLATE = ("template __global__ void Marlin<"
-            "{{scalar_t}}, "
-            "{{w_type_id}}, "
-            "{{s_type_id}}, "
-            "{{threads}}, "
-            "{{thread_m_blocks}}, "
-            "{{thread_n_blocks}}, "
-            "{{thread_k_blocks}}, "
-            "{{'true' if m_block_size_8 else 'false'}}, "
-            "{{stages}}, "
-            "{{group_blocks}}, "
-            "{{'true' if is_zp_float else 'false'}}>"
-            "( MARLIN_KERNEL_PARAMS );")
+TEMPLATE = (
+    "template __global__ void Marlin<"
+    "{{scalar_t}}, "
+    "{{w_type_id}}, "
+    "{{s_type_id}}, "
+    "{{threads}}, "
+    "{{thread_m_blocks}}, "
+    "{{thread_n_blocks}}, "
+    "{{thread_k_blocks}}, "
+    "{{'true' if m_block_size_8 else 'false'}}, "
+    "{{stages}}, "
+    "{{group_blocks}}, "
+    "{{'true' if is_zp_float else 'false'}}>"
+    "( MARLIN_KERNEL_PARAMS );"
+)
 
 # int8 with zero point case (vllm::kU8) is also supported,
 # we don't add it to reduce wheel size.
 SCALAR_TYPES = [
-    "vllm::kU4", "vllm::kU4B8", "vllm::kU8B128", "vllm::kFE4M3fn",
-    "vllm::kFE2M1f"
+    "vllm::kU4",
+    "vllm::kU4B8",
+    "vllm::kU8B128",
+    "vllm::kFE4M3fn",
+    "vllm::kFE2M1f",
 ]
-THREAD_CONFIGS = [(128, 128, 256), (64, 256, 256), (64, 128, 128),
-                  (128, 64, 128)]
+THREAD_CONFIGS = [(128, 128, 256), (64, 256, 256), (64, 128, 128), (128, 64, 128)]
 
 THREAD_M_BLOCKS = [0.5, 1, 2, 3, 4]
 # group_blocks:
@@ -52,12 +56,22 @@ def remove_old_kernels() -> None:
     for path in root.glob("kernel_*.cu"):
         path.unlink(missing_ok=True)
 
+
 def _write_kernel_file(scalar_type: str, dtype: str, templates: list[str]) -> Path:
     root = Path(__file__).parent
-    scalar_suffix = scalar_type.split("::", 1)[1].lower() if "::" in scalar_type else scalar_type.lower()
+    scalar_suffix = (
+        scalar_type.split("::", 1)[1].lower()
+        if "::" in scalar_type
+        else scalar_type.lower()
+    )
     output_path = root / f"kernel_{dtype}_{scalar_suffix}.cu"
 
-    lines = [FILE_HEAD, "", f"// Instantiations for dtype={dtype}, weight={scalar_type}", ""]
+    lines = [
+        FILE_HEAD,
+        "",
+        f"// Instantiations for dtype={dtype}, weight={scalar_type}",
+        "",
+    ]
     lines.append("\n".join(templates))
     lines.append("")
     lines.append(FILE_TAIL)
@@ -69,12 +83,10 @@ def _write_kernel_file(scalar_type: str, dtype: str, templates: list[str]) -> Pa
 def render_templates_for_combo(scalar_type: str, dtype: str) -> list[str]:
     results: list[str] = []
     for group_blocks, m_blocks, thread_configs in itertools.product(
-            GROUP_BLOCKS, THREAD_M_BLOCKS, THREAD_CONFIGS):
-
+        GROUP_BLOCKS, THREAD_M_BLOCKS, THREAD_CONFIGS
+    ):
         # act order case only support gptq-int4 and gptq-int8
-        if group_blocks == 0 and scalar_type not in [
-                "vllm::kU4B8", "vllm::kU8B128"
-        ]:
+        if group_blocks == 0 and scalar_type not in ["vllm::kU4B8", "vllm::kU8B128"]:
             continue
         if thread_configs[2] == 256:
             # for small batch (m_blocks == 1), we only need (128, 128, 256)
@@ -103,8 +115,7 @@ def render_templates_for_combo(scalar_type: str, dtype: str) -> list[str]:
         c_dtype = "half" if dtype == "fp16" else "nv_bfloat16"
 
         is_zp_float_list = [False]
-        if dtype == "fp16" and scalar_type == "vllm::kU4" and \
-                group_blocks == 4:
+        if dtype == "fp16" and scalar_type == "vllm::kU4" and group_blocks == 4:
             # HQQ (is_zp_float = true) only supports
             # 4bit quantization and fp16
             is_zp_float_list.append(True)
@@ -152,7 +163,9 @@ def generate_new_kernels() -> None:
         emitted = True
 
     if not emitted:
-        raise RuntimeError("No marlin kernels were generated; check template configuration.")
+        raise RuntimeError(
+            "No marlin kernels were generated; check template configuration."
+        )
 
 
 if __name__ == "__main__":

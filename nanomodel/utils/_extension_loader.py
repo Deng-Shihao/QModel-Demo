@@ -57,7 +57,9 @@ def _ensure_torch_shared_libraries_loaded() -> None:
     _TORCH_SHARED_LIBS_PRELOADED = True
 
 
-def load_extension_module(module_name: str, package: Optional[str] = "nanomodel") -> ModuleType:
+def load_extension_module(
+    module_name: str, package: Optional[str] = "nanomodel"
+) -> ModuleType:
     """Import a compiled extension, with fallbacks for editable installs.
     Args:
         module_name: The qualified module name to import.
@@ -79,8 +81,7 @@ def load_extension_module(module_name: str, package: Optional[str] = "nanomodel"
         if ext_path is None:
             raise primary_error
 
-        loader = importlib.machinery.ExtensionFileLoader(module_name,
-                                                         str(ext_path))
+        loader = importlib.machinery.ExtensionFileLoader(module_name, str(ext_path))
         spec = importlib.util.spec_from_loader(module_name, loader)
         if spec is None:
             raise primary_error
@@ -98,8 +99,7 @@ def load_extension_module(module_name: str, package: Optional[str] = "nanomodel"
         return module
 
 
-def _resolve_extension_path(module_name: str,
-                            package: Optional[str]) -> Optional[Path]:
+def _resolve_extension_path(module_name: str, package: Optional[str]) -> Optional[Path]:
     for directory in _candidate_directories(package):
         for suffix in importlib.machinery.EXTENSION_SUFFIXES:
             candidate = directory / f"{module_name}{suffix}"

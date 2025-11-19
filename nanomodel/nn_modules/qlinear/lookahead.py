@@ -68,7 +68,9 @@ def configure_default_lookahead(model) -> None:
         mlp = mlp_blocks.get(block, {})
 
         q_module = attn.get("q_proj")
-        attn_modules = [attn.get(key) for key in attn_order if attn.get(key) is not None]
+        attn_modules = [
+            attn.get(key) for key in attn_order if attn.get(key) is not None
+        ]
         mlp_targets = [mlp.get(key) for key in mlp_order if mlp.get(key) is not None]
 
         # reset lookahead state on all participating modules within this block

@@ -1,4 +1,5 @@
 """Example quantizing a model with AWQ kernels and running a validation decode."""
+
 import os
 import logging
 from transformers import AutoTokenizer
@@ -9,8 +10,9 @@ from nanomodel.quantization import KERNEL, METHOD, QUANT_CONFIG_FILENAME
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
+pretrained_model_id = "Qwen3-4B-Instruct-2507"
+quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-AWQ-4bit"
+
 
 def main():
     """Quantize a pretrained model using AWQ and run a sample generation."""
@@ -31,7 +33,7 @@ def main():
         bits=4,
         group_size=128,
         quant_method=METHOD.AWQ,  # Switch to METHOD.GPTQ if you prefer GPTQ kernels.
-        kernel=KERNEL.GEMV,  # Alternative kernels: KERNEL.GEMM for matmul-based inference.
+        kernel=KERNEL.GEMM,  # Alternative kernels: KERNEL.GEMM for matmul-based inference.
     )
 
     logger.info("Loading pretrained model for quantization...")
@@ -50,6 +52,7 @@ def main():
     generated = model.generate(**prompt_inputs)[0]
     print(tokenizer.decode(generated))
 
+
 if __name__ == "__main__":
     logging.basicConfig(
         format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
@@ -63,22 +66,22 @@ if __name__ == "__main__":
     #     group_size=128,  # default 128
     #     quant_method=METHOD.AWQ
 
-        # act_order: Optional[bool] = field(default=None)
-        # act_group_aware: Optional[bool] = field(default=None)
-        # static_groups: bool = field(default=False)
-        # sym: bool = field(default=True)
-        # true_sequential: bool = field(default=True)
+    # act_order: Optional[bool] = field(default=None)
+    # act_group_aware: Optional[bool] = field(default=None)
+    # static_groups: bool = field(default=False)
+    # sym: bool = field(default=True)
+    # true_sequential: bool = field(default=True)
 
-        # lm_head = False (default)
-        # quant_method = GPTQ (default)
-        # mse: float = field(default=0.0)
-        # mock_quantization: bool = field(default=False, metadata={"help": "Skip heavy computations for fast model loading validation"})
+    # lm_head = False (default)
+    # quant_method = GPTQ (default)
+    # mse: float = field(default=0.0)
+    # mock_quantization: bool = field(default=False, metadata={"help": "Skip heavy computations for fast model loading validation"})
 
-        # hessian_chunk_size (default=None)
-        # hessian_chunk_bytes (default=None)
-        # hessian_use_bfloat16_staging (default=False)
+    # hessian_chunk_size (default=None)
+    # hessian_chunk_bytes (default=None)
+    # hessian_use_bfloat16_staging (default=False)
 
-        # rotation ["hadamard", "random"]
-        # is_marlin_format: bool = False
-        # zero_point: bool = field(default=True)
+    # rotation ["hadamard", "random"]
+    # is_marlin_format: bool = False
+    # zero_point: bool = field(default=True)
     # )

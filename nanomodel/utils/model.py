@@ -96,7 +96,9 @@ def _torch_dtype_to_safetensors(dtype: torch.dtype) -> str:
     return _DTYPE_SAFE_MAP[dtype][0]
 
 
-def _dtype_string_to_torch(dtype_str: Optional[str], fallback: torch.dtype) -> torch.dtype:
+def _dtype_string_to_torch(
+    dtype_str: Optional[str], fallback: torch.dtype
+) -> torch.dtype:
     if dtype_str is None:
         return fallback
     key = dtype_str.lower()
@@ -128,6 +130,7 @@ class TensorSource:
     def num_bytes(self) -> int:
         return _torch_dtype_num_bytes(self.torch_dtype) * math.prod(self.shape or (1,))
 
+
 def recurse_getattr(obj, attr: str):
     """
     Recursive `getattr`.
@@ -154,7 +157,9 @@ def recurse_setattr(module, name, value):
         recurse_setattr(getattr(module, name), rest, value)
 
 
-def move_to(obj: torch.Tensor | nn.Module, device: torch.device, dtype: torch.dtype = None):
+def move_to(
+    obj: torch.Tensor | nn.Module, device: torch.device, dtype: torch.dtype = None
+):
     if get_device(obj) != device or dtype is not None:
         obj = obj.to(device=device, dtype=dtype, non_blocking=False)
 
@@ -170,16 +175,22 @@ def nested_move_to(v, device, dtype: torch.dtype = None):
         return v
 
 
-def find_modules(module: nn.Module, layers=None, name: str="") -> Dict[str, nn.Module]:
+def find_modules(
+    module: nn.Module, layers=None, name: str = ""
+) -> Dict[str, nn.Module]:
     if not layers:
         layers = SUPPORTS_MODULE_TYPES
 
     if isinstance(module, tuple(layers)):
-       return {name: module}
+        return {name: module}
 
     res = {}
     for name1, child in module.named_children():
-        res.update(find_modules(child, layers=layers, name=name + "." + name1 if name != "" else name1))
+        res.update(
+            find_modules(
+                child, layers=layers, name=name + "." + name1 if name != "" else name1
+            )
+        )
     return res
 
 
@@ -198,6 +209,7 @@ def get_module_by_name_suffix(model, module_name: str):
         if name.endswith(module_name):
             return module
 
+
 def get_module(module, key):
     """Get module from model by key name.
 
@@ -210,6 +222,7 @@ def get_module(module, key):
         module = getattr(module, name, None)
     return module
 
+
 def make_quant(
     module,
     qcfg: QuantizeConfig,
@@ -220,9 +233,8 @@ def make_quant(
     device: DEVICE = None,
     from_quantized: bool = False,
 ) -> Type[BaseQuantLinear]:
-
     bits = qcfg.bits
-    group_size =qcfg.group_size
+    group_size = qcfg.group_size
     format = qcfg.kernel
     act_order = qcfg.act_order
     sym = qcfg.sym
@@ -248,7 +260,9 @@ def make_quant(
         multi_select=True,
     )
 
-    log.info(f"Kernel: candidates -> `[{', '.join(cls.__name__ for cls in quant_linear_candidates)}]`")
+    log.info(
+        f"Kernel: candidates -> `[{', '.join(cls.__name__ for cls in quant_linear_candidates)}]`"
+    )
 
     # loop over actual QLinear init, catch errors and use fallbacks if applicable
     for cls in quant_linear_candidates:
@@ -281,7 +295,10 @@ def make_quant(
             if backend not in [BACKEND.AUTO, BACKEND.AUTO_TRAINABLE]:
                 raise e
 
-    raise ValueError(f"No compatible quant linear was found for this module: {module.__class__.__name__}")
+    raise ValueError(
+        f"No compatible quant linear was found for this module: {module.__class__.__name__}"
+    )
+
 
 def create_quant_module(
     name: str,
@@ -386,7 +403,7 @@ def create_quant_module(
         out_features=out_features,
         pack_dtype=tmp_pack_dtype,
         bias=bias,
-        #weight_dtype=submodule.qweight.dtype if isinstance(submodule, BaseQuantLinear) else submodule.weight.dtype,
+        # weight_dtype=submodule.qweight.dtype if isinstance(submodule, BaseQuantLinear) else submodule.weight.dtype,
         name=name,
         lm_head_name=lm_head_name,
         backend=backend,
@@ -395,19 +412,20 @@ def create_quant_module(
     new_layer.device = ori_layer_device
     recurse_setattr(module, name, new_layer.to(ori_layer_device))
 
+
 def create_quant_layer(
-        linear_cls: Type[BaseQuantLinear],
-        bits: int,
-        act_order: bool,
-        dynamic,
-        group_size: int,
-        quant_result: Dict[str, Dict[str, Any]],
-        module,
-        sym: bool,
-        device: DEVICE,
-        lm_head_name: str,
-        pack_dtype: torch.dtype,
-        backend: BACKEND,
+    linear_cls: Type[BaseQuantLinear],
+    bits: int,
+    act_order: bool,
+    dynamic,
+    group_size: int,
+    quant_result: Dict[str, Dict[str, Any]],
+    module,
+    sym: bool,
+    device: DEVICE,
+    lm_head_name: str,
+    pack_dtype: torch.dtype,
+    backend: BACKEND,
 ) -> Type[BaseQuantLinear]:
     if isinstance(module, linear_cls):
         return linear_cls
@@ -433,6 +451,7 @@ def create_quant_layer(
         )
 
     return linear_cls
+
 
 @torch.inference_mode()
 def pack_module(
@@ -465,7 +484,7 @@ def pack_module(
 
     if q_g_idx is not None:
         assert get_device(q_g_idx) == CPU
-        #q_g_idx = q_g_idx.to(CPU)
+        # q_g_idx = q_g_idx.to(CPU)
 
     pack_impl = "original"
     target_device = None
@@ -480,7 +499,9 @@ def pack_module(
             try:
                 target_device = torch.device(cfg_device)
             except (RuntimeError, ValueError):
-                log.warning(f"pack_module: unable to parse target device `{cfg_device}`; defaulting to CUDA auto-select.")
+                log.warning(
+                    f"pack_module: unable to parse target device `{cfg_device}`; defaulting to CUDA auto-select."
+                )
 
     packer_label = None
 
@@ -511,10 +532,14 @@ def pack_module(
             effective_impl = "original"
         elif effective_impl == "gpu":
             if not HAS_CUDA:
-                log.warning("pack_module: GPU packing requested but CUDA is unavailable; falling back to original pack.")
+                log.warning(
+                    "pack_module: GPU packing requested but CUDA is unavailable; falling back to original pack."
+                )
                 effective_impl = "original"
             elif not hasattr(module, "pack_gpu"):
-                log.warning("pack_module: GPU packing requested but module lacks pack_gpu; falling back to original pack.")
+                log.warning(
+                    "pack_module: GPU packing requested but module lacks pack_gpu; falling back to original pack."
+                )
                 effective_impl = "original"
         elif effective_impl != "original":
             log.warning(
@@ -552,7 +577,9 @@ def pack_module(
                     g_idx=q_g_idx,
                 )
             else:
-                module.pack_original(linear=layer, scales=q_scales, zeros=q_zeros, g_idx=q_g_idx)
+                module.pack_original(
+                    linear=layer, scales=q_scales, zeros=q_zeros, g_idx=q_g_idx
+                )
 
         # TODO: why move it back to gpu?
         # start = time.time()
@@ -560,6 +587,7 @@ def pack_module(
         # log.info(f"Pack: moving module back to `{layer_device}` cost = {time.time()-start} seconds")
 
     return packer_label
+
 
 def pack_model(
     model,
@@ -603,19 +631,26 @@ def pack_model(
 
     qModules = find_modules(model, [quant_linear_cls])
 
-    assert len(qModules) > 0, f"No quantizeed modules[{quant_linear_cls}] found in the model."
+    assert len(qModules) > 0, (
+        f"No quantizeed modules[{quant_linear_cls}] found in the model."
+    )
 
     names = list(qModules.keys())
     lock = threading.Lock()
 
     if has_gil_disabled():
         from nanomodel.utils.monitor import Device
+
         cpu = Device("cpu")
         max_packers = cpu.count * cpu.cores
     else:
-        max_packers = 1 # due to gil, there is no point packing with more than 1 thread
+        max_packers = 1  # due to gil, there is no point packing with more than 1 thread
 
-    with ctx(ThreadPoolExecutor(max_workers=max_packers), log.pb(names).manual()) as (executor, pb):
+    with ctx(ThreadPoolExecutor(max_workers=max_packers), log.pb(names).manual()) as (
+        executor,
+        pb,
+    ):
+
         def wrapper(name):
             # TODO FIX, thread pool executor does not advance iterator
             pb.next()
@@ -635,6 +670,7 @@ def pack_model(
 
     log.info("Model packed.")
     return quant_linear_cls
+
 
 def simple_dispatch_model(model, device_map):
     from accelerate.hooks import AlignDevicesHook, add_hook_to_module
@@ -658,10 +694,14 @@ def simple_dispatch_model(model, device_map):
     prev_hook = None
     for idx, (n, d) in enumerate(cpu_offload_group):
         m = get_module_by_name_suffix(model, n)
-        _, prev_hook = accelerate.cpu_offload_with_hook(m, execution_device=main_device, prev_module_hook=prev_hook)
+        _, prev_hook = accelerate.cpu_offload_with_hook(
+            m, execution_device=main_device, prev_module_hook=prev_hook
+        )
     # set first cpu offload module's prev_module_hook to the last cpu offload module's hook
     if len(cpu_offload_group) > 1:
-        get_module_by_name_suffix(model, cpu_offload_group[0][0])._hf_hook.prev_module_hook = prev_hook
+        get_module_by_name_suffix(
+            model, cpu_offload_group[0][0]
+        )._hf_hook.prev_module_hook = prev_hook
 
     for n, d in device_map.items():
         m = get_module_by_name_suffix(model, n)
@@ -676,13 +716,21 @@ def simple_dispatch_model(model, device_map):
 
 
 # public/stable api exposed to transformer/optimum
-def hf_nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
-                        max_input_length: Optional[int] = None):
+def hf_nanomodel_post_init(
+    model,
+    use_act_order: bool,
+    quantize_config: QuantizeConfig = None,
+    max_input_length: Optional[int] = None,
+):
     return nanomodel_post_init(model, use_act_order, quantize_config, max_input_length)
 
 
-def nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeConfig = None,
-                        max_input_length: Optional[int] = None):
+def nanomodel_post_init(
+    model,
+    use_act_order: bool,
+    quantize_config: QuantizeConfig = None,
+    max_input_length: Optional[int] = None,
+):
     for _, submodule in model.named_modules():
         if isinstance(submodule, BaseQuantLinear):
             submodule.post_init()
@@ -691,7 +739,12 @@ def nanomodel_post_init(model, use_act_order: bool, quantize_config: QuantizeCon
     return model
 
 
-def get_checkpoints(model_id_or_path: str, extensions: List[str], possible_model_basenames: List[str], **cached_file_kwargs):
+def get_checkpoints(
+    model_id_or_path: str,
+    extensions: List[str],
+    possible_model_basenames: List[str],
+    **cached_file_kwargs,
+):
     """
     Retrives (and if necessary downloads from Hugging Face Hub) the model checkpoint. Sharding is supported. All the `possible_model_basenames` (e.g. `["model", "model-4bit-gptq"]`) will be explored over all `extensions` (e.g. `[".bin", ".safetensors"]`).
     """
@@ -707,10 +760,14 @@ def get_checkpoints(model_id_or_path: str, extensions: List[str], possible_model
                 possible_index_file = os.path.join(model_id_or_path, shard_index_name)
                 if os.path.isfile(possible_index_file):
                     # The model is sharded over several checkpoints.
-                    possible_model_basename = possible_index_file.replace(ext + ".index.json", "")
+                    possible_model_basename = possible_index_file.replace(
+                        ext + ".index.json", ""
+                    )
                     return True, possible_index_file, possible_model_basename
                 else:
-                    model_save_name = os.path.join(model_id_or_path, possible_model_basename)
+                    model_save_name = os.path.join(
+                        model_id_or_path, possible_model_basename
+                    )
                     searched_files.append(possible_model_basename + ext)
                     if os.path.isfile(model_save_name + ext):
                         resolved_archive_file = model_save_name + ext
@@ -761,10 +818,9 @@ def get_checkpoints(model_id_or_path: str, extensions: List[str], possible_model
 
 
 # return the most stable tensor dtype for quantization while minimizing vram
-def auto_dtype(config: PretrainedConfig,
-               device: DEVICE,
-               quant_inference: bool = False) -> torch.dtype:
-
+def auto_dtype(
+    config: PretrainedConfig, device: DEVICE, quant_inference: bool = False
+) -> torch.dtype:
     assert isinstance(device, DEVICE)
 
     # TODO: both MPS and XPU are locked to float16
@@ -790,7 +846,11 @@ def auto_dtype(config: PretrainedConfig,
     #     return torch.float16
 
     # get dtype from config
-    dtype = getattr(config, "dtype") if hasattr(config, "dtype") else getattr(config, "torch_dtype")
+    dtype = (
+        getattr(config, "dtype")
+        if hasattr(config, "dtype")
+        else getattr(config, "torch_dtype")
+    )
     if dtype and not isinstance(dtype, torch.dtype):
         raise ValueError(f"dtype in config must be a torch.dtype, but got {dtype}")
 
@@ -818,7 +878,9 @@ def get_moe_layer_modules(layer_modules: List, num_experts: int) -> List:
         for n in names:
             if EXPERT_INDEX_PLACEHOLDER in n:
                 for index in range(num_experts):
-                    new_inside_layer_modules[-1].append(n.replace(EXPERT_INDEX_PLACEHOLDER, str(index)))
+                    new_inside_layer_modules[-1].append(
+                        n.replace(EXPERT_INDEX_PLACEHOLDER, str(index))
+                    )
             else:
                 new_inside_layer_modules[-1].append(n)
 
@@ -827,7 +889,11 @@ def get_moe_layer_modules(layer_modules: List, num_experts: int) -> List:
 
 def check_to_quantized(config):
     if isinstance(config, dict):
-        if config["bits"] > 8 or "fp" in config["data_type"] or "float" in config["data_type"]:
+        if (
+            config["bits"] > 8
+            or "fp" in config["data_type"]
+            or "float" in config["data_type"]
+        ):
             return False
         return True
     else:
@@ -840,7 +906,7 @@ def copy_py_files(save_dir, file_extension=".py", model_id_or_path=""):
     os.makedirs(save_dir, exist_ok=True)
 
     if os.path.isdir(model_id_or_path):
-        py_files = [f for f in os.listdir(model_id_or_path) if f.endswith('.py')]
+        py_files = [f for f in os.listdir(model_id_or_path) if f.endswith(".py")]
         for file in py_files:
             shutil.copy2(os.path.join(model_id_or_path, file), save_dir)
     else:
@@ -848,16 +914,32 @@ def copy_py_files(save_dir, file_extension=".py", model_id_or_path=""):
         model_info = api.model_info(model_id_or_path)
         for file in model_info.siblings:
             if file.rfilename.endswith(file_extension):
-                _ = hf_hub_download(repo_id=model_id_or_path, filename=file.rfilename,
-                                                  local_dir=save_dir)
+                _ = hf_hub_download(
+                    repo_id=model_id_or_path,
+                    filename=file.rfilename,
+                    local_dir=save_dir,
+                )
 
-def get_model_files_size(pre_quantized_model_path, file_extension=['.bin', '.safetensors', '.pth', '.pt', '.ckpt', '.h5', '.pb', '.onnx']):
+
+def get_model_files_size(
+    pre_quantized_model_path,
+    file_extension=[
+        ".bin",
+        ".safetensors",
+        ".pth",
+        ".pt",
+        ".ckpt",
+        ".h5",
+        ".pb",
+        ".onnx",
+    ],
+):
     if os.path.isdir(pre_quantized_model_path):
         pre_quantized_size_bytes = sum(
             os.path.getsize(os.path.join(pre_quantized_model_path, f))
             for f in os.listdir(pre_quantized_model_path)
-            if os.path.isfile(os.path.join(pre_quantized_model_path, f)) and os.path.splitext(f)[
-                1] in file_extension
+            if os.path.isfile(os.path.join(pre_quantized_model_path, f))
+            and os.path.splitext(f)[1] in file_extension
         )
     else:
         api = HfApi()
@@ -865,12 +947,15 @@ def get_model_files_size(pre_quantized_model_path, file_extension=['.bin', '.saf
         pre_quantized_size_bytes = 0
         for file_info in files_data:
             if any(file_info.endswith(ext) for ext in file_extension):
-                file_metadata = api.model_info(pre_quantized_model_path, files_metadata=True)
+                file_metadata = api.model_info(
+                    pre_quantized_model_path, files_metadata=True
+                )
                 for file_data in file_metadata.siblings:
                     if file_data.rfilename == file_info:
                         pre_quantized_size_bytes += file_data.size
     pre_quantized_size_mb = pre_quantized_size_bytes / (1024 * 1024)
     return pre_quantized_size_mb
+
 
 def check_requires_version(requires_version, current_version):
     OPERATOR_MAP = {
@@ -915,7 +1000,9 @@ def _resolve_offload_entry(
     if not offload_root:
         return None
 
-    module_dir = os.path.join(offload_root, module_path) if module_path else offload_root
+    module_dir = (
+        os.path.join(offload_root, module_path) if module_path else offload_root
+    )
     index = index_cache.get(module_dir)
     if index is None:
         index_path = os.path.join(module_dir, "index.json")
@@ -958,9 +1045,13 @@ def _resolve_offload_entry(
 
     filename = entry.get("filename")
     if filename:
-        path = filename if os.path.isabs(filename) else os.path.join(module_dir, filename)
+        path = (
+            filename if os.path.isabs(filename) else os.path.join(module_dir, filename)
+        )
         start = int(entry.get("offset", 0))
-        end = start + (_torch_dtype_num_bytes(resolved_dtype) * math.prod(shape or (1,)))
+        end = start + (
+            _torch_dtype_num_bytes(resolved_dtype) * math.prod(shape or (1,))
+        )
         return OffloadTensorRef(
             path=os.path.abspath(path),
             dtype=resolved_dtype,
@@ -984,7 +1075,9 @@ def _resolve_offload_entry(
     )
 
 
-def _collect_state_dict_with_offload(model: nn.Module, offload_root: str) -> Dict[str, TensorSource]:
+def _collect_state_dict_with_offload(
+    model: nn.Module, offload_root: str
+) -> Dict[str, TensorSource]:
     state_dict: Dict[str, TensorSource] = collections.OrderedDict()
     index_cache: Dict[str, Optional[Dict]] = {}
 
@@ -1006,7 +1099,9 @@ def _collect_state_dict_with_offload(model: nn.Module, offload_root: str) -> Dic
                 )
         else:
             source = param
-        state_dict[name] = TensorSource(name=name, torch_dtype=param.dtype, shape=tuple(param.shape), source=source)
+        state_dict[name] = TensorSource(
+            name=name, torch_dtype=param.dtype, shape=tuple(param.shape), source=source
+        )
 
     for name, buf in model.named_buffers():
         if name in state_dict:
@@ -1027,12 +1122,16 @@ def _collect_state_dict_with_offload(model: nn.Module, offload_root: str) -> Dic
                 )
         else:
             source = buf
-        state_dict[name] = TensorSource(name=name, torch_dtype=buf.dtype, shape=tuple(buf.shape), source=source)
+        state_dict[name] = TensorSource(
+            name=name, torch_dtype=buf.dtype, shape=tuple(buf.shape), source=source
+        )
 
     return state_dict
 
 
-def get_state_dict_for_save(model: nn.Module, offload_root: Optional[str] = None) -> Dict[str, TensorSource]:
+def get_state_dict_for_save(
+    model: nn.Module, offload_root: Optional[str] = None
+) -> Dict[str, TensorSource]:
     """
     Filter weight-sharing tensors.
     Referenced from transformers.modeling_utils.PreTrainedModel.save_pretrained.
@@ -1044,17 +1143,29 @@ def get_state_dict_for_save(model: nn.Module, offload_root: Optional[str] = None
     else:
         state_dict = collections.OrderedDict()
         for name, param in model.named_parameters():
-            state_dict[name] = TensorSource(name=name, torch_dtype=param.dtype, shape=tuple(param.shape), source=param)
+            state_dict[name] = TensorSource(
+                name=name,
+                torch_dtype=param.dtype,
+                shape=tuple(param.shape),
+                source=param,
+            )
         for name, buf in model.named_buffers():
             if name in state_dict:
                 continue
-            state_dict[name] = TensorSource(name=name, torch_dtype=buf.dtype, shape=tuple(buf.shape), source=buf)
+            state_dict[name] = TensorSource(
+                name=name, torch_dtype=buf.dtype, shape=tuple(buf.shape), source=buf
+            )
 
     ptrs = collections.defaultdict(list)
     for name, entry in state_dict.items():
         source = entry.source
         if isinstance(source, OffloadTensorRef):
-            key = ("offload", source.path, source.weight_name or name, source.data_offsets)
+            key = (
+                "offload",
+                source.path,
+                source.weight_name or name,
+                source.data_offsets,
+            )
         elif isinstance(source, torch.Tensor):
             tensor = source
             if getattr(tensor, "is_meta", False) or tensor.device.type == "meta":
@@ -1076,7 +1187,9 @@ def get_state_dict_for_save(model: nn.Module, offload_root: Optional[str] = None
         if model._tied_weights_keys is not None:
             found = 0
             for name in sorted(names):
-                matches_pattern = any(re.search(pat, name) for pat in model._tied_weights_keys)
+                matches_pattern = any(
+                    re.search(pat, name) for pat in model._tied_weights_keys
+                )
                 if matches_pattern and name in state_dict:
                     found += 1
                     if found < len(names):
@@ -1100,6 +1213,7 @@ def get_state_dict_for_save(model: nn.Module, offload_root: Optional[str] = None
         )
     return state_dict
 
+
 # Call tied_weights() after load_checkpoint_in_model() to have the weights tied correctly.
 def load_checkpoint_in_model_then_tie_weights(model, *args, **kwargs):
     accelerate.load_checkpoint_in_model(model, *args, **kwargs)
@@ -1110,6 +1224,7 @@ def load_checkpoint_in_model_then_tie_weights(model, *args, **kwargs):
 _STREAM_BUFFER_SIZE = 32 * 1024 * 1024
 _STREAM_BUFFER = memoryview(bytearray(_STREAM_BUFFER_SIZE))
 _STREAM_BUFFER_LOCK = threading.Lock()
+
 
 def _copy_file_stream(src_path: str, dst_fh, length: int, *, offset: int = 0) -> None:
     with ctx(open(src_path, "rb", buffering=0), _STREAM_BUFFER_LOCK) as (src, _):
@@ -1134,7 +1249,9 @@ def _write_tensor_bytes(out, tensor: torch.Tensor, dtype: torch.dtype) -> None:
         out.write(tensor.numpy().tobytes())
 
 
-def _write_shard_file(path: str, entries: List[TensorSource], metadata: Dict[str, str]) -> int:
+def _write_shard_file(
+    path: str, entries: List[TensorSource], metadata: Dict[str, str]
+) -> int:
     header: Dict[str, Any] = {}
     if metadata:
         header["__metadata__"] = metadata
@@ -1169,7 +1286,9 @@ def _write_shard_file(path: str, entries: List[TensorSource], metadata: Dict[str
                     _copy_file_stream(source.path, out, end - start, offset=start)
                 else:
                     # print("offload tensor slow tensor read")
-                    with safe_open(source.path, framework="pt", device="cpu") as handler:
+                    with safe_open(
+                        source.path, framework="pt", device="cpu"
+                    ) as handler:
                         tensor = handler.get_tensor(source.weight_name or entry.name)
                     tensor = tensor.to(source.torch_dtype)
                     _write_tensor_bytes(out, tensor, source.torch_dtype)
@@ -1183,7 +1302,9 @@ def _write_shard_file(path: str, entries: List[TensorSource], metadata: Dict[str
     return file_size
 
 
-def _plan_shards(entries: List[TensorSource], max_shard_size: Optional[int]) -> List[List[TensorSource]]:
+def _plan_shards(
+    entries: List[TensorSource], max_shard_size: Optional[int]
+) -> List[List[TensorSource]]:
     if not max_shard_size or max_shard_size <= 0:
         return [entries]
 

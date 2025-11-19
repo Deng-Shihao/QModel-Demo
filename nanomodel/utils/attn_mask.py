@@ -3,7 +3,9 @@ from __future__ import annotations
 import torch
 
 
-def normalize_seq_mask(mask: torch.Tensor | None, seq_len: int | None = None) -> torch.Tensor | None:
+def normalize_seq_mask(
+    mask: torch.Tensor | None, seq_len: int | None = None
+) -> torch.Tensor | None:
     """
     Normalize a variety of HF attention mask formats to a boolean keep-mask [B, S].
     True = keep (attended), False = drop (padding/fully-masked).
@@ -20,9 +22,9 @@ def normalize_seq_mask(mask: torch.Tensor | None, seq_len: int | None = None) ->
     # Convert numeric to bool 'keep' (HF tends to use >0 for keep; extended masks use big negatives for masked)
     if m.dtype != torch.bool:
         if torch.any(m < 0):
-            m = (m >= 0)
+            m = m >= 0
         else:
-            m = (m > 0)
+            m = m > 0
 
     # Squeeze broadcast dims to reach [B, S]
     if m.dim() == 4 and m.size(1) == 1:
@@ -50,7 +52,9 @@ def normalize_seq_mask(mask: torch.Tensor | None, seq_len: int | None = None) ->
     return m.to(dtype=torch.bool)
 
 
-def apply_keep_mask_bt(x: torch.Tensor, keep_mask_bs: torch.Tensor | None) -> torch.Tensor:
+def apply_keep_mask_bt(
+    x: torch.Tensor, keep_mask_bs: torch.Tensor | None
+) -> torch.Tensor:
     """
     Apply [B, S] keep-mask to a tensor x of shape [B, S, ...].
     Returns a flattened tensor of shape [N_kept, ...] (collapses batch/time on the kept rows).
@@ -61,7 +65,9 @@ def apply_keep_mask_bt(x: torch.Tensor, keep_mask_bs: torch.Tensor | None) -> to
 
     B, S = x.size(0), x.size(1)
     if keep_mask_bs.shape != (B, S):
-        raise AssertionError(f"Mask shape {keep_mask_bs.shape} does not match leading dims {(B, S)} of x={tuple(x.shape)}")
+        raise AssertionError(
+            f"Mask shape {keep_mask_bs.shape} does not match leading dims {(B, S)} of x={tuple(x.shape)}"
+        )
 
     # Concatenate variable-length selections per batch along the sequence axis:
     kept_rows = [x[b, keep_mask_bs[b]] for b in range(B)]

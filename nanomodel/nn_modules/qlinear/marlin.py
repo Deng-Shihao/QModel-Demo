@@ -56,16 +56,18 @@ class MarlinQuantLinear(BaseQuantLinear):
     }
 
     def __init__(
-            self, bits: int,
-            group_size: int,
-            act_order: bool,
-            sym: bool,
-            in_features: int,
-            out_features: int,
-            bias: bool = False,
-            pack_dtype: torch.dtype = torch.int32,
-            register_buffers: bool = False,
-            **kwargs):
+        self,
+        bits: int,
+        group_size: int,
+        act_order: bool,
+        sym: bool,
+        in_features: int,
+        out_features: int,
+        bias: bool = False,
+        pack_dtype: torch.dtype = torch.int32,
+        register_buffers: bool = False,
+        **kwargs,
+    ):
         if marlin_import_exception is not None:
             raise ValueError(
                 f"Trying to use the marlin backend, but could not import the C++/CUDA dependencies with the following error: {marlin_import_exception}"
@@ -89,20 +91,22 @@ class MarlinQuantLinear(BaseQuantLinear):
             bias=bias,
             pack_dtype=pack_dtype,
             backend=kwargs.pop("backend", BACKEND.MARLIN),
-            register_buffers=False, # do not register buffers in super()
-            **kwargs)
+            register_buffers=False,  # do not register buffers in super()
+            **kwargs,
+        )
 
         # toggle fp32 mode depending on MARLIN or MARLIN_FP16 backend
         self.fp32 = True if self.backend in [BACKEND.MARLIN, BACKEND.AUTO] else False
 
         if not self.fp32:
             log.warn.once(
-                "Kernel: Marlin FP16 mode is activated with reduced accuracy. Use default Marlin model for improved inference quality.")
+                "Kernel: Marlin FP16 mode is activated with reduced accuracy. Use default Marlin model for improved inference quality."
+            )
 
         # Determine sharding
-        if marlin_repeat_scales_on_all_ranks(act_order,
-                                             self.group_size,
-                                             is_row_parallel=False):
+        if marlin_repeat_scales_on_all_ranks(
+            act_order, self.group_size, is_row_parallel=False
+        ):
             # By setting scale_dim == None, weight_loader will
             # repeat the scales on each GPU in TP>1 case.
             scales_and_zp_size = self.in_features // self.group_size
@@ -120,17 +124,20 @@ class MarlinQuantLinear(BaseQuantLinear):
                     self.out_features,
                     dtype=torch.int32,
                 ),
-                requires_grad=False
+                requires_grad=False,
             ),
         )
 
         # Activation order
         self.register_parameter(
             "g_idx",
-            torch.nn.Parameter(data=torch.empty(
-                self.in_features,
-                dtype=torch.int32,
-            ), requires_grad=False),
+            torch.nn.Parameter(
+                data=torch.empty(
+                    self.in_features,
+                    dtype=torch.int32,
+                ),
+                requires_grad=False,
+            ),
         )
 
         # Scales
@@ -142,7 +149,7 @@ class MarlinQuantLinear(BaseQuantLinear):
                     self.out_features,
                     dtype=torch.float16,
                 ),
-                requires_grad=False
+                requires_grad=False,
             ),
         )
 
@@ -156,11 +163,13 @@ class MarlinQuantLinear(BaseQuantLinear):
                     dtype=torch.int32,
                 ),
                 requires_grad=False,
-            )
+            ),
         )
 
         if bias:
-            self.register_buffer("bias", torch.zeros((self.out_features), dtype=torch.float16))
+            self.register_buffer(
+                "bias", torch.zeros((self.out_features), dtype=torch.float16)
+            )
         else:
             self.bias = None
 
@@ -169,8 +178,9 @@ class MarlinQuantLinear(BaseQuantLinear):
             self.is_lm_head = kwargs["name"] == kwargs["lm_head_name"]
 
         if (self.bits, sym) not in self.TYPE_MAP:
-            raise ValueError("Unsupported quantization config: "
-                             f"bits={self.bits}, sym={sym}")
+            raise ValueError(
+                f"Unsupported quantization config: bits={self.bits}, sym={sym}"
+            )
 
         self.weight_type = self.TYPE_MAP[(self.bits, sym)]
 
@@ -205,7 +215,9 @@ class MarlinQuantLinear(BaseQuantLinear):
                 for i in range(torch.cuda.device_count())
             )
             if not has_cuda_v8:
-                raise NotImplementedError("Marlin kernel only supports compute capability >= 8.0.")
+                raise NotImplementedError(
+                    "Marlin kernel only supports compute capability >= 8.0."
+                )
 
     def post_init(self):
         device = self.qweight.device
@@ -216,18 +228,22 @@ class MarlinQuantLinear(BaseQuantLinear):
         self.workspace = marlin_make_workspace_new(device)
 
         def transform_w_q(x):
-            x.data = gptq_marlin_repack(x.data.contiguous(),
-                                        perm=self.g_idx_sort_indices,
-                                        size_k=self.in_features,
-                                        size_n=self.out_features,
-                                        num_bits=self.bits)
+            x.data = gptq_marlin_repack(
+                x.data.contiguous(),
+                perm=self.g_idx_sort_indices,
+                size_k=self.in_features,
+                size_n=self.out_features,
+                num_bits=self.bits,
+            )
             return x
 
         def transform_w_s(x):
-            x.data = marlin_permute_scales(x.data.contiguous(),
-                                           size_k=self.in_features,
-                                           size_n=self.out_features,
-                                           group_size=self.group_size)
+            x.data = marlin_permute_scales(
+                x.data.contiguous(),
+                size_k=self.in_features,
+                size_n=self.out_features,
+                group_size=self.group_size,
+            )
             return x
 
         # Handle sorting for activation reordering if needed.
@@ -261,7 +277,6 @@ class MarlinQuantLinear(BaseQuantLinear):
 
     def forward(self, x: torch.Tensor):
         # TODO FIXME: parent should never call us if there is no data to process
-        # check: https://github.com/ModelCloud/GPTQModel/issues/1361
         if x.shape[0] == 0:
             return torch.empty((0, self.out_features), dtype=x.dtype, device=x.device)
 
@@ -283,7 +298,7 @@ class MarlinQuantLinear(BaseQuantLinear):
             is_k_full=self.is_k_full,
             bias=self.bias,
             use_fp32_reduce=self.fp32,
-            use_atomics=False, # reduces accuracy with slightly faster performance
+            use_atomics=False,  # reduces accuracy with slightly faster performance
         )
 
         return out

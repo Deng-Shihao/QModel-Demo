@@ -17,15 +17,24 @@ try:
 
     from mlx_lm import generate
     from mlx_lm.utils import _get_classes, get_model_path, load_config, quantize_model
+
     MLX_AVAILABLE = True
 except ImportError:
     MLX_AVAILABLE = False
 
 log = setup_logger()
 
-def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedModel, BaseNanoModel], gptq_config: dict, lm_head_name: str):
+
+def convert_gptq_to_mlx_weights(
+    model_id_or_path: str,
+    model: Union[PreTrainedModel, BaseNanoModel],
+    gptq_config: dict,
+    lm_head_name: str,
+):
     if not MLX_AVAILABLE:
-        raise ValueError("MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`.")
+        raise ValueError(
+            "MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`."
+        )
 
     if gptq_config["bits"] not in [2, 3, 4, 8]:
         raise ValueError("Model bits is not in [2,3,4,8]")
@@ -38,7 +47,9 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
         for _, config in gptq_config["dynamic"].items():
             if config != {}:
                 if config["bits"] not in [2, 3, 4, 8]:
-                    raise ValueError(f'Model bits {config["bits"]} in dynamic, it not in [2,3,4,8]')
+                    raise ValueError(
+                        f"Model bits {config['bits']} in dynamic, it not in [2,3,4,8]"
+                    )
 
     # mlx does not support group_size = -1, 16, so we need to convert it to 64, 64 is the default group_size for mlx
     if gptq_config["group_size"] in [-1, 16]:
@@ -53,7 +64,11 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
     # Convert weights
     weights = {}
     n = 1
-    pb = log.pb(list(model.named_modules())).title("Format: Converting to mlx ->").manual()
+    pb = (
+        log.pb(list(model.named_modules()))
+        .title("Format: Converting to mlx ->")
+        .manual()
+    )
     for name, module in pb:
         pb.subtitle(f"{name}").draw()
         if isinstance(module, TorchQuantLinear):
@@ -69,7 +84,9 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
 
             n += 1
         # Handle normal layers with weight (exclude lm_head if embeddings tied)
-        elif hasattr(module, "weight") and not (config["tie_word_embeddings"] and name == lm_head_name):
+        elif hasattr(module, "weight") and not (
+            config["tie_word_embeddings"] and name == lm_head_name
+        ):
             weights[f"{name}.weight"] = mx.array(
                 module.weight.detach().to("cpu", torch.float16).numpy()
             )
@@ -92,16 +109,27 @@ def convert_gptq_to_mlx_weights(model_id_or_path: str, model: Union[PreTrainedMo
     # Load and quantize weights
     log.info("Starting MLX quantization...")
     mlx_model.load_weights(list(weights.items()))
-    weights, mlx_config = quantize_model(mlx_model, config, group_size=gptq_config["group_size"],
-                                     bits=gptq_config["bits"])
+    weights, mlx_config = quantize_model(
+        mlx_model,
+        config,
+        group_size=gptq_config["group_size"],
+        bits=gptq_config["bits"],
+    )
     log.info("MLX quantization completed")
 
     return weights, mlx_config
 
+
 @torch.inference_mode()
-def mlx_generate(model, tokenizer, **kwargs,):
+def mlx_generate(
+    model,
+    tokenizer,
+    **kwargs,
+):
     if not MLX_AVAILABLE:
-        raise ValueError("MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`.")
+        raise ValueError(
+            "MLX not installed. Please install via `pip install nanomodel[mlx] --no-build-isolation`."
+        )
 
     prompt = kwargs.pop("prompt", None)
     if prompt is None:
@@ -133,7 +161,9 @@ def mlx_generate(model, tokenizer, **kwargs,):
     sampling_params["quantized_kv_start"] = kwargs.pop("quantized_kv_start", 0)
 
     if "sampler" in kwargs:
-        sampling_params["prompt_progress_callback"] = kwargs.pop("prompt_progress_callback", None)
+        sampling_params["prompt_progress_callback"] = kwargs.pop(
+            "prompt_progress_callback", None
+        )
 
     if kwargs.pop("temp", None) is not None:
         sampling_params["temp"] = kwargs.pop("temp")
@@ -144,7 +174,9 @@ def mlx_generate(model, tokenizer, **kwargs,):
         sampling_params["repetition_penalty"] = kwargs.pop("repetition_penalty", None)
 
     if "repetition_context_size" in kwargs:
-        sampling_params["repetition_context_size"] = kwargs.pop("repetition_context_size", None)
+        sampling_params["repetition_context_size"] = kwargs.pop(
+            "repetition_context_size", None
+        )
 
     if "top_p" in kwargs:
         sampling_params["top_p"] = kwargs.pop("top_p", None)
@@ -155,4 +187,10 @@ def mlx_generate(model, tokenizer, **kwargs,):
     if "min_tokens_to_keep" in kwargs:
         sampling_params["min_tokens_to_keep"] = kwargs.pop("min_tokens_to_keep", None)
 
-    return generate(model=model, tokenizer=tokenizer, prompt=prompt, verbose=verbose, **sampling_params)
+    return generate(
+        model=model,
+        tokenizer=tokenizer,
+        prompt=prompt,
+        verbose=verbose,
+        **sampling_params,
+    )

@@ -39,7 +39,7 @@ triton = ["triton>=3.4.0"]
 openai = ["fastapi", "pydantic", "uvicorn"]
 test = ["parameterized", "pytest>=8.3.5", "pytest-timeout>=2.3.1"]
 vllm = ["flashinfer-python>=0.3.1", "vllm>=0.10.2"]
-mlx = ["mlx_lm>=0.24.0"]
+# mlx = ["mlx_lm>=0.24.0"]
 # sglang = ["flashinfer-python>=0.3.1", "sglang[srt]>=0.4.6"]
 
 [tool.setuptools.dynamic]

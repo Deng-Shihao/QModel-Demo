@@ -1,4 +1,5 @@
 """End-to-end GPTQ quantization flow for a small Qwen model."""
+
 import os
 import logging
 from transformers import AutoTokenizer
@@ -9,8 +10,8 @@ from nanomodel.quantization import KERNEL, METHOD
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-pretrained_model_id = "Qwen/Qwen3-1.7B"
-quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
+pretrained_model_id = "Qwen3-4B-Instruct-2507"
+quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
 
 
 def main():
@@ -62,22 +63,22 @@ if __name__ == "__main__":
     main()
 
     # quantize_config = QuantizeConfig(
-        # bits=4,  # default 4-bit [2, 3, 4, 8]
-        # group_size=128,  # default 128
+    # bits=4,  # default 4-bit [2, 3, 4, 8]
+    # group_size=128,  # default 128
 
-        # act_order: Optional[bool] = field(default=None)
-        # act_group_aware: Optional[bool] = field(default=None)
-        # static_groups: bool = field(default=False)
-        # sym: bool = field(default=True)
-        # true_sequential: bool = field(default=True)
+    # act_order: Optional[bool] = field(default=None)
+    # act_group_aware: Optional[bool] = field(default=None)
+    # static_groups: bool = field(default=False)
+    # sym: bool = field(default=True)
+    # true_sequential: bool = field(default=True)
 
-        # lm_head = False (default)
-        # quant_method = GPTQ (default)
-        # mse: float = field(default=0.0)
-        # mock_quantization: bool = field(default=False, metadata={"help": "Skip heavy computations for fast model loading validation"})
+    # lm_head = False (default)
+    # quant_method = GPTQ (default)
+    # mse: float = field(default=0.0)
+    # mock_quantization: bool = field(default=False, metadata={"help": "Skip heavy computations for fast model loading validation"})
 
-        # hessian_chunk_size (default=None)
-        # hessian_chunk_bytes (default=None)
-        # hessian_use_bfloat16_staging (default=False)
+    # hessian_chunk_size (default=None)
+    # hessian_chunk_bytes (default=None)
+    # hessian_use_bfloat16_staging (default=False)
 
     # )

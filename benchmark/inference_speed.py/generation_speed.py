@@ -1,4 +1,5 @@
 """Benchmark helper to measure end-to-end text generation speed with NanoModel."""
+
 from __future__ import annotations
 
 import argparse
@@ -25,8 +26,10 @@ os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
 LOGGER = logging.getLogger("generation_speed")
 
-DEFAULT_MODEL_ID = "/home/sd24191/git_project/QModel-Demo/quantized_models/qwen3-1.7b-gptq-4bit"
-DEFAULT_TOKENIZER_ID = "Qwen/Qwen3-1.7B"
+
+DEFAULT_TOKENIZER_ID = "Qwen/Qwen3-4B-Instruct-2507"
+DEFAULT_MODEL_ID = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
+
 DEFAULT_PROMPTS: Sequence[str] = (
     "Explain the benefits of post-training quantization for LLMs.",
     "List two trade-offs when compressing transformer weights.",
@@ -96,7 +99,11 @@ def build_prompt_pool(prompt: Optional[str], prompt_file: Optional[str]) -> List
         file_path = Path(prompt_file)
         if not file_path.exists():
             raise FileNotFoundError(f"Prompt file {file_path} does not exist.")
-        prompts = [line.strip() for line in file_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        prompts = [
+            line.strip()
+            for line in file_path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
         if not prompts:
             raise ValueError(f"No prompts found inside {prompt_file}.")
         return prompts
@@ -210,7 +217,12 @@ def maybe_write_csv(path: Optional[str], results: Iterable[RunResult]) -> None:
         writer.writerow(["run", "elapsed_s", "new_tokens", "tokens_per_second"])
         for result in results:
             writer.writerow(
-                [result.run_index, f"{result.elapsed:.6f}", result.new_tokens, f"{result.tokens_per_second:.4f}"]
+                [
+                    result.run_index,
+                    f"{result.elapsed:.6f}",
+                    result.new_tokens,
+                    f"{result.tokens_per_second:.4f}",
+                ]
             )
 
 
@@ -368,7 +380,11 @@ def benchmark(args: argparse.Namespace) -> List[RunResult]:
         backend=BACKEND(args.backend),
     )
 
-    model_device = torch.device(model.device) if not isinstance(model.device, torch.device) else model.device
+    model_device = (
+        torch.device(model.device)
+        if not isinstance(model.device, torch.device)
+        else model.device
+    )
     generate_kwargs = build_generate_kwargs(args)
 
     # Warm-up iterations help kernels settle (e.g., Triton compilation).
@@ -476,7 +492,9 @@ def summarize(results: Sequence[RunResult]) -> None:
 
     total_tokens = sum(run.new_tokens for run in results)
     total_time = sum(run.elapsed for run in results)
-    throughputs = [run.tokens_per_second for run in results if run.tokens_per_second > 0]
+    throughputs = [
+        run.tokens_per_second for run in results if run.tokens_per_second > 0
+    ]
     avg_throughput = total_tokens / total_time if total_time > 0 else 0.0
 
     LOGGER.info("======== Benchmark Summary ========")

@@ -26,6 +26,7 @@ USE_TORCH_REPLICATE = env_flag("NANOMODEL_USE_TORCH_REPLICATE", True)
 _THREAD_SAFE_PARALLEL = ThreadSafe(torch_parallel)
 _DEEPCOPY_LOCK = threading.Lock()
 
+
 def torch_replicate(
     module: torch.nn.Module,
     devices: Sequence[torch.device | str | int],
@@ -52,7 +53,10 @@ def torch_replicate(
                     torch_sync(dev)
                 except BaseException:
                     pass
-        return _THREAD_SAFE_PARALLEL.replicate(module, normalized_devices, detach=detach)
+        return _THREAD_SAFE_PARALLEL.replicate(
+            module, normalized_devices, detach=detach
+        )
+
 
 log = setup_logger()
 
@@ -95,7 +99,9 @@ def device_ctx(dev: Optional[torch.device | "DEVICE"]):
     # cpu/mps/meta -> nothing special needed
     yield
 
+
 _rehome_lock = threading.Lock()
+
 
 @torch.inference_mode()
 def rehome_module_to_device(
@@ -240,10 +246,16 @@ def clone_module_for_devices(
             return
         total_duration = (time.perf_counter() - overall_start) * 1000.0
         if clone_timings:
-            timing_str = ", ".join(f"{step}={duration * 1000:.2f}ms" for step, duration in clone_timings)
-            log.info(f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms [{timing_str}]")
+            timing_str = ", ".join(
+                f"{step}={duration * 1000:.2f}ms" for step, duration in clone_timings
+            )
+            log.info(
+                f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms [{timing_str}]"
+            )
         else:
-            log.info(f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms")
+            log.info(
+                f"ModuleProcessor: clone {module_label} via {method} in {total_duration:.2f}ms"
+            )
 
     base_device = devices[0]
     device_type = base_device.type
@@ -255,14 +267,19 @@ def clone_module_for_devices(
         if dev_type == "xpu" and hasattr(torch, "xpu"):
             return bool(getattr(torch.xpu, "is_available", lambda: False)())  # type: ignore[attr-defined]
         if dev_type == "mps":
-            return bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+            return bool(
+                getattr(torch.backends, "mps", None)
+                and torch.backends.mps.is_available()
+            )
         return False
 
     def _prepare_module(target_device: torch.device, step_name: str) -> None:
         start_ts = time.perf_counter()
         module.to(target_device)
         module.eval()
-        rehome_module_to_device(module, target_device, move_parameters=True, move_buffers=True)
+        rehome_module_to_device(
+            module, target_device, move_parameters=True, move_buffers=True
+        )
         clear_state_fn(module)
         setattr(module, "_gptqmodule_device_hint", target_device)
         _record(step_name, start_ts)
@@ -286,7 +303,9 @@ def clone_module_for_devices(
 
             for dev, replica in zip(devices, replicas):
                 replica.eval()
-                rehome_module_to_device(replica, dev, move_parameters=True, move_buffers=True)
+                rehome_module_to_device(
+                    replica, dev, move_parameters=True, move_buffers=True
+                )
                 clear_state_fn(replica)
                 setattr(replica, "_gptqmodule_device_hint", dev)
                 clones[dev] = replica
@@ -340,10 +359,14 @@ def forward_batch_worker(
     prev_kv,
 ):
     processor._set_current_batch_index(batch_index)
-    module_device = getattr(module, "_gptqmodule_device_hint", None) or get_device(module)
-    rehome_module_to_device(module, module_device, move_parameters=True, move_buffers=True)
+    module_device = getattr(module, "_gptqmodule_device_hint", None) or get_device(
+        module
+    )
+    rehome_module_to_device(
+        module, module_device, move_parameters=True, move_buffers=True
+    )
 
-    torch_sync() # try to avoid torch.AcceleratorError: CUDA error: unspecified launch failure
+    torch_sync()  # try to avoid torch.AcceleratorError: CUDA error: unspecified launch failure
     inputs = [move_to(inp, device=module_device) for inp in layer_input]
 
     attn_tensor = None
@@ -362,7 +385,9 @@ def forward_batch_worker(
 
     keep_mask = None
     if attn_tensor is not None:
-        seq_len = inputs[0].shape[1] if (len(inputs) > 0 and inputs[0].dim() >= 2) else None
+        seq_len = (
+            inputs[0].shape[1] if (len(inputs) > 0 and inputs[0].dim() >= 2) else None
+        )
         keep_mask = normalize_seq_mask(attn_tensor, seq_len=seq_len)
 
     mask_tls = getattr(processor, "_mask_tls", None)
@@ -370,7 +395,9 @@ def forward_batch_worker(
         mask_tls.value = keep_mask
 
     if reuse_kv and prev_kv is not None:
-        additional_inputs["kv_last_layer"] = nested_move_to(prev_kv, device=module_device)
+        additional_inputs["kv_last_layer"] = nested_move_to(
+            prev_kv, device=module_device
+        )
 
     module_output = None
     kv_next = None
@@ -386,7 +413,12 @@ def forward_batch_worker(
             mask_tls.value = None
         processor._set_current_batch_index(None)
 
-    if reuse_kv and module_output is not None and isinstance(module_output, tuple) and len(module_output) > 0:
+    if (
+        reuse_kv
+        and module_output is not None
+        and isinstance(module_output, tuple)
+        and len(module_output) > 0
+    ):
         kv_next = module_output[-1]
 
     result_output = module_output if need_output else None

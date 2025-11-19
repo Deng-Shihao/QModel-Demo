@@ -12,6 +12,7 @@ from . import custom_autotune
 
 log = setup_logger()
 
+
 @custom_autotune.autotune(
     configs=[
         triton.Config(
@@ -83,7 +84,6 @@ log = setup_logger()
         "top_k": None,
     },
 )
-
 @triton.jit
 def quant_matmul_248_kernel(
     a_ptr,
@@ -137,11 +137,14 @@ def quant_matmul_248_kernel(
     offs_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_bn = pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N)
     offs_k = tl.arange(0, BLOCK_SIZE_K)
-    a_ptrs = a_ptr + (offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak)  # (BLOCK_SIZE_M, BLOCK_SIZE_K)
+    a_ptrs = a_ptr + (
+        offs_am[:, None] * stride_am + offs_k[None, :] * stride_ak
+    )  # (BLOCK_SIZE_M, BLOCK_SIZE_K)
     a_mask = offs_am[:, None] < M
     # b_ptrs is set up such that it repeats elements along the K axis 8 times
     b_ptrs = b_ptr + (
-        (offs_k[:, None] // infearure_per_bits) * stride_bk + offs_bn[None, :] * stride_bn
+        (offs_k[:, None] // infearure_per_bits) * stride_bk
+        + offs_bn[None, :] * stride_bn
     )  # (BLOCK_SIZE_K, BLOCK_SIZE_N)
     g_ptrs = g_ptr + offs_k
     # shifter is used to extract the N bits of each element in the 32-bit word from B
@@ -156,8 +159,12 @@ def quant_matmul_248_kernel(
         g_idx = tl.load(g_ptrs)
 
         # Fetch scales and zeros; these are per-outfeature and thus reused in the inner loop
-        scales = tl.load(scales_ptrs + g_idx[:, None] * stride_scales)  # (BLOCK_SIZE_K, BLOCK_SIZE_N,)
-        zeros = tl.load(zeros_ptrs + g_idx[:, None] * stride_zeros)  # (BLOCK_SIZE_K, BLOCK_SIZE_N,)
+        scales = tl.load(
+            scales_ptrs + g_idx[:, None] * stride_scales
+        )  # (BLOCK_SIZE_K, BLOCK_SIZE_N,)
+        zeros = tl.load(
+            zeros_ptrs + g_idx[:, None] * stride_zeros
+        )  # (BLOCK_SIZE_K, BLOCK_SIZE_N,)
 
         zeros = (zeros >> zeros_shifter[None, :]) & maxq
 
@@ -244,7 +251,6 @@ def quant_matmul_248_kernel(
     key=["M", "N", "K"],
     nearest_power_of_two=True,
 )
-
 @triton.jit
 def transpose_quant_matmul_248_kernel(
     a_ptr,
@@ -297,18 +303,25 @@ def transpose_quant_matmul_248_kernel(
     offs_am = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M)
     offs_bk = pid_k * BLOCK_SIZE_K + tl.arange(0, BLOCK_SIZE_K)
     offs_n = tl.arange(0, BLOCK_SIZE_N)
-    a_ptrs = a_ptr + (offs_am[:, None] * stride_am + offs_n[None, :] * stride_ak)  # (BLOCK_SIZE_M, BLOCK_SIZE_N)
+    a_ptrs = a_ptr + (
+        offs_am[:, None] * stride_am + offs_n[None, :] * stride_ak
+    )  # (BLOCK_SIZE_M, BLOCK_SIZE_N)
     a_mask = offs_am[:, None] < M
     # b_ptrs is set up such that it repeats elements along the K axis 8 times
     b_ptrs = b_ptr + (
-        (offs_bk[:, None] // infearure_per_bits) * stride_bk + offs_n[None, :] * stride_bn
+        (offs_bk[:, None] // infearure_per_bits) * stride_bk
+        + offs_n[None, :] * stride_bn
     )  # (BLOCK_SIZE_K, BLOCK_SIZE_N)
     g_ptrs = g_ptr + offs_bk
     g_idx = tl.load(g_ptrs)
 
     # shifter is used to extract the N bits of each element in the 32-bit word from B
     scales_ptrs = scales_ptr + offs_n[None, :] + g_idx[:, None] * stride_scales
-    zeros_ptrs = zeros_ptr + (offs_n[None, :] // infearure_per_bits) + g_idx[:, None] * stride_zeros
+    zeros_ptrs = (
+        zeros_ptr
+        + (offs_n[None, :] // infearure_per_bits)
+        + g_idx[:, None] * stride_zeros
+    )
 
     shifter = (offs_bk % infearure_per_bits) * bits
     zeros_shifter = (offs_n % infearure_per_bits) * bits
@@ -347,9 +360,12 @@ def silu(x):
 
 def quant_matmul_248(input, qweight, scales, qzeros, g_idx, bits, maxq):
     with torch.cuda.device(input.device):
-        output = torch.empty((input.shape[0], qweight.shape[1]), device=input.device, dtype=input.dtype)
+        output = torch.empty(
+            (input.shape[0], qweight.shape[1]), device=input.device, dtype=input.dtype
+        )
         grid = lambda META: (  # noqa: E731
-            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"]) * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
+            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"])
+            * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
         )
         quant_matmul_248_kernel[grid](
             input,
@@ -378,9 +394,12 @@ def quant_matmul_248(input, qweight, scales, qzeros, g_idx, bits, maxq):
 def transpose_quant_matmul_248(input, qweight, scales, qzeros, g_idx, bits, maxq):
     with torch.cuda.device(input.device):
         output_dim = (qweight.shape[0] * 32) // bits
-        output = torch.empty((input.shape[0], output_dim), device=input.device, dtype=input.dtype)
+        output = torch.empty(
+            (input.shape[0], output_dim), device=input.device, dtype=input.dtype
+        )
         grid = lambda META: (  # noqa: E731
-            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"]) * triton.cdiv(output_dim, META["BLOCK_SIZE_K"]),
+            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"])
+            * triton.cdiv(output_dim, META["BLOCK_SIZE_K"]),
         )
         transpose_quant_matmul_248_kernel[grid](
             input,
@@ -423,15 +442,20 @@ class QuantLinearFunction(torch.autograd.Function):
         grad_input = None
 
         if ctx.needs_input_grad[0]:
-            grad_input = transpose_quant_matmul_248(grad_output, qweight, scales, qzeros, g_idx, bits, maxq)
+            grad_input = transpose_quant_matmul_248(
+                grad_output, qweight, scales, qzeros, g_idx, bits, maxq
+            )
         return grad_input, None, None, None, None, None, None
 
 
 def quant_matmul_inference_only_248(input, qweight, scales, qzeros, g_idx, bits, maxq):
     with torch.cuda.device(input.device):
-        output = torch.empty((input.shape[0], qweight.shape[1]), device=input.device, dtype=input.dtype)
+        output = torch.empty(
+            (input.shape[0], qweight.shape[1]), device=input.device, dtype=input.dtype
+        )
         grid = lambda META: (  # noqa: E731
-            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"]) * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
+            triton.cdiv(input.shape[0], META["BLOCK_SIZE_M"])
+            * triton.cdiv(qweight.shape[1], META["BLOCK_SIZE_N"]),
         )
         quant_matmul_248_kernel[grid](
             input,

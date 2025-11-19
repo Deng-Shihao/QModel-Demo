@@ -9,6 +9,7 @@ from ...utils.logger import setup_logger
 
 log = setup_logger()
 
+
 class AwqGEMMQuantLinear(AWQuantLinear):
     SUPPORTS_BITS = [4]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128]
@@ -53,7 +54,8 @@ class AwqGEMMQuantLinear(AWQuantLinear):
             pack_dtype=pack_dtype,
             backend=kwargs.pop("backend", BACKEND.GEMM),
             register_buffers=register_buffers,
-            **kwargs)
+            **kwargs,
+        )
 
     def post_init(self):
         # if self.padded_infeatures != self.in_features:
@@ -107,5 +109,6 @@ class AwqGEMMQuantLinear(AWQuantLinear):
             out = out.to(dtype=input_dtype)
 
         return out.reshape(out_shape)
+
 
 __all__ = ["AwqGEMMQuantLinear"]
