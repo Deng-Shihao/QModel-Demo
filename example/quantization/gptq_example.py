@@ -10,7 +10,7 @@ from nanomodel.quantization import KERNEL, METHOD
 os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
 os.environ["PYTORCH_ALLOC_CONF"] = "expandable_segments:True"
 
-pretrained_model_id = "Qwen3-4B-Instruct-2507"
+pretrained_model_id = "Qwen/Qwen3-4B-Instruct-2507"
 quantized_model_id = "/home/sd24191/git_project/QModel-Demo/quantized_models/Qwen3-4B-Instruct-2507-GPTQ-4bit"
 
 
