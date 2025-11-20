@@ -5,8 +5,11 @@ import logging
 import os
 from typing import Dict, Iterable, List, Tuple
 
+import torch
+
 from nanomodel import AutoNanoModel
 from nanomodel.utils.eval import EVAL
+from transformers import AutoModelForCausalLM
 
 model_id = "Qwen/Qwen3-4B-Instruct-2507"
 gptq_model_id = (
@@ -67,10 +70,24 @@ def write_csv(rows: List[List[str]]) -> None:
         writer.writerows(rows)
 
 
-def evaluate_model(model_label: str, model_path: str) -> Dict:
+def evaluate_model(model_label: str, model_path: str, is_quantized: bool) -> Dict:
     logging.info("Running lm-eval for %s (%s)", model_label, model_path)
+    # AutoNanoModel.eval cannot load un-quantized checkpoints directly, so load
+    # baseline with transformers and pass the model instance; quantized models
+    # can be passed as a path.
+    if not is_quantized:
+        base_model = AutoModelForCausalLM.from_pretrained(
+            model_path,
+            device_map="auto",
+            torch_dtype=torch.float16 if torch.cuda.is_available() else None,
+            trust_remote_code=True,
+        )
+        model_or_path = base_model
+    else:
+        model_or_path = model_path
+
     return AutoNanoModel.eval(
-        model_path,
+        model_or_path,
         framework=EVAL.LM_EVAL,
         tasks=tasks_to_eval,
     )
@@ -83,14 +100,18 @@ def main():
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    model_map = {
-        "baseline": model_id,
-        "gptq_4bit": gptq_model_id,
-    }
+    models_to_eval = [
+        {"label": "baseline", "path": model_id, "quantized": False},
+        {"label": "gptq_4bit", "path": gptq_model_id, "quantized": True},
+    ]
 
     csv_rows: List[List[str]] = []
-    for label, path in model_map.items():
-        eval_output = evaluate_model(label, path)
+    for entry in models_to_eval:
+        label = entry["label"]
+        path = entry["path"]
+        quantized = entry["quantized"]
+
+        eval_output = evaluate_model(label, path, quantized)
         for task, metric, section, value in flatten_eval_results(eval_output):
             csv_rows.append([label, path, task, metric, section, f"{value:.4f}"])
 
