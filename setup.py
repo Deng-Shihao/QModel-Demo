@@ -19,13 +19,12 @@ ROOT = Path(__file__).resolve().parent
 DEFAULT_OPTIONAL_DEPS: Dict[str, list[str]] = {
     "test": ["pytest>=8.3.5", "pytest-timeout>=2.3.1", "parameterized"],
     "quality": ["ruff==0.13.0"],
-    "vllm": ["vllm>=0.10.2", "flashinfer-python>=0.3.1"],
-    "sglang": ["sglang[srt]>=0.4.6", "flashinfer-python>=0.3.1"],
-    "bitblas": ["bitblas==0.1.0.post1"],
     "hf": ["optimum>=1.21.2"],
     "eval": ["lm_eval>=0.4.7", "evalplus>=0.3.1"],
     "triton": ["triton>=3.4.0"],
     "openai": ["uvicorn", "fastapi", "pydantic"],
+    "vllm": ["vllm>=0.10.2", "flashinfer-python>=0.3.1"],
+    "sglang": ["sglang[srt]>=0.4.6", "flashinfer-python>=0.3.1"],
     "mlx": ["mlx_lm>=0.24.0"],
 }
 
