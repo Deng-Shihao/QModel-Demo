@@ -3,5 +3,3 @@ recursive-include nanomodel_ext/marlin *.h *.cuh *.cu *.cpp
 include nanomodel_ext/pack_block_cpu.cpp
 include nanomodel_ext/marlin/generate_kernels.py
 recursive-exclude nanomodel_ext __pycache__ *.pyc
-prune tests/
-prune format/

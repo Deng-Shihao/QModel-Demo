@@ -1,20 +1,39 @@
-setuptools>=80.9
-ninja>=1.13.0
-wheel==0.45.1
-torch>=2.8.0
-numpy==2.2.6
-transformers>=4.57.1
-accelerate>=1.10.1
-safetensors>=0.6.2
-threadpoolctl>=3.6.0
-packaging>=24.2
-protobuf>=6.32.0
-pillow>=11.3.0
-hf_transfer>=0.1.9
-huggingface_hub>=0.34.4
-maturin>=1.9.4
-datasets>=3.6.0
-lm_eval >= 0.4.9.1
-pyarrow>=21.0
-dill>=0.3.8
-# flash-attn>=2.8.3
+# ------------------------------------------------------------
+# Build / Packaging
+# ------------------------------------------------------------
+setuptools>=80.9        # build backend
+wheel==0.45.1           # wheel builder
+maturin>=1.9.4          # Rust-Python build system
+packaging>=24.2         # version/marker parser
+ninja>=1.13.0           # native extension build tool
+
+# ------------------------------------------------------------
+# Core Compute / Tensor Stack
+# ------------------------------------------------------------
+torch>=2.8.0            # deep-learning framework
+numpy==2.2.6            # numerical array backend
+pyarrow>=21.0           # Arrow columnar engine
+threadpoolctl>=3.6.0    # BLAS thread control
+protobuf>=6.32.0        # protocol buffers runtime
+
+# ------------------------------------------------------------
+# Model / Training / Inference
+# ------------------------------------------------------------
+transformers>=4.57.1    # HF model interfaces
+accelerate>=1.10.1      # distributed/multi-device runtime
+safetensors>=0.6.2      # safe tensor storage
+hf_transfer>=0.1.9      # optimized HF file transport
+huggingface_hub>=0.34.4 # HF Hub client
+datasets>=3.6.0         # HF dataset loader
+lm_eval >= 0.4.9.1      # language-model evaluation framework
+
+# ------------------------------------------------------------
+# Serialization / Utilities
+# ------------------------------------------------------------
+dill>=0.3.8             # extended pickling
+pillow>=11.3.0          # image I/O
+
+# ------------------------------------------------------------
+# Optional / Specialized
+# ------------------------------------------------------------
+# flash-attn>=2.8.3     # high-performance attention kernels
