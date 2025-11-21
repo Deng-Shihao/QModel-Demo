@@ -14,7 +14,7 @@ from ...utils.torch import torch_compile
 
 
 try:
-    from ..triton_utils.dequant import dequant as triton_dequant
+    from ..triton.dequant import dequant as triton_dequant
 
     _TRITON_DEQUANT_AVAILABLE = True
 except Exception:  # pragma: no cover - optional dependency

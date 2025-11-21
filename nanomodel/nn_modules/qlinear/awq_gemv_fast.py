@@ -10,7 +10,7 @@ from ...utils.logger import setup_logger
 
 log = setup_logger()
 
-awq_v2_ext, msg = try_import("nanomodel_awq_v2_kernels")
+awq_v2_ext, msg = try_import("nanomodel_awq_new_kernels")
 
 
 class AwqGEMVFastQuantLinear(AWQuantLinear):

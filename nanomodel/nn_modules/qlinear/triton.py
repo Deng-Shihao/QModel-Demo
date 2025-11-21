@@ -15,8 +15,8 @@ try:
     import triton.language as tl
     from triton import __version__ as triton_version
 
-    from ..triton_utils.dequant import QuantLinearFunction
-    from ..triton_utils.mixin import TritonModuleMixin
+    from ..triton.dequant import QuantLinearFunction
+    from ..triton.mixin import TritonModuleMixin
 
     triton_v = version.parse(triton_version)
 
@@ -43,7 +43,7 @@ TRITON_XPU_INSTALL_HINT = "Trying to use the triton backend and xpu device, but 
 log = setup_logger()
 
 
-class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
+class TritonQuantLinear(TorchQuantLinear, TritonModuleMixin):
     SUPPORTS_BITS = [2, 4, 8]
     SUPPORTS_GROUP_SIZE = [-1, 16, 32, 64, 128, 256, 512, 1024]
     SUPPORTS_ACT_ORDER = [True, False]
@@ -68,7 +68,7 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
     """
     Triton v2 quantized linear layer.
 
-    Calls dequant kernel (see triton_utils/dequant) to dequantize the weights then uses
+    Calls dequant kernel (see triton/dequant) to dequantize the weights then uses
     torch.matmul to compute the output whereas original `triton` quantized linear layer fused
     dequant and matmul into single kernel.add()
     """
@@ -160,7 +160,7 @@ class TritonV2QuantLinear(TorchQuantLinear, TritonModuleMixin):
         return out.to(dtype=x.dtype)
 
 
-__all__ = ["TritonV2QuantLinear"]
+__all__ = ["TritonQuantLinear"]
 
 
 # test triton on XPU to ensure special Intel/Triton is installed as we cannot check based on triton package meta data
@@ -195,6 +195,7 @@ def triton_test_add(x: torch.Tensor, y: torch.Tensor):
 def triton_xpu_available():
     if not TRITON_AVAILABLE:
         return False
+
     size = 1024
     x = torch.rand(size, device="xpu:0")
     y = torch.rand(size, device="xpu:0")

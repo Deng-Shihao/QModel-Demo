@@ -471,7 +471,7 @@ if BUILD_CUDA_EXT_ENABLED:
                     # arch_flags = get_compute_capabilities({80, 86, 89, 90})
                     # extra_compile_args_v2 = get_extra_compile_args(arch_flags, generator_flags)
                     cpp_ext.CUDAExtension(
-                        "nanomodel_awq_v2_kernels",
+                        "nanomodel_awq_new_kernels",
                         [
                             "nanomodel_ext/awq/pybind_awq_v2.cpp",
                             "nanomodel_ext/awq/quantization_new/gemv/gemv_cuda.cu",

@@ -12,10 +12,10 @@ from ..nn_modules.qlinear.awq_gemv_fast import AwqGEMVFastQuantLinear
 from ..nn_modules.qlinear.awq_marlin import AwqMarlinQuantLinear
 from ..nn_modules.qlinear.marlin import MarlinQuantLinear
 from ..nn_modules.qlinear.torch import TorchQuantLinear
-from ..nn_modules.qlinear.tritonv2 import (
+from ..nn_modules.qlinear.triton import (
     TRITON_AVAILABLE,
     TRITON_INSTALL_HINT,
-    TritonV2QuantLinear,
+    TritonQuantLinear,
 )
 from ..quantization import KERNEL, METHOD
 from ..utils.logger import setup_logger
@@ -31,7 +31,7 @@ AUTO_SELECT_BACKEND_ORDER_MAP = {
     METHOD.GPTQ: OrderedDict(
         {
             BACKEND.MARLIN: MarlinQuantLinear,  # optimized for bs > 1
-            BACKEND.TRITON: TritonV2QuantLinear,  # good all around kernel that JIT compiles
+            BACKEND.TRITON: TritonQuantLinear,  # good all around kernel that JIT compiles
             BACKEND.TORCH: TorchQuantLinear,  # slightly slower than Triton but getting close in Torch 2.6.0+
             # BACKEND.CUDA: DynamicCudaQuantLinear,
         }
@@ -241,7 +241,7 @@ def select_quant_linear(
     if backend == BACKEND.TRITON:
         if not TRITON_AVAILABLE:
             raise ValueError(TRITON_INSTALL_HINT)
-        qlinear = TritonV2QuantLinear
+        qlinear = TritonQuantLinear
     elif backend in [BACKEND.MARLIN, BACKEND.MARLIN_FP16]:
         if quant_method == METHOD.AWQ:
             qlinear = AwqMarlinQuantLinear

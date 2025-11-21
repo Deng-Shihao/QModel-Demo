@@ -19,8 +19,8 @@ gptq_model_id = (
 
 csv_output_path = "acc_comparison.csv"
 tasks_to_eval = [
-    EVAL.LM_EVAL.ARC_CHALLENGE,
     EVAL.LM_EVAL.MMLU,
+    EVAL.LM_EVAL.ARC_CHALLENGE,
     EVAL.LM_EVAL.GSM8K_COT,
     EVAL.LM_EVAL.GSM8K_PLATINUM_COT,
 ]

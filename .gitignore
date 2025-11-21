@@ -174,7 +174,6 @@ debug
 .vscode/
 
 # Compiled Kernel
-/nanomodel_offload/
 /nanomodel_ext/marlin/kernel_bf16_kfe2m1f.cu
 /nanomodel_ext/marlin/kernel_bf16_kfe4m3fn.cu
 /nanomodel_ext/marlin/kernel_bf16_ku4.cu
